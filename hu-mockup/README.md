@@ -25,6 +25,13 @@ sudo apt install qml6 qml6-module-qtquick qml6-module-qtquick-shapes qml6-module
 qml6 qml/main.qml        # the binary may be called `qml` on other distros
 ```
 
+### Qt Design Studio
+
+Open `hu-mockup.qmlproject` in Qt Design Studio (made for 4.8). Every screen renders
+in the 2D view with the simulated data from `qml/Sim.qml`, and Live Preview / Run
+starts `qml/main.qml`; no D-Bus or hu-virtual needed. `run.py` and hu-virtual do not
+use the project file.
+
 ## Controls (MMI-style)
 
 | Input | Action |
@@ -50,6 +57,7 @@ white, ice blue) live.
 
 ```
 run.py                 launcher + screenshot mode
+hu-mockup.qmlproject   Qt Design Studio project
 qml/main.qml           window, header, screen switching, knob/key handling
 qml/Theme.qml          colours, fonts, sizes (single place to restyle)
 qml/Sim.qml            fake vehicle / media / radio / phone / nav data

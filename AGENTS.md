@@ -26,6 +26,7 @@ CLAUDE.md                         extra notes for Claude; imports this file
 docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D8
 hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
   run.py                          launcher, also renders screenshots headless
+  hu-mockup.qmlproject            Qt Design Studio project (open this in Design Studio)
   qml/main.qml                    window, screen switching, knob/key handling
   qml/Theme.qml                   all colours, fonts and sizes
   qml/Sim.qml                     fake vehicle/media/radio/phone/nav data
