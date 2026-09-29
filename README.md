@@ -14,10 +14,8 @@ and the production software come later.
 | [`hu-mockup/`](hu-mockup/) | Qt 6 / QML UI mockup (v0.3, runs via PySide6), 1280 x 768, all data simulated. See its README to run it. |
 | [`hu-can/`](hu-can/) | Test CAN database (`r80_test.dbc`, classic CAN, 22 messages), generator and drive simulator, sample candump log. |
 | [`docs/architecture/`](docs/architecture/) | Headunit architecture (v0.3): vehicle MCU + Linux module, CAN channels, power states. |
+| [`hu-virtual/`](hu-virtual/) | Virtual HU test environment: BoAt restbus on vcan, MCU emulator, `vehicled` D-Bus service driving the mockup, BoAt smoke tests. |
 | [`hardware/`](hardware/) | Placeholder for hardware designs (PCBs, console). Licensed CERN-OHL-P-2.0. |
-
-Planned: `hu-virtual/`, the virtual HU test environment (restbus on vcan, MCU emulator,
-`vehicled` D-Bus service driving the mockup).
 
 ## Quick start
 

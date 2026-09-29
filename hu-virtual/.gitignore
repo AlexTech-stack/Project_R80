@@ -1,0 +1,3 @@
+boat_*.db*
+__pycache__/
+reports/
