@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Qt / QML build output
+build/
+build-*/
+*.qmlc
+*.jsc
+.qmlcache/
+.rcc/
+CMakeLists.txt.user*
+*.pro.user*
+
+# CAN captures (keep curated samples by adding them with git add -f)
+*.asc
+*.blf
+/drive.log
+
+# Map data (ODbL) stays out of the repo
+*.osm
+*.osm.pbf
+*.mbtiles
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

@@ -1,0 +1,181 @@
+VERSION "0.1"
+
+
+NS_ : 
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: CAR HU
+
+
+BO_ 256 R80_VehicleSpeed: 8 CAR
+ SG_ VehicleSpeed : 0|16@1+ (0.01,0) [0|400] "km/h"  HU
+
+BO_ 257 R80_EngineSpeed: 8 CAR
+ SG_ EngineSpeed : 0|16@1+ (0.25,0) [0|10000] "rpm"  HU
+
+BO_ 258 R80_BoostPressure: 8 CAR
+ SG_ BoostPressure : 0|16@1- (0.001,0) [-1|3] "bar"  HU
+
+BO_ 272 R80_Gear: 8 CAR
+ SG_ Gear : 0|4@1+ (1,0) [0|15] ""  HU
+
+BO_ 288 R80_IgnitionState: 8 CAR
+ SG_ IgnitionState : 0|3@1+ (1,0) [0|7] ""  HU
+
+BO_ 289 R80_LightState: 8 CAR
+ SG_ LightState : 0|3@1+ (1,0) [0|7] ""  HU
+
+BO_ 512 R80_CoolantTemp: 8 CAR
+ SG_ CoolantTemp : 0|8@1+ (1,-40) [-40|215] "degC"  HU
+
+BO_ 513 R80_OilTemp: 8 CAR
+ SG_ OilTemp : 0|8@1+ (1,-40) [-40|215] "degC"  HU
+
+BO_ 514 R80_OutsideTemp: 8 CAR
+ SG_ OutsideTemp : 0|8@1+ (0.5,-50) [-50|77.5] "degC"  HU
+
+BO_ 515 R80_OilPressure: 8 CAR
+ SG_ OilPressure : 0|8@1+ (0.05,0) [0|12.75] "bar"  HU
+
+BO_ 528 R80_BatteryVoltage: 8 CAR
+ SG_ BatteryVoltage : 0|8@1+ (0.1,0) [0|25.5] "V"  HU
+
+BO_ 544 R80_FuelLevel: 8 CAR
+ SG_ FuelLevel : 0|8@1+ (0.5,0) [0|100] "%"  HU
+
+BO_ 545 R80_Range: 8 CAR
+ SG_ Range : 0|16@1+ (1,0) [0|2000] "km"  HU
+
+BO_ 546 R80_AvgConsumption: 8 CAR
+ SG_ AvgConsumption : 0|16@1+ (0.1,0) [0|99.9] "l/100km"  HU
+
+BO_ 560 R80_Odometer: 8 CAR
+ SG_ Odometer : 0|32@1+ (0.1,0) [0|9999999] "km"  HU
+
+BO_ 561 R80_TripDistance: 8 CAR
+ SG_ TripDistance : 0|16@1+ (0.1,0) [0|6553.5] "km"  HU
+
+BO_ 562 R80_ServiceDistance: 8 CAR
+ SG_ ServiceDistance : 0|16@1- (1,0) [-32768|32767] "km"  HU
+
+BO_ 576 R80_TyrePressureFL: 8 CAR
+ SG_ TyrePressureFL : 0|8@1+ (0.02,0) [0|5.1] "bar"  HU
+
+BO_ 577 R80_TyrePressureFR: 8 CAR
+ SG_ TyrePressureFR : 0|8@1+ (0.02,0) [0|5.1] "bar"  HU
+
+BO_ 578 R80_TyrePressureRL: 8 CAR
+ SG_ TyrePressureRL : 0|8@1+ (0.02,0) [0|5.1] "bar"  HU
+
+BO_ 579 R80_TyrePressureRR: 8 CAR
+ SG_ TyrePressureRR : 0|8@1+ (0.02,0) [0|5.1] "bar"  HU
+
+BO_ 2566848768 R80_ServiceDays: 8 CAR
+ SG_ ServiceDays : 0|16@1- (1,0) [-32768|32767] "d"  HU
+
+
+
+
+CM_ BO_ 256 "Vehicle speed";
+CM_ SG_ 256 VehicleSpeed "Vehicle speed";
+CM_ BO_ 257 "Engine speed";
+CM_ SG_ 257 EngineSpeed "Engine speed";
+CM_ BO_ 258 "Boost pressure, relative to ambient (signed)";
+CM_ SG_ 258 BoostPressure "Boost pressure, relative to ambient (signed)";
+CM_ BO_ 272 "Selected gear";
+CM_ SG_ 272 Gear "Selected gear";
+CM_ BO_ 288 "Key / ignition state (terminal S, 15, 50)";
+CM_ SG_ 288 IgnitionState "Key / ignition state (terminal S, 15, 50)";
+CM_ BO_ 289 "Exterior light state, also drives HU night mode";
+CM_ SG_ 289 LightState "Exterior light state, also drives HU night mode";
+CM_ BO_ 512 "Engine coolant temperature";
+CM_ SG_ 512 CoolantTemp "Engine coolant temperature";
+CM_ BO_ 513 "Engine oil temperature";
+CM_ SG_ 513 OilTemp "Engine oil temperature";
+CM_ BO_ 514 "Outside air temperature";
+CM_ SG_ 514 OutsideTemp "Outside air temperature";
+CM_ BO_ 515 "Engine oil pressure";
+CM_ SG_ 515 OilPressure "Engine oil pressure";
+CM_ BO_ 528 "Battery voltage (terminal 30)";
+CM_ SG_ 528 BatteryVoltage "Battery voltage (terminal 30)";
+CM_ BO_ 544 "Fuel tank level, 55 l tank";
+CM_ SG_ 544 FuelLevel "Fuel tank level, 55 l tank";
+CM_ BO_ 545 "Remaining range";
+CM_ SG_ 545 Range "Remaining range";
+CM_ BO_ 546 "Average consumption since trip reset";
+CM_ SG_ 546 AvgConsumption "Average consumption since trip reset";
+CM_ BO_ 560 "Total distance";
+CM_ SG_ 560 Odometer "Total distance";
+CM_ BO_ 561 "Trip distance since reset";
+CM_ SG_ 561 TripDistance "Trip distance since reset";
+CM_ BO_ 562 "Distance to next service, negative = overdue";
+CM_ SG_ 562 ServiceDistance "Distance to next service, negative = overdue";
+CM_ BO_ 576 "Tyre pressure front left";
+CM_ SG_ 576 TyrePressureFL "Tyre pressure front left";
+CM_ BO_ 577 "Tyre pressure front right";
+CM_ SG_ 577 TyrePressureFR "Tyre pressure front right";
+CM_ BO_ 578 "Tyre pressure rear left";
+CM_ SG_ 578 TyrePressureRL "Tyre pressure rear left";
+CM_ BO_ 579 "Tyre pressure rear right";
+CM_ SG_ 579 TyrePressureRR "Tyre pressure rear right";
+CM_ BO_ 2566848768 "Days to next service, negative = overdue. Extended 29-bit ID test message";
+CM_ SG_ 2566848768 ServiceDays "Days to next service, negative = overdue. Extended 29-bit ID test message";
+BA_DEF_ BO_  "GenMsgCycleTime" INT 0 65535;
+BA_DEF_DEF_  "GenMsgCycleTime" 0;
+BA_ "GenMsgCycleTime" BO_ 256 20;
+BA_ "GenMsgCycleTime" BO_ 257 20;
+BA_ "GenMsgCycleTime" BO_ 258 50;
+BA_ "GenMsgCycleTime" BO_ 272 100;
+BA_ "GenMsgCycleTime" BO_ 288 100;
+BA_ "GenMsgCycleTime" BO_ 289 200;
+BA_ "GenMsgCycleTime" BO_ 512 500;
+BA_ "GenMsgCycleTime" BO_ 513 500;
+BA_ "GenMsgCycleTime" BO_ 514 1000;
+BA_ "GenMsgCycleTime" BO_ 515 100;
+BA_ "GenMsgCycleTime" BO_ 528 500;
+BA_ "GenMsgCycleTime" BO_ 544 1000;
+BA_ "GenMsgCycleTime" BO_ 545 1000;
+BA_ "GenMsgCycleTime" BO_ 546 1000;
+BA_ "GenMsgCycleTime" BO_ 560 1000;
+BA_ "GenMsgCycleTime" BO_ 561 1000;
+BA_ "GenMsgCycleTime" BO_ 562 1000;
+BA_ "GenMsgCycleTime" BO_ 576 1000;
+BA_ "GenMsgCycleTime" BO_ 577 1000;
+BA_ "GenMsgCycleTime" BO_ 578 1000;
+BA_ "GenMsgCycleTime" BO_ 579 1000;
+BA_ "GenMsgCycleTime" BO_ 2566848768 1000;
+VAL_ 272 Gear 0 "N" 1 "1" 2 "2" 3 "3" 4 "4" 5 "5" 6 "6" 7 "R" 8 "P" 9 "D" 10 "S" 15 "Invalid" ;
+VAL_ 288 IgnitionState 0 "Off" 1 "KeyInserted" 2 "Accessory" 3 "IgnitionOn" 4 "Cranking" 7 "Invalid" ;
+VAL_ 289 LightState 0 "Off" 1 "Parking" 2 "LowBeam" 3 "HighBeam" 7 "Invalid" ;
+
+
+
