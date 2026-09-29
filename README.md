@@ -37,5 +37,4 @@ python3 hu-can/tools/r80_can_sim.py --log drive.log
   see the licence files next to them.
 - Map data (OpenStreetMap, ODbL) is not stored in this repository.
 
-"Audi", "A3" and the four rings are trademarks of AUDI AG. This is a private hobby
-project, not affiliated with Audi; the UI uses its own placeholder logo.
+The brand mark in the UI is a placeholder ("R80"). Swap `hu-mockup/qml/Logo.qml` if you want something else.

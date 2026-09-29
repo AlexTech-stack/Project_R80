@@ -1,6 +1,6 @@
 import QtQuick
 
-// Placeholder brand mark (the real Audi rings are a trademark).
+// Placeholder brand mark ("R80"). Swap this file if you want something else.
 Item {
     id: root
     implicitWidth: 96
