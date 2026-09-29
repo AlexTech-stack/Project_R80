@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "name": "r80-hu-virtual",
-  "description": "Virtual R80 headunit: three vcan buses, BoAt gateway started by hu-virtual.sh (not by the runner), MCU emulator and hu-vehicled as the DUT. No 'dut' entry: BoAt's harness.py:355 passes the whole env config to DutProxy, which breaks any env with a dut.",
+  "description": "Virtual R80 headunit: three vcan buses, BoAt gateway started by hu-virtual.sh (not by the runner), MCU emulator and hu-vehicled as the DUT.",
   "gateway": {
     "address": "localhost:50061",
     "tick_ms": 1
@@ -19,6 +19,10 @@
       "type": "virtual",
       "interface": "vcan_comfort"
     }
+  },
+  "dut": {
+    "name": "r80-hu-virtual",
+    "type": "physical"
   },
   "plugins": []
 }

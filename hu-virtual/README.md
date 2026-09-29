@@ -112,18 +112,14 @@ docs/                    two screenshots of the UI on live CAN data
 - D-Bus property names are the DBC signal names; `backend.py` maps them to the
   mockup's names (`VehicleSpeed` → `speed`, `FuelLevel` % → `fuelLevel` 0..1, …).
 
-## BoAt notes found on the way
+## BoAt notes
 
-Full write-ups with repro steps are in BoAt's `test/foundIssues.md` (issues 1 to 4).
+The four BoAt issues found while building this (see BoAt's
+`test/foundIssues.md`) are fixed in BoAt `58a0b8c`. What is left here from the
+workarounds:
 
-- `boat/test/harness.py:355` passes the whole env config to `DutProxy`
-  instead of `config.dut`, so any environment with a `dut` entry fails with
-  `'EnvironmentConfig' object has no attribute 'type'` (line 401 does it right).
-  `env_hu_virtual.json` leaves `dut` out for now.
-- The test runner's gateway manager ignores the environment's `plugins` list
-  (no `BOAT_NODE_PLUGINS`), which is one reason the gateway is started by
-  `hu-virtual.sh`.
-- `pdu_router` has no way to update a cyclic PDU's payload without an
-  immediate extra send (`PduRouter::SendPdu` always transmits). That would
-  double the rate of fast-changing signals, so the restbus paces frames itself
-  through `FrameService.SendFrame` instead of using cyclic PDU routes.
+- The gateway is still started by `hu-virtual.sh`, not by the test runner, so
+  the same gateway serves the drive cycle, the UI and the tests.
+- The restbus paces its frames itself through `FrameService.SendFrame`. Since
+  `58a0b8c`, cyclic PDU routes in `pdu_router` would also work (a `send()` only
+  updates the payload), so the restbus could move to them later.
