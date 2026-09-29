@@ -17,6 +17,10 @@ and the production software come later.
 | [`hu-virtual/`](hu-virtual/) | Virtual HU test environment: BoAt restbus on vcan, MCU emulator, `vehicled` D-Bus service driving the mockup, BoAt smoke tests. |
 | [`hardware/`](hardware/) | Placeholder for hardware designs (PCBs, console). Licensed CERN-OHL-P-2.0. |
 
+## For coding agents
+
+Rules for AI coding agents are in [`AGENTS.md`](AGENTS.md); [`CLAUDE.md`](CLAUDE.md) imports it and adds Claude-specific notes.
+
 ## Quick start
 
 ```bash
