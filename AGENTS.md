@@ -39,7 +39,7 @@ hu-can/
   tools/r80_can_sim.py            drive-cycle simulator (candump log or live CAN)
   sample_drive_60s.log            60 s sample drive, candump format
 hu-virtual/
-  hu-virtual.sh                   up | drive | restbus | ui | test | status | logs | down
+  hu-virtual.sh                   up | drive | restbus | panel | ui | test | status | logs | down
   hu/                             target software (runs unchanged on the Pi)
     mcu_link.py                   MCU <-> Linux UART protocol (placeholder)
     dbc.py                        small DBC decoder, no dependencies
@@ -47,7 +47,7 @@ hu-virtual/
     ui/run_hu.py, ui/backend.py   UI launcher and QML backend over D-Bus
     ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
   mcu_emu/                        MCU emulator and its control client (PC only)
-  boat/                           BoAt restbus node and the 6 BoAt tests (PC only)
+  boat/                           BoAt restbus node, tester panel and the 6 BoAt tests (PC only)
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```
 
@@ -83,6 +83,7 @@ Virtual headunit (only on Alex's PC; needs BoAt, vcan and sudo):
 cd hu-virtual
 ./hu-virtual.sh drive   # buses, BoAt gateway, MCU emulator, vehicled, drive cycle
 ./hu-virtual.sh ui      # UI window on top
+./hu-virtual.sh up && ./hu-virtual.sh panel   # tester panel instead of the drive cycle
 ./hu-virtual.sh up && ./hu-virtual.sh test   # run the 6 BoAt tests
 ./hu-virtual.sh down
 ```

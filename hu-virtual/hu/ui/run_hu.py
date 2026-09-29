@@ -64,7 +64,7 @@ def main():
     if a.screenshot and "QT_QPA_PLATFORM" not in os.environ:
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
-    from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
+    from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer, QUrl
     from PySide6.QtGui import QGuiApplication, QKeyEvent
     from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent, qmlRegisterSingletonInstance
     from PySide6.QtQuick import QQuickItem  # noqa: F401
@@ -96,10 +96,25 @@ def main():
     overlay.setParentItem(win.contentItem())
     overlay.setParent(win)
 
+    def focus_item(item):
+        for child in item.childItems():
+            if child.hasFocus():
+                return focus_item(child) or child
+        return None
+
     def key(name):
+        # Deliver straight to the item holding keyboard focus (main.qml's `display`).
+        # Posting to the window would drop the key whenever the HU window is not the
+        # active one, e.g. while the tester clicks in the restbus panel; the real
+        # knob doesn't care which window has the desktop's focus either.
         k = getattr(Qt.Key, f"Key_{name}")
+        target = focus_item(win.contentItem())
         for t in (QEvent.KeyPress, QEvent.KeyRelease):
-            QGuiApplication.postEvent(win, QKeyEvent(t, k, Qt.NoModifier))
+            ev = QKeyEvent(t, k, Qt.NoModifier)
+            if target:
+                QCoreApplication.sendEvent(target, ev)
+            else:
+                QGuiApplication.postEvent(win, ev)
 
     def on_input(kind, value):
         if vehicle.power in ("off", "shutdown"):
