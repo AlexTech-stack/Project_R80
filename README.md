@@ -1,6 +1,6 @@
 # Project R80
 
-A new headunit (hardware and software) and centre console for a heavily modified
+A headunit (hardware and software) and centre console for a modified
 2005 Audi A3 Sportback (8PA, PQ35 platform).
 
 Current state: a clickable UI mockup running on Linux, a made-up test CAN database with
