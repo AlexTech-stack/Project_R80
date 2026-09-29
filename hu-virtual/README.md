@@ -40,7 +40,32 @@ cd hu-virtual
 ./hu-virtual.sh down
 ```
 
-Poke it while it runs:
+### Tester panel
+
+```bash
+./hu-virtual.sh up
+./hu-virtual.sh panel      # instead of `drive`: the panel is the restbus
+./hu-virtual.sh ui
+```
+
+![Restbus panel](docs/restbus_panel.png)
+
+`boat/restbus_panel.py` sends every message of `../hu-can/r80_test.dbc` through
+the BoAt gateway at its cycle time, like `restbus.py`, and lets a tester:
+
+- set any signal live: slider or spin box on the signal's own resolution, enums
+  as drop-downs, with the resulting payload bytes shown per message,
+- untick **Send** to drop one message (the HU flags it stale), or press
+  **Bus sleep** to stop the whole bus (the MCU shuts the HU down),
+- hand speed, rpm, gear, odometer, fuel, … to the **Drive cycle** and take them
+  back; the other signals stay editable while it runs,
+- operate the controls wired to the MCU: knob turn / push / tilt, the hard
+  keys and the dimming override.
+
+Ranges, enums and units come from the DBC itself (not from BoAt's PDU JSON,
+whose min/max are currently wrong; see BoAt's `test/foundIssues.md`).
+
+Poke it from the command line while it runs:
 
 ```bash
 python3 mcu_emu/mcuctl.py knob 1           # turn (-1 = back)
@@ -92,10 +117,11 @@ hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`
 mcu_emu/mcu_emu.py       MCU emulator
 mcu_emu/mcuctl.py        control client (also used by the tests)
 boat/restbus.py          BoAt restbus node / library
+boat/restbus_panel.py    tester GUI: the restbus with live signal editing + HU controls
 boat/env_hu_virtual.json BoAt test environment (gateway started by hu-virtual.sh)
 boat/manifest_hu_smoke.json
 boat/tests/              the six tests
-docs/                    two screenshots of the UI on live CAN data
+docs/                    screenshots: the UI on live CAN data, the tester panel
 ```
 
 ## Assumptions to check

@@ -4,6 +4,7 @@
 #   ./hu-virtual.sh up          buses, BoAt gateway, MCU emulator, hu-vehicled
 #   ./hu-virtual.sh drive       ... plus the BoAt restbus playing the drive cycle
 #   ./hu-virtual.sh ui          start the UI (window) on top of a running env
+#   ./hu-virtual.sh panel       tester panel: the restbus with a GUI to change signals and press HU keys
 #   ./hu-virtual.sh test        run the BoAt test suite (env must be up, no restbus running)
 #   ./hu-virtual.sh status | logs | down
 #
@@ -32,7 +33,11 @@ start() {  # name, command...
 stop() {
   local name=$1
   if [[ -f "$RUN/$name.pid" ]]; then
-    kill "$(cat "$RUN/$name.pid")" 2>/dev/null && echo "  $name stopped" || true
+    local pid; pid=$(cat "$RUN/$name.pid")
+    if kill "$pid" 2>/dev/null; then
+      for _ in $(seq 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done  # let it free its port
+      echo "  $name stopped"
+    fi
     rm -f "$RUN/$name.pid"
   fi
 }
@@ -66,17 +71,18 @@ up() {
 
 case "${1:-status}" in
   up) up ;;
-  drive) up; start restbus python3 "$HERE/boat/restbus.py" --address "localhost:$BOAT_PORT" --drive ${RESTBUS_ARGS:-} ;;
+  drive) up; stop panel; start restbus python3 "$HERE/boat/restbus.py" --address "localhost:$BOAT_PORT" --drive ${RESTBUS_ARGS:-} ;;
   restbus) start restbus python3 "$HERE/boat/restbus.py" --address "localhost:$BOAT_PORT" ${RESTBUS_ARGS:-} ;;
   ui) start ui python3 "$HERE/hu/ui/run_hu.py" ${UI_ARGS:-} ;;
+  panel) stop restbus; start panel python3 "$HERE/boat/restbus_panel.py" --address "localhost:$BOAT_PORT" ;;
   test)
-    stop restbus
+    stop restbus; stop panel
     cd "$HERE"
     BOAT_HOST="localhost:$BOAT_PORT" boat test run boat/manifest_hu_smoke.json --report-dir "$RUN/reports" "${@:2}"
     ;;
-  down) for n in ui restbus vehicled mcu gateway; do stop "$n"; done ;;
+  down) for n in ui panel restbus vehicled mcu gateway; do stop "$n"; done ;;
   status)
-    for n in gateway mcu vehicled restbus ui; do
+    for n in gateway mcu vehicled restbus panel ui; do
       if [[ -f "$RUN/$n.pid" ]] && kill -0 "$(cat "$RUN/$n.pid")" 2>/dev/null; then s=running; else s=stopped; fi
       printf "  %-9s %s\n" "$n" "$s"
     done

@@ -119,6 +119,7 @@ class Restbus:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = None
+        self.paused = False   # whole bus quiet, per-message on/off kept
         self.sent = 0
         self.errors = 0
 
@@ -164,7 +165,7 @@ class Restbus:
                     m.next_due += m.cycle
                     if m.next_due < now:          # fell behind (e.g. gateway restart): resync
                         m.next_due = now + m.cycle
-                    if m.enabled:
+                    if m.enabled and not self.paused:
                         try:
                             self.node.send_can(m.iface, m.can_id, m.pack(vals))
                             self.sent += 1
