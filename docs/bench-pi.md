@@ -28,7 +28,7 @@ test PC.
 Ports are UDP and the same on both ends: `vcan_info` 20000, `vcan_motor` 20001,
 `vcan_comfort` 20002 (`-t 1000`, i.e. 1 ms aggregation, for a snappier UI).
 
-The ready-made files live in `r80_pie_testbench/`:
+The ready-made files live in `r80_pi_testbench/`:
 
 | File | Runs on | Purpose |
 |---|---|---|
@@ -41,7 +41,7 @@ The ready-made files live in `r80_pie_testbench/`:
 
 > These files are on `master`. The Media service is on the `Media_Application`
 > branch until it is merged. Check out `master` on the Pi once the branch is
-> merged, or copy `r80_pie_testbench/` onto a `Media_Application` checkout
+> merged, or copy `r80_pi_testbench/` onto a `Media_Application` checkout
 > meanwhile.
 
 ## 1. Hardware
@@ -128,7 +128,7 @@ gateway and the three vcans, plus the restbus). Then start the tunnel:
 ```bash
 cd ~/Project_R80/hu-virtual
 ./hu-virtual.sh drive                                  # your usual PC env
-PI_IP=<raspberry-ip> ~/Project_R80/r80_pie_testbench/pc-cannelloni.sh
+PI_IP=<raspberry-ip> ~/Project_R80/r80_pi_testbench/pc-cannelloni.sh
 candump -a vcan_info                                   # frames the Pi should see
 ```
 
@@ -142,11 +142,11 @@ Copy `r80-bench.conf.example` to `/etc/r80-bench.conf` and set `PC_IP`. Install
 the two units (once the repo is at `~/Project_R80`):
 
 ```bash
-sudo cp ~/Project_R80/r80_pie_testbench/r80-can.service /etc/systemd/system/
-sudo cp ~/Project_R80/r80_pie_testbench/r80-hu.service  /etc/systemd/system/
-sudo cp ~/Project_R80/r80_pie_testbench/r80-bench.conf.example /etc/r80-bench.conf
+sudo cp ~/Project_R80/r80_pi_testbench/r80-can.service /etc/systemd/system/
+sudo cp ~/Project_R80/r80_pi_testbench/r80-hu.service  /etc/systemd/system/
+sudo cp ~/Project_R80/r80_pi_testbench/r80-bench.conf.example /etc/r80-bench.conf
 sudo nano /etc/r80-bench.conf                          # set PC_IP
-sudo chmod +x ~/Project_R80/r80_pie_testbench/*.sh
+sudo chmod +x ~/Project_R80/r80_pi_testbench/*.sh
 ```
 
 To bring the tunnel up manually first:
