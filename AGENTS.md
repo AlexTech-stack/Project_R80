@@ -99,9 +99,11 @@ There is no CI and no unit test suite yet. Before you commit:
 
 ## 4. Git rules
 
-- Commit and push directly to `master`.
-- Do NOT create feature branches. Do NOT open pull requests. Do NOT create a branch per commit.
-  (This holds while the project is starting. Alex will say when it changes.)
+- Larger features or changes go on a feature branch named after the work
+  (for example `Media_Application`). Small, focused changes may still go directly
+  to `master`.
+- Do NOT create a branch per commit. Do NOT open pull requests. Alex merges or
+  deletes the feature branches himself.
 - Write short, clear commit messages that say what changed and why.
 - Never force-push `master`. Never rewrite published history.
 - Never commit secrets, tokens, or personal data.
