@@ -1,0 +1,14 @@
+[Unit]
+Description=R80 CAN tunnel: vcan + cannelloni to the test PC
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/r80-bench.conf
+ExecStart=/home/pi/Project_R80/r80_pie_testbench/r80-can.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

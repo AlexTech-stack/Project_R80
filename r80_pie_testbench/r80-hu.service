@@ -1,0 +1,17 @@
+[Unit]
+Description=R80 headunit kiosk UI
+After=systemd-user-sessions.service r80-can.service
+Wants=r80-can.service
+
+[Service]
+User=pi
+SupplementaryGroups=video render input audio
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/bin/dbus-run-session -- /home/pi/Project_R80/r80_pie_testbench/r80-kiosk.sh
+Restart=on-failure
+RestartSec=3
+TTYPath=/dev/tty1
+StandardInput=tty
+
+[Install]
+WantedBy=multi-user.target
