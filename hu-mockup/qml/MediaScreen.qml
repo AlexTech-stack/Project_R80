@@ -114,7 +114,8 @@ Item {
         Repeater {
             model: 5
             Item {
-                readonly property int ti: (Sim.trackIndex + 1 + index) % Sim.tracks.length
+                readonly property int ti: Sim.tracks.length ? (Sim.trackIndex + 1 + index) % Sim.tracks.length : 0
+                readonly property var next: Sim.tracks.length ? Sim.tracks[ti] : null
                 width: parent.width
                 height: 104
                 Row {
@@ -123,8 +124,8 @@ Item {
                     T { text: (index + 1).toString(); color: Theme.accentDim; font.family: Theme.numberFamily; font.pixelSize: 44; width: 26 }
                     Column {
                         width: 280
-                        T { width: parent.width; text: Sim.tracks[ti].title; font.pixelSize: Theme.fontSmall + 2 }
-                        T { width: parent.width; text: Sim.tracks[ti].artist + "  ·  " + Sim.fmtTime(Sim.tracks[ti].duration); color: Theme.accentMid; font.pixelSize: Theme.fontSmall - 1 }
+                        T { width: parent.width; text: next ? next.title : ""; font.pixelSize: Theme.fontSmall + 2 }
+                        T { width: parent.width; text: next ? (next.artist + "  ·  " + Sim.fmtTime(next.duration)) : ""; color: Theme.accentMid; font.pixelSize: Theme.fontSmall - 1 }
                     }
                 }
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.accentFaint }

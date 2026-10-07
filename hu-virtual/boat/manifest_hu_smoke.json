@@ -3,13 +3,13 @@
   "name": "r80-hu-smoke",
   "version": "0.1",
   "description": "Smoke tests of the virtual R80 headunit against the R80 test DBC. Run from hu-virtual/ with the env up and no restbus node running: ./hu-virtual.sh test",
-  "environment_config": "boat/env_hu_virtual.json",
+  "environment_config": "env_hu_virtual.json",
   "tests": [
-    { "id": "TC_HU_001", "name": "Signal path CAN -> MCU -> D-Bus", "file": "python3 boat/tests/test_signal_path.py", "timeout_s": 20 },
-    { "id": "TC_HU_002", "name": "Missing message flagged stale", "file": "python3 boat/tests/test_signal_timeout.py", "timeout_s": 20 },
-    { "id": "TC_HU_003", "name": "Power states and shutdown handshake", "file": "python3 boat/tests/test_power.py", "timeout_s": 30 },
-    { "id": "TC_HU_004", "name": "Day/night dimming", "file": "python3 boat/tests/test_dimming.py", "timeout_s": 20 },
-    { "id": "TC_HU_005", "name": "Knob and button events", "file": "python3 boat/tests/test_inputs.py", "timeout_s": 20 },
-    { "id": "TC_HU_006", "name": "Listen-only on Motor and Comfort", "file": "python3 boat/tests/test_listen_only.py", "timeout_s": 20 }
+    { "id": "TC_HU_001", "name": "Signal path CAN -> MCU -> D-Bus", "file": "python3 tests/test_signal_path.py", "timeout_s": 20 },
+    { "id": "TC_HU_002", "name": "Missing message flagged stale", "file": "python3 tests/test_signal_timeout.py", "timeout_s": 20 },
+    { "id": "TC_HU_003", "name": "Power states and shutdown handshake", "file": "python3 tests/test_power.py", "timeout_s": 30 },
+    { "id": "TC_HU_004", "name": "Day/night dimming", "file": "python3 tests/test_dimming.py", "timeout_s": 20 },
+    { "id": "TC_HU_005", "name": "Knob and button events", "file": "python3 tests/test_inputs.py", "timeout_s": 20 },
+    { "id": "TC_HU_006", "name": "Listen-only on Motor and Comfort", "file": "python3 tests/test_listen_only.py", "timeout_s": 20 }
   ]
 }

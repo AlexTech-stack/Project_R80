@@ -36,6 +36,8 @@ def _py(v):
         return bool(v)
     if isinstance(v, dbus.String):
         return str(v)
+    if isinstance(v, dbus.Dictionary):
+        return {str(k): _py(x) for k, x in v.items()}
     if isinstance(v, dbus.Array):
         return [_py(x) for x in v]
     if isinstance(v, (dbus.Double,)):
@@ -151,3 +153,129 @@ class Vehicle(QObject):
     dimLevel = Property(int, lambda self: self._dim, notify=dimChanged)
     night = Property(bool, lambda self: self._night, notify=dimChanged)
     del _getter
+
+
+MEDIA_SERVICE, MEDIA_PATH, MEDIA_IFACE = "de.r80.Media", "/de/r80/Media", "de.r80.Media1"
+
+
+class Media(QObject):
+    """QML singleton mirroring hu-mediad (de.r80.Media1) property names.
+
+    Exposes the same names the mockup's Sim.qml uses for media so the overlay
+    Sim.qml can bind 1:1: tracks, trackIndex, trackPos, playing, shuffle,
+    repeatAll, mediaSource. `available` tells the overlay whether to fall back
+    to its own simulated playlist.
+    """
+    changed = Signal()
+    availableChanged = Signal()
+
+    def __init__(self, system_bus=False, parent=None):
+        super().__init__(parent)
+        self._available = False
+        self._tracks = []
+        self._meta = {"title": "", "artist": "", "album": "", "duration": 0}
+        self._v = {"trackIndex": 0, "trackPos": 0, "playing": False, "shuffle": False,
+                   "repeatAll": True, "mediaSource": "", "trackCount": 0}
+        DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
+        self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, MEDIA_PATH)
+        self.bus.add_signal_receiver(self._on_seeked, "Seeked", MEDIA_IFACE, None, MEDIA_PATH)
+        self._poll = QTimer(self, interval=3000, timeout=self.refresh)
+        self._poll.start()
+        QTimer.singleShot(0, self.refresh)
+
+    # ---- D-Bus ----------------------------------------------------------
+    def refresh(self):
+        self.bus.call_async(MEDIA_SERVICE, MEDIA_PATH, PROPS, "GetAll", "s", (MEDIA_IFACE,),
+                            self._apply, self._on_gone, timeout=1.0)
+
+    def _on_gone(self, _err):
+        if self._available:
+            self._available = False
+            self.availableChanged.emit()
+            self.changed.emit()
+
+    def _on_props(self, iface, changed, _invalidated):
+        if iface == MEDIA_IFACE:
+            self._apply(changed)
+
+    def _on_seeked(self, position):
+        self._v["trackPos"] = int(position) // 1_000_000
+        self.changed.emit()
+
+    def _apply(self, changed: dict):
+        changed = {str(k): _py(v) for k, v in changed.items()}
+        if not self._available:
+            self._available = True
+            self.availableChanged.emit()
+        if "Metadata" in changed:
+            self._meta = changed["Metadata"]
+        if "Playlist" in changed:
+            self._tracks = list(changed["Playlist"])
+        if "TrackIndex" in changed:
+            self._v["trackIndex"] = int(changed["TrackIndex"])
+        if "TrackCount" in changed:
+            self._v["trackCount"] = int(changed["TrackCount"])
+        if "Position" in changed:
+            self._v["trackPos"] = int(changed["Position"]) // 1_000_000
+        if "PlaybackStatus" in changed:
+            self._v["playing"] = str(changed["PlaybackStatus"]) == "playing"
+        if "Shuffle" in changed:
+            self._v["shuffle"] = bool(changed["Shuffle"])
+        if "RepeatAll" in changed:
+            self._v["repeatAll"] = bool(changed["RepeatAll"])
+        if "Source" in changed:
+            self._v["mediaSource"] = str(changed["Source"])
+        self.changed.emit()
+
+    def _call(self, method, signature="", args=()):
+        self.bus.call_async(MEDIA_SERVICE, MEDIA_PATH, MEDIA_IFACE, method,
+                            signature, args, lambda *_: None, lambda *_: None, timeout=1.0)
+
+    # ---- QML properties ---------------------------------------------------
+    available = Property(bool, lambda self: self._available, notify=availableChanged)
+    tracks = Property("QVariantList", lambda self: self._tracks, notify=changed)
+    playing = Property(bool, lambda self: self._v["playing"], notify=changed)
+    trackIndex = Property(int, lambda self: self._v["trackIndex"], notify=changed)
+    trackPos = Property(int, lambda self: self._v["trackPos"], notify=changed)
+    shuffle = Property(bool, lambda self: self._v["shuffle"], notify=changed)
+    repeatAll = Property(bool, lambda self: self._v["repeatAll"], notify=changed)
+    mediaSource = Property(str, lambda self: self._v["mediaSource"], notify=changed)
+    trackCount = Property(int, lambda self: self._v["trackCount"], notify=changed)
+
+    # ---- QML methods ------------------------------------------------------
+    @Slot()
+    def playPause(self):
+        self._call("PlayPause")
+
+    @Slot(bool)
+    def setPlaying(self, playing):
+        self._call("SetPlaying", "b", (bool(playing),))
+
+    @Slot()
+    def next(self):
+        self._call("Next")
+
+    @Slot()
+    def prev(self):
+        self._call("Previous")
+
+    @Slot(int)
+    def setTrack(self, index):
+        self._call("SetTrack", "i", (int(index),))
+
+    @Slot(int)
+    def setPosition(self, seconds):
+        self._call("SetPosition", "x", (int(seconds) * 1_000_000,))
+
+    @Slot(bool)
+    def setShuffle(self, on):
+        self._call("SetShuffle", "b", (bool(on),))
+
+    @Slot(bool)
+    def setRepeatAll(self, on):
+        self._call("SetRepeatAll", "b", (bool(on),))
+
+    @Slot(str)
+    def setSource(self, source):
+        self._call("SetSource", "s", (str(source),))

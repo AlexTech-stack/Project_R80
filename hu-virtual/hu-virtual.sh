@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start / stop the virtual R80 headunit environment.
 #
-#   ./hu-virtual.sh up          buses, BoAt gateway, MCU emulator, hu-vehicled
+#   ./hu-virtual.sh up          buses, BoAt gateway, MCU emulator, hu-vehicled, hu-mediad
 #   ./hu-virtual.sh drive       ... plus the BoAt restbus playing the drive cycle
 #   ./hu-virtual.sh ui          start the UI (window) on top of a running env
 #   ./hu-virtual.sh panel       tester panel: the restbus with a GUI to change signals and press HU keys
@@ -9,7 +9,9 @@
 #   ./hu-virtual.sh status | logs | down
 #
 # Env overrides: BOAT_ROOT (~/BoAt), BOAT_PORT (50061), R80_MOCKUP (mockup dir),
-#                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort).
+#                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort),
+#                MUSIC_DIR (media library; unset = demo tones in $RUN/music),
+#                MEDIA_ARGS (extra hu/mediad.py arguments).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,6 +69,10 @@ up() {
   start mcu python3 "$HERE/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 "${MCU_CAN2:-vcan_motor}" --can2-bus "${MCU_CAN2_BUS:-motor}"
   sleep 0.5
   start vehicled python3 "$HERE/hu/vehicled.py"
+  # A demo tone library keeps the Media screen alive until MUSIC_DIR is set.
+  local extras="${MEDIA_ARGS:-}"
+  if [[ -z "${MUSIC_DIR:-}" ]]; then extras="$extras --demo"; fi
+  start mediad python3 "$HERE/hu/mediad.py" --music-dir "${MUSIC_DIR:-$RUN/music}" $extras
 }
 
 case "${1:-status}" in
@@ -80,9 +86,9 @@ case "${1:-status}" in
     cd "$HERE"
     BOAT_HOST="localhost:$BOAT_PORT" boat test run boat/manifest_hu_smoke.json --report-dir "$RUN/reports" "${@:2}"
     ;;
-  down) for n in ui panel restbus vehicled mcu gateway; do stop "$n"; done ;;
+  down) for n in ui panel restbus mediad vehicled mcu gateway; do stop "$n"; done ;;
   status)
-    for n in gateway mcu vehicled restbus panel ui; do
+    for n in gateway mcu vehicled mediad restbus panel ui; do
       if [[ -f "$RUN/$n.pid" ]] && kill -0 "$(cat "$RUN/$n.pid")" 2>/dev/null; then s=running; else s=stopped; fi
       printf "  %-9s %s\n" "$n" "$s"
     done
