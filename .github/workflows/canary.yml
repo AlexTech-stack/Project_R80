@@ -3,8 +3,8 @@
 #
 # Not blocking: it is its own workflow, the ci workflow keeps testing the pinned BoAt.
 # A red canary means: R80 at this commit + a newer BoAt fail. Read the job summary;
-# if the cause is in BoAt, add it to BoAt's test/foundIssues.md and open a BoAt issue
-# (after checking it is not already open or fixed).
+# if the cause is in BoAt, open a BoAt issue (after checking it is not already open
+# or fixed; AGENTS.md section 7).
 #
 # Locally: BOAT_VERSION=master ci/run_boat_sil.sh --install
 

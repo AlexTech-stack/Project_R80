@@ -165,14 +165,16 @@ There is no unit test suite yet. Before you commit:
 - BoAt (gateway, restbus, tester panel, tests) runs on the test PC (x86_64) only.
   It never runs on the Raspberry Pi or the final headunit: those are the DUT.
 - NEVER change, patch or "fix" anything in BoAt. Not even a one-line fix.
+- Do not create, edit or delete any file in the BoAt repository or in `~/BoAt`
+  (no notes, no git operations there). Read it only. To look at other BoAt versions,
+  use a separate clone (as `ci/run_boat_sil.sh --install` does) or the GitHub API.
 - NEVER work around a BoAt bug silently in this repo.
-- When you find a BoAt issue, add an entry to `~/BoAt/test/foundIssues.md` with:
+- When you find a BoAt issue, check the BoAt GitHub issues (open and closed) and the
+  newer BoAt releases and `master`. If it is not already reported or fixed, open an issue
+  in `AlexTech-stack/BoAt` with:
   1. What you did (commands, inputs, versions).
   2. What you expected to happen.
   3. What actually happened (exact error text or output).
-- If the issue is clearly in BoAt, check the BoAt GitHub issues (open and closed) and the
-  newer BoAt releases and `master`. If it is not already reported or fixed, open an issue
-  in `AlexTech-stack/BoAt` with the same three points and link it from the entry.
 - Then tell Alex about the issue.
 
 ## 8. Technical constraints

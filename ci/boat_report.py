@@ -4,9 +4,9 @@
     python3 ci/boat_report.py <reports dir> [--title TEXT] [--issue-template]
 
 Reads each <reports dir>/*/report.json (one per test) and, for tests that did not pass,
-the end of their stdout.txt. With --issue-template it adds a draft entry in the format
-of BoAt's test/foundIssues.md (what was done / expected / what happened), to fill in
-once it is clear the failure is caused by BoAt.
+the end of their stdout.txt. With --issue-template it adds a draft BoAt GitHub issue
+(what was done / expected / what happened, AGENTS.md section 7), to fill in once it is
+clear the failure is caused by BoAt.
 
 Uses report.json, not report.junit.xml: the JUnit file is empty for script tests
 (AlexTech-stack/BoAt#50). Standard library only.
@@ -56,9 +56,9 @@ def main() -> int:
 
     if a.issue_template and failed:
         ids = ", ".join(r["id"] for r in failed)
-        print("#### Draft for BoAt's `test/foundIssues.md` (only if the cause is in BoAt)\n")
+        print("#### Draft BoAt issue (only if the cause is in BoAt and it is not reported yet)\n")
         print("```markdown")
-        print(f"## <date>: <one-line summary> ({ids} fail)\n")
+        print(f"Title: <one-line summary> ({ids} fail with R80)\n")
         print("**What I did**\n\n- BoAt: <version and commit from the job summary>\n"
               "- Project R80 `ci/run_boat_sil.sh --install` with BOAT_VERSION=<...>, Ubuntu 24.04 runner\n")
         print("**What I expected**\n\nAll R80 smoke tests pass, as they do with the BoAt release in `ci/boat.version`.\n")
