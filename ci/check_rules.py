@@ -7,7 +7,8 @@
 - no OpenStreetMap data is committed                                       (AGENTS.md 6)
 - every property, function and signal of hu-mockup/qml/Sim.qml also exists
   in hu-virtual/hu/ui/qml/Sim.qml                                         (AGENTS.md 9)
-- no hex colours in QML outside Theme.qml                                  (AGENTS.md 9)
+- no hard-coded colours in QML outside Theme.qml: hex, named ("black") or  (AGENTS.md 9)
+  Qt.rgba() with literal numbers; "transparent" is allowed
 
 Standard library only, so it runs before any dependency is installed.
 """
@@ -28,6 +29,10 @@ OSM_PATTERNS = ("*.osm", "*.osm.pbf", "*.pbf", "*.mbtiles")
 SIM_MOCKUP = ROOT / "hu-mockup/qml/Sim.qml"
 SIM_VIRTUAL = ROOT / "hu-virtual/hu/ui/qml/Sim.qml"
 HEX_COLOUR = re.compile(r"[\"']#[0-9a-fA-F]{3,8}[\"']")
+# A quoted word on the right of a colour property (color, fillColor, border.color, ...).
+COLOUR_PROP = re.compile(r"\b\w*[cC]olou?r\s*:(.*)")
+QUOTED_WORD = re.compile(r"[\"']([A-Za-z]+)[\"']")
+LITERAL_RGBA = re.compile(r"Qt\.(rgba|hsla|hsva)\(\s*[\d.]")
 
 errors: list[str] = []
 
@@ -78,17 +83,20 @@ def check_sim_parity() -> None:
         errors.append(f"{SIM_VIRTUAL.relative_to(ROOT)}: missing '{n}' (exists in {SIM_MOCKUP.relative_to(ROOT)})")
 
 
-def check_hex_colours() -> None:
+def check_qml_colours() -> None:
     for f in tracked("*.qml"):
         if f.name == "Theme.qml":
             continue
         for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-            if HEX_COLOUR.search(line.split("//")[0]):
-                errors.append(f"{f.relative_to(ROOT)}:{i}: hex colour outside Theme.qml")
+            code = line.split("//")[0]
+            prop = COLOUR_PROP.search(code)
+            named = [w for w in QUOTED_WORD.findall(prop.group(1)) if w != "transparent"] if prop else []
+            if HEX_COLOUR.search(code) or named or LITERAL_RGBA.search(code):
+                errors.append(f"{f.relative_to(ROOT)}:{i}: hard-coded colour outside Theme.qml")
 
 
 def main() -> int:
-    for check in (check_target_imports, check_osm, check_sim_parity, check_hex_colours):
+    for check in (check_target_imports, check_osm, check_sim_parity, check_qml_colours):
         before = len(errors)
         check()
         print(f"  {'ok  ' if len(errors) == before else 'FAIL'} {check.__name__}")
