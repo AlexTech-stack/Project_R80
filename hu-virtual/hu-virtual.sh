@@ -9,6 +9,8 @@
 #   ./hu-virtual.sh status | logs | down
 #
 # Env overrides: BOAT_ROOT (~/BoAt), BOAT_PORT (50061), R80_MOCKUP (mockup dir),
+#                HU_DUT=external (up starts only buses + gateway; the DUT, i.e. MCU emulator +
+#                vehicled, runs elsewhere, e.g. in an aarch64 container: ci/run_boat_sil.sh --dut-arm64),
 #                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort).
 set -euo pipefail
 
@@ -64,6 +66,7 @@ up() {
   [[ -x "$GATEWAY" ]] || { echo "BoAt gateway not built at $GATEWAY"; exit 1; }
   start gateway env BOAT_CAN_INTERFACES="$(IFS=,; echo "${BUSES[*]}")" BOAT_GRPC_PORT="$BOAT_PORT" "$GATEWAY"
   wait_gateway
+  if [[ "${HU_DUT:-}" == external ]]; then echo "  DUT is external: not starting mcu and vehicled"; return; fi
   start mcu python3 "$HERE/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 "${MCU_CAN2:-vcan_motor}" --can2-bus "${MCU_CAN2_BUS:-motor}"
   sleep 0.5
   start vehicled python3 "$HERE/hu/vehicled.py"

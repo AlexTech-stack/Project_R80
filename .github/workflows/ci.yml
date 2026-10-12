@@ -78,6 +78,41 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  boat-sil-arm64-dut:
+    # The same BoAt smoke tests with the DUT (mcu_emu + vehicled) on aarch64 Debian
+    # Trixie in a QEMU-emulated container, like the Pi bench. BoAt stays on the x86
+    # host: it runs on the test PC only, the Pi is the DUT.
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install vcan, D-Bus, Python packages and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus python3-dbus python3-gi python3-venv qemu-user-static
+          sudo apt-get install -y "linux-modules-extra-$(uname -r)" || true
+          sudo modprobe vcan
+      - name: Check that arm64 containers run
+        run: docker run --rm --platform linux/arm64 debian:trixie uname -m
+      - name: BoAt smoke tests, aarch64 DUT
+        run: ci/run_boat_sil.sh --install --dut-arm64
+      - name: Summary
+        if: always()
+        run: |
+          python3 ci/boat_report.py build/ci-boat/reports \
+            --title "aarch64 DUT, $(cat build/ci-boat/boat/tested.txt 2>/dev/null || echo 'BoAt (install failed)')" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload BoAt reports and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: boat-reports-arm64-dut
+          path: |
+            build/ci-boat/reports/
+            build/ci-boat/logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
   static-arm64:
     # The same static checks on the bench target: aarch64, Debian 13 "Trixie" like
     # Raspberry Pi OS 64-bit (docs/bench-pi.md), its Python and a PySide6 venv.
