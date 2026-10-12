@@ -32,6 +32,9 @@ with Restbus(address=ADDRESS) as rb:
         if not ok:
             for k, want in case.items():
                 print(f"     {k}: want {want!r}, got {props.get(k)!r}")
-        check(props.get("LinkUp") is True, f"case {i}: MCU link up")
+        # LinkUp only turns true on the MCU's 1 s heartbeat, which on a fresh env
+        # can come after the first signal values, so wait for it as well.
+        ok, props, _ = wait_for(lambda p: p.get("LinkUp") is True, timeout=3.0)
+        check(ok, f"case {i}: MCU link up")
 
 finish()
