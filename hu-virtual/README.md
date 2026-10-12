@@ -113,6 +113,12 @@ BoAt's `report.junit.xml` is empty for script tests (AlexTech-stack/BoAt#50).
 BoAt runs on the x86_64 test PC only; on the bench the Raspberry Pi is the DUT and
 runs `mcu_emu/` and `hu/` (see `../docs/bench-pi.md`), so `--install` refuses other machines.
 
+`../ci/run_boat_sil.sh --dut-arm64` keeps that split on one x86 machine: BoAt on the
+host (`HU_DUT=external ./hu-virtual.sh up` starts only the buses and the gateway), the
+DUT in an aarch64 Debian 13 container under QEMU (`../ci/dut/`). Both share the host's
+vcan buses, `$XDG_RUNTIME_DIR` and a private session bus, so the tests run unchanged.
+CI runs this as the job `boat-sil-arm64-dut`.
+
 ## Files
 
 ```

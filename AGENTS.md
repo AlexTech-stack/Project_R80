@@ -29,6 +29,7 @@ ci/check_static.sh                static checks (py_compile, repo rules, DBC, si
 ci/check_rules.py                 checks the rules of this file that a script can check
 ci/run_boat_sil.sh                BoAt smoke tests of hu-virtual/ (--install: pinned BoAt release)
 ci/boat.version                   the BoAt release CI tests against
+ci/dut/                           emulated aarch64 DUT for CI: Dockerfile, start script, private bus config
 ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
 ci/boat_report.py                 BoAt reports as Markdown (CI job summaries)
 docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D8
@@ -110,6 +111,9 @@ SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 
 CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
 (`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
+A second job runs them with the DUT (`mcu_emu/` + `hu/vehicled.py`) on aarch64 Debian 13
+in a QEMU-emulated container, while BoAt stays on the x86 host
+(`ci/run_boat_sil.sh --install --dut-arm64`; needs docker and qemu-user-static).
 The `boat-canary` workflow runs the same tests nightly against BoAt `master` and BoAt's
 latest release. It does not block anything. When it fails and the cause is in BoAt,
 follow section 7.
