@@ -158,6 +158,8 @@ There is no unit test suite yet. Before you commit:
 
 - BoAt is a separate project by Alex. On Alex's PC it lives at `~/BoAt`
   (`/home/testuser/BoAt`). `hu-virtual/` uses it for the restbus and the tests.
+- BoAt (gateway, restbus, tester panel, tests) runs on the test PC (x86_64) only.
+  It never runs on the Raspberry Pi or the final headunit: those are the DUT.
 - NEVER change, patch or "fix" anything in BoAt. Not even a one-line fix.
 - NEVER work around a BoAt bug silently in this repo.
 - When you find a BoAt issue, add an entry to `~/BoAt/test/foundIssues.md` with:

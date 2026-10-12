@@ -81,8 +81,7 @@ jobs:
   static-arm64:
     # The same static checks on the bench target: aarch64, Debian 13 "Trixie" like
     # Raspberry Pi OS 64-bit (docs/bench-pi.md), its Python and a PySide6 venv.
-    # The BoAt smoke tests do not run on ARM yet: BoAt has no arm64 gateway
-    # (AlexTech-stack/BoAt#51).
+    # BoAt is not run here: it runs on the x86 test PC, the Pi is the DUT.
     runs-on: ubuntu-24.04-arm
     container: debian:trixie
     timeout-minutes: 20
