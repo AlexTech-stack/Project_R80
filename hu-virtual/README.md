@@ -63,7 +63,7 @@ the BoAt gateway at its cycle time, like `restbus.py`, and lets a tester:
   keys and the dimming override.
 
 Ranges, enums and units come from the DBC itself (not from BoAt's PDU JSON,
-whose min/max are currently wrong; see BoAt's `test/foundIssues.md`).
+whose min/max are wrong up to BoAt v0.1.1; AlexTech-stack/BoAt#11, fixed on master).
 
 Poke it from the command line while it runs:
 
@@ -101,6 +101,13 @@ MCU link is not there, so `run_hu.py` also works on its own.
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
+
+CI runs these tests on every push (job `boat-sil`) with `../ci/run_boat_sil.sh --install`:
+the BoAt release pinned in `../ci/boat.version`, a private D-Bus session, and
+reports plus logs uploaded as the `boat-reports` artifact. Run the same thing
+locally with `../ci/run_boat_sil.sh` (your BoAt) or with `--install` (the pinned
+one, under `build/ci-boat/`). The verdict is the exit code of `boat test run`;
+BoAt's `report.junit.xml` is empty for script tests (AlexTech-stack/BoAt#50).
 
 ## Files
 

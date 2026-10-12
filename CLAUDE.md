@@ -15,6 +15,8 @@ same rules. Change shared rules there, not here. This file only adds notes for C
     run `py_compile`, `make_dbc.py`, `r80_can_sim.py --log` and
     `hu-mockup/run.py --screenshots` (after the apt packages in AGENTS.md section 3).
     You cannot run `hu-virtual.sh`; say so instead of claiming the BoAt tests pass.
+    The `boat-sil` CI job runs them on every push: push to your branch and report
+    that job's result (`gh run list --branch <branch>`).
   - **Remote Control sessions** run on Alex's PC (`~/Project_R80`, BoAt at
     `/home/testuser/BoAt`). Use them for anything that needs BoAt, vcan or a real window.
 - The cloud GitHub token cannot delete remote branches. Branch cleanup happens from

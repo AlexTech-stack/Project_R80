@@ -26,6 +26,8 @@ CLAUDE.md                         extra notes for Claude; imports this file
 .github/workflows/ci.yml          GitHub Actions CI; each job calls a script in ci/
 ci/check_static.sh                static checks (py_compile, repo rules, DBC, simulator, screenshots)
 ci/check_rules.py                 checks the rules of this file that a script can check
+ci/run_boat_sil.sh                BoAt smoke tests of hu-virtual/ (--install: pinned BoAt release)
+ci/boat.version                   the BoAt release CI tests against
 docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D8
 hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
   run.py                          launcher, also renders screenshots headless
@@ -100,13 +102,16 @@ ci/check_static.sh            # py_compile, repo rules, DBC and simulator drift,
 SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 ```
 
+CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
+(`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
+
 There is no unit test suite yet. Before you commit:
 
 1. Run `ci/check_static.sh`, or at least `python3 -m py_compile` on every Python file you changed.
 2. If you changed QML, run `run.py --screenshots` and check the images.
 3. If you changed `hu-can/tools/make_dbc.py`, regenerate `r80_test.dbc` and commit both.
-4. If you changed anything in `hu-virtual/` and you can run BoAt, run `./hu-virtual.sh test`.
-   If you cannot run it, say so in your report.
+4. If you changed anything in `hu-virtual/` and you can run BoAt, run `ci/run_boat_sil.sh`
+   (or `./hu-virtual.sh test`). If you cannot run it, say so and check the `boat-sil` CI job instead.
 
 ## 4. Git rules
 
