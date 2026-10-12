@@ -1,0 +1,54 @@
+# R80 CI. Each job only calls a script in ci/, so every check also runs locally:
+#   ci/check_static.sh
+#
+# Runs on pushes to every branch (R80 does not use pull requests, see AGENTS.md
+# section 4) and by hand from the Actions tab.
+
+name: ci
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install system libraries for headless Qt (AGENTS.md section 3)
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1
+      - name: Install Python dependencies
+        run: python3 -m pip install PySide6 cantools python-can
+      - name: Static checks
+        run: ci/check_static.sh
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: build/ci/screenshots/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  python-3-9:
+    # AGENTS.md section 9 promises Python 3.9+. Compile only: no dependencies needed.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: py_compile on Python 3.9
+        run: git ls-files -z '*.py' | xargs -0 python3 -m py_compile

@@ -16,6 +16,7 @@ and the production software come later.
 | [`docs/architecture/`](docs/architecture/) | Headunit architecture (v0.3): vehicle MCU + Linux module, CAN channels, power states. |
 | [`hu-virtual/`](hu-virtual/) | Virtual HU test environment: BoAt restbus on vcan, MCU emulator, `vehicled` D-Bus service driving the mockup, BoAt smoke tests. |
 | [`r80_pi_testbench/`](r80_pi_testbench/) | Raspberry Pi 3B prototype bench files: cannelloni CAN tunnel, kiosk launcher and systemd units. See [`docs/bench-pi.md`](docs/bench-pi.md). |
+| [`ci/`](ci/) | CI scripts. GitHub Actions runs them on every push; run `ci/check_static.sh` locally for the same checks. |
 | [`hardware/`](hardware/) | Placeholder for hardware designs (PCBs, console). Licensed CERN-OHL-P-2.0. |
 
 ## For coding agents

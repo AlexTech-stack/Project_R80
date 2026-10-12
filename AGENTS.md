@@ -23,6 +23,9 @@ README.md                         project overview, quick start, licences
 LICENSE                           MIT (software)
 AGENTS.md                         this file
 CLAUDE.md                         extra notes for Claude; imports this file
+.github/workflows/ci.yml          GitHub Actions CI; each job calls a script in ci/
+ci/check_static.sh                static checks (py_compile, repo rules, DBC, simulator, screenshots)
+ci/check_rules.py                 checks the rules of this file that a script can check
 docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D8
 hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
   run.py                          launcher, also renders screenshots headless
@@ -89,9 +92,17 @@ cd hu-virtual
 ./hu-virtual.sh down
 ```
 
-There is no CI and no unit test suite yet. Before you commit:
+CI (GitHub Actions, `.github/workflows/ci.yml`) runs on every push to every branch.
+Its jobs only call scripts in `ci/`, so you can run the same checks locally:
 
-1. Run `python3 -m py_compile` on every Python file you changed.
+```bash
+ci/check_static.sh            # py_compile, repo rules, DBC and simulator drift, screenshots
+SKIP_UI=1 ci/check_static.sh  # same without the screenshots
+```
+
+There is no unit test suite yet. Before you commit:
+
+1. Run `ci/check_static.sh`, or at least `python3 -m py_compile` on every Python file you changed.
 2. If you changed QML, run `run.py --screenshots` and check the images.
 3. If you changed `hu-can/tools/make_dbc.py`, regenerate `r80_test.dbc` and commit both.
 4. If you changed anything in `hu-virtual/` and you can run BoAt, run `./hu-virtual.sh test`.
