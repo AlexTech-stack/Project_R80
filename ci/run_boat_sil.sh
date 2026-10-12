@@ -2,13 +2,17 @@
 # BoAt smoke tests of the virtual headunit (hu-virtual/), the same way locally and in CI.
 #
 #   ci/run_boat_sil.sh              use the BoAt you have (BOAT_ROOT, default ~/BoAt; `boat` on PATH)
-#   ci/run_boat_sil.sh --install    first install the BoAt release pinned in ci/boat.version into
-#                                   $R80_CI_OUT/boat: gateway from the release tarball, the BoAt source
-#                                   at that tag (restbus.py uses its SDK and tools/dbc2boatjson.py)
-#                                   and a venv with boat-py and boat-cli built from that source
+#   ci/run_boat_sil.sh --install    first install BoAt $BOAT_VERSION into $R80_CI_OUT/boat:
+#                                   the gateway, the BoAt source at that commit (restbus.py uses its
+#                                   SDK and tools/dbc2boatjson.py) and a venv with boat-py and
+#                                   boat-cli built from that source
 #
-# Env: BOAT_VERSION (default: ci/boat.version), BOAT_REPO (AlexTech-stack/BoAt),
-#      R80_CI_OUT (default: build/ci-boat, git-ignored).
+# BOAT_VERSION (default: ci/boat.version) is either
+#   - a release tag (v0.1.1): gateway from the release tarball, or
+#   - a branch or commit (master): gateway from BoAt's CI image ci-<sha> (ci/fetch_boat_gateway.py).
+#     BoAt only pushes that image after its CI passed, so the newest commit on the ref that has
+#     one is used; $R80_CI_OUT/boat/tested.txt says which.
+# Other env: BOAT_REPO (AlexTech-stack/BoAt), R80_CI_OUT (default: build/ci-boat, git-ignored).
 # Needs: Linux with the vcan module, sudo (hu-virtual.sh creates the buses), dbus-run-session,
 #        python3 >= 3.11 with the dbus and gi modules (Debian/Ubuntu: python3-dbus python3-gi).
 #
@@ -23,12 +27,30 @@ BOAT_REPO="${BOAT_REPO:-AlexTech-stack/BoAt}"
 RUN="${XDG_RUNTIME_DIR:-/tmp}/r80-hu"   # hu-virtual.sh keeps its pids, logs and reports here
 
 install_boat() {
-  local dir="$OUT/boat" ver="${BOAT_VERSION#v}"
+  local dir="$OUT/boat" ver="${BOAT_VERSION#v}" sha="" note=""
   echo "== installing BoAt $BOAT_VERSION into $dir"
   rm -rf "$dir" && mkdir -p "$dir"
-  curl -fsSL "https://github.com/$BOAT_REPO/releases/download/$BOAT_VERSION/boat-platform-$ver-Linux-x86_64.tar.gz" \
-    | tar xz -C "$dir" --strip-components=1
-  git -c advice.detachedHead=false clone -q --depth 1 --branch "$BOAT_VERSION" "https://github.com/$BOAT_REPO.git" "$dir/src"
+  if [[ "$BOAT_VERSION" =~ ^v[0-9] ]]; then
+    curl -fsSL "https://github.com/$BOAT_REPO/releases/download/$BOAT_VERSION/boat-platform-$ver-Linux-x86_64.tar.gz" \
+      | tar xz -C "$dir" --strip-components=1
+    git -c advice.detachedHead=false clone -q --depth 1 --branch "$BOAT_VERSION" "https://github.com/$BOAT_REPO.git" "$dir/src"
+    sha=$(git -C "$dir/src" rev-parse HEAD)
+  else
+    git clone -q --filter=blob:none --no-checkout "https://github.com/$BOAT_REPO.git" "$dir/src"
+    local head; head=$(git -C "$dir/src" rev-parse --verify -q "origin/$BOAT_VERSION^{commit}" \
+                       || git -C "$dir/src" rev-parse --verify "$BOAT_VERSION^{commit}") || return 1
+    mkdir -p "$dir/bin"
+    local c rc
+    for c in $(git -C "$dir/src" rev-list --first-parent -n 20 "$head"); do
+      rc=0; python3 "$ROOT/ci/fetch_boat_gateway.py" "$c" "$dir/bin/boat_gateway" || rc=$?
+      if ((rc == 0)); then sha=$c; break; fi
+      ((rc == 2)) || return 1
+    done
+    [[ -n "$sha" ]] || { echo "no BoAt CI image for the last 20 commits of $BOAT_VERSION"; return 1; }
+    [[ "$sha" == "$head" ]] || note=" (newest commit with a CI image; $BOAT_VERSION is at ${head:0:7})"
+    git -C "$dir/src" -c advice.detachedHead=false checkout -q "$sha"
+  fi
+  echo "BoAt $BOAT_VERSION @ ${sha:0:7}$note" | tee "$dir/tested.txt"
   python3 -m venv --system-site-packages "$dir/venv"
   "$dir/venv/bin/pip" install -q "$dir/src/boat-platform/sdk/python" "$dir/src/boat-platform/cli"
   export BOAT_ROOT="$dir/src" BOAT_GATEWAY="$dir/bin/boat_gateway" PATH="$dir/venv/bin:$PATH"

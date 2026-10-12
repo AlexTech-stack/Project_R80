@@ -59,6 +59,11 @@ jobs:
           sudo modprobe vcan
       - name: BoAt smoke tests
         run: ci/run_boat_sil.sh --install
+      - name: Summary
+        if: always()
+        run: |
+          python3 ci/boat_report.py build/ci-boat/reports \
+            --title "$(cat build/ci-boat/boat/tested.txt 2>/dev/null || echo 'BoAt (install failed)')" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload BoAt reports and logs
         if: always()
         uses: actions/upload-artifact@v7

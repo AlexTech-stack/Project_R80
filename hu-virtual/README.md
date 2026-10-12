@@ -108,6 +108,8 @@ reports plus logs uploaded as the `boat-reports` artifact. Run the same thing
 locally with `../ci/run_boat_sil.sh` (your BoAt) or with `--install` (the pinned
 one, under `build/ci-boat/`). The verdict is the exit code of `boat test run`;
 BoAt's `report.junit.xml` is empty for script tests (AlexTech-stack/BoAt#50).
+`BOAT_VERSION=master ../ci/run_boat_sil.sh --install` tests against BoAt master
+(gateway from BoAt's CI image); the nightly `boat-canary` workflow does that too.
 
 ## Files
 

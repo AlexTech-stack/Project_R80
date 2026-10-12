@@ -1,0 +1,87 @@
+# BoAt canary: the R80 smoke tests against BoAt master and BoAt's latest release,
+# so a BoAt change that breaks R80 shows up before ci/boat.version moves.
+#
+# Not blocking: it is its own workflow, the ci workflow keeps testing the pinned BoAt.
+# A red canary means: R80 at this commit + a newer BoAt fail. Read the job summary;
+# if the cause is in BoAt, add it to BoAt's test/foundIssues.md and open a BoAt issue
+# (after checking it is not already open or fixed).
+#
+# Locally: BOAT_VERSION=master ci/run_boat_sil.sh --install
+
+name: boat-canary
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # nightly; schedules only run from the default branch
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/canary.yml
+      - ci/run_boat_sil.sh
+      - ci/fetch_boat_gateway.py
+      - ci/boat_report.py
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: m
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pin=$(tr -d '[:space:]' < ci/boat.version)
+          latest=$(gh release view -R AlexTech-stack/BoAt --json tagName -q .tagName)
+          echo "pin $pin, latest release $latest"
+          # master always; the latest release only when it is not the pin (ci already tests that).
+          if [[ "$latest" != "$pin" ]]; then list='["master","'"$latest"'"]'; else list='["master"]'; fi
+          echo "matrix={\"boat\":$list}" >> "$GITHUB_OUTPUT"
+
+  canary:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    name: boat ${{ matrix.boat }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install vcan, D-Bus and Python packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus python3-dbus python3-gi python3-venv
+          sudo apt-get install -y "linux-modules-extra-$(uname -r)" || true
+          sudo modprobe vcan
+      - name: BoAt smoke tests against BoAt ${{ matrix.boat }}
+        env:
+          BOAT_VERSION: ${{ matrix.boat }}
+        run: ci/run_boat_sil.sh --install
+      - name: Summary
+        if: always()
+        run: |
+          tested=$(cat build/ci-boat/boat/tested.txt 2>/dev/null || echo "BoAt ${{ matrix.boat }} (install failed)")
+          pin=$(tr -d '[:space:]' < ci/boat.version)
+          {
+            python3 ci/boat_report.py build/ci-boat/reports --title "$tested" \
+              ${{ job.status != 'success' && '--issue-template' || '' }}
+            if [[ "${{ job.status }}" == success && "${{ matrix.boat }}" == v* ]]; then
+              echo "${{ matrix.boat }} passes: \`ci/boat.version\` ($pin) can move to it."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload BoAt reports and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: boat-canary-${{ matrix.boat }}
+          path: |
+            build/ci-boat/reports/
+            build/ci-boat/logs/
+            build/ci-boat/boat/tested.txt
+          if-no-files-found: ignore
+          retention-days: 14

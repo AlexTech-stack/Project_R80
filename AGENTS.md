@@ -24,10 +24,13 @@ LICENSE                           MIT (software)
 AGENTS.md                         this file
 CLAUDE.md                         extra notes for Claude; imports this file
 .github/workflows/ci.yml          GitHub Actions CI; each job calls a script in ci/
+.github/workflows/canary.yml      nightly BoAt canary (BoAt master + latest release), not blocking
 ci/check_static.sh                static checks (py_compile, repo rules, DBC, simulator, screenshots)
 ci/check_rules.py                 checks the rules of this file that a script can check
 ci/run_boat_sil.sh                BoAt smoke tests of hu-virtual/ (--install: pinned BoAt release)
 ci/boat.version                   the BoAt release CI tests against
+ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
+ci/boat_report.py                 BoAt reports as Markdown (CI job summaries)
 docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D8
 hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
   run.py                          launcher, also renders screenshots headless
@@ -104,6 +107,9 @@ SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 
 CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
 (`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
+The `boat-canary` workflow runs the same tests nightly against BoAt `master` and BoAt's
+latest release. It does not block anything. When it fails and the cause is in BoAt,
+follow section 7.
 
 There is no unit test suite yet. Before you commit:
 
@@ -155,6 +161,9 @@ There is no unit test suite yet. Before you commit:
   1. What you did (commands, inputs, versions).
   2. What you expected to happen.
   3. What actually happened (exact error text or output).
+- If the issue is clearly in BoAt, check the BoAt GitHub issues (open and closed) and the
+  newer BoAt releases and `master`. If it is not already reported or fixed, open an issue
+  in `AlexTech-stack/BoAt` with the same three points and link it from the entry.
 - Then tell Alex about the issue.
 
 ## 8. Technical constraints
