@@ -77,7 +77,8 @@ python3 hu-mockup/run.py --screenshots /tmp/shots  # render every screen to PNG,
 
 - Use `--screenshots` to check any UI change. Open the PNGs and look at them.
 - On a headless Debian/Ubuntu machine, `--screenshots` also needs:
-  `sudo apt install libegl1 libgl1 libxkbcommon0 libfontconfig1`.
+  `sudo apt install libegl1 libgl1 libxkbcommon0 libfontconfig1 libglib2.0-0t64 libdbus-1-3 libgssapi-krb5-2 libx11-6`
+  (Debian 12 / Ubuntu 22.04: `libglib2.0-0` instead of `libglib2.0-0t64`).
 
 Test CAN database and simulator:
 
