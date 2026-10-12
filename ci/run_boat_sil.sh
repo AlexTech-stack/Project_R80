@@ -100,7 +100,7 @@ run_arm64_dut() {
   echo "== building the aarch64 DUT image"
   docker build -q --platform linux/arm64 -t "$image" "$ROOT/ci/dut" >/dev/null
   local bus_pid
-  bus_pid=$(dbus-daemon --session --fork --print-pid --address="unix:path=$rt/r80-bus")
+  bus_pid=$(dbus-daemon --config-file="$ROOT/ci/dut/session-bus.conf" --fork --print-pid --address="unix:path=$rt/r80-bus")
   export DBUS_SESSION_BUS_ADDRESS="unix:path=$rt/r80-bus"
   local rc=0
   arm64_dut_session "$rt" "$image" "$name" || rc=$?
