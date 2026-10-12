@@ -5,8 +5,11 @@
 
 BoAt's CI pushes ghcr.io/alextech-stack/boat:ci-<full sha> for every master commit
 whose CI passed (built from boat-platform/Dockerfile.runtime, linux/amd64 + arm64).
-This reads the linux/amd64 image over the registry API and extracts
-/usr/local/bin/boat_gateway. Exit 2 if there is no image for that commit (yet).
+This reads the image for this machine (linux/amd64 or linux/arm64) over the registry API
+and extracts
+/usr/local/bin/boat_gateway. Exit 2 if there is no image for that commit (yet),
+exit 3 if the binary is not built for this machine (AlexTech-stack/BoAt#51: the arm64
+image carries the x86-64 binary).
 
 Standard library only.
 """
@@ -31,6 +34,8 @@ ACCEPT = ", ".join([
     "application/vnd.docker.distribution.manifest.v2+json",
 ])
 ARCH = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine(), platform.machine())
+# ELF e_machine values, to check what the image really contains.
+ELF_MACHINE = {0x3E: "amd64", 0xB7: "arm64"}
 
 
 def get(url: str, token: str, accept: str = ACCEPT) -> bytes:
@@ -70,8 +75,13 @@ def main() -> int:
                 f = tar.extractfile(MEMBER)
             except KeyError:
                 continue
-            with open(dest, "wb") as out:
-                out.write(f.read())
+            data = f.read()
+        got = ELF_MACHINE.get(int.from_bytes(data[18:20], "little"), "unknown") if data[:4] == b"\x7fELF" else "not ELF"
+        if got != ARCH:
+            print(f"{IMAGE}:{tag} linux/{ARCH} contains a {got} boat_gateway, not {ARCH} (AlexTech-stack/BoAt#51)")
+            return 3
+        with open(dest, "wb") as out:
+            out.write(data)
         os.chmod(dest, 0o755)
         print(f"boat_gateway from {IMAGE}:{tag} (linux/{ARCH}) -> {dest}")
         return 0

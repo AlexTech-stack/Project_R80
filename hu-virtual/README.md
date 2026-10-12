@@ -110,6 +110,8 @@ one, under `build/ci-boat/`). The verdict is the exit code of `boat test run`;
 BoAt's `report.junit.xml` is empty for script tests (AlexTech-stack/BoAt#50).
 `BOAT_VERSION=master ../ci/run_boat_sil.sh --install` tests against BoAt master
 (gateway from BoAt's CI image); the nightly `boat-canary` workflow does that too.
+The smoke tests run on x86_64 only for now: BoAt's arm64 image contains the x86-64
+gateway (AlexTech-stack/BoAt#51), so `--install` stops on aarch64 with that message.
 
 ## Files
 

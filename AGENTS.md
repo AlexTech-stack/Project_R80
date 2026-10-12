@@ -98,6 +98,8 @@ cd hu-virtual
 ```
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) runs on every push to every branch.
+It runs the static checks on x86_64 and on aarch64 in Debian 13 (like the Pi bench),
+so an x86-only dependency fails CI (section 8).
 Its jobs only call scripts in `ci/`, so you can run the same checks locally:
 
 ```bash

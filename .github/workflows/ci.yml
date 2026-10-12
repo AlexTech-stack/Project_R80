@@ -75,6 +75,39 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  static-arm64:
+    # The same static checks on the bench target: aarch64, Debian 13 "Trixie" like
+    # Raspberry Pi OS 64-bit (docs/bench-pi.md), its Python and a PySide6 venv.
+    # The BoAt smoke tests do not run on ARM yet: BoAt has no arm64 gateway
+    # (AlexTech-stack/BoAt#51).
+    runs-on: ubuntu-24.04-arm
+    container: debian:trixie
+    timeout-minutes: 20
+    steps:
+      - name: Install Debian packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv \
+            libegl1 libgl1 libxkbcommon0 libfontconfig1
+      - uses: actions/checkout@v7
+      - name: Python venv with the R80 dependencies
+        run: |
+          python3 -m venv /opt/r80-venv
+          /opt/r80-venv/bin/pip install PySide6 cantools python-can
+      - name: Static checks
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          uname -m && python3 --version
+          PYTHON=/opt/r80-venv/bin/python ci/check_static.sh
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-arm64
+          path: build/ci/screenshots/
+          if-no-files-found: ignore
+          retention-days: 14
+
   python-3-9:
     # AGENTS.md section 9 promises Python 3.9+. Compile only: no dependencies needed.
     runs-on: ubuntu-24.04
