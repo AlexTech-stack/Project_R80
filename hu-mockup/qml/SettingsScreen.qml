@@ -135,7 +135,7 @@ Item {
                         Rectangle {
                             width: 50; height: 50; radius: 25
                             color: modelData.color
-                            border.color: index === Theme.accentIndex ? "white" : "transparent"
+                            border.color: index === Theme.accentIndex ? Theme.selectionRing : "transparent"
                             border.width: 3
                             MouseArea { anchors.fill: parent; onClicked: Theme.accentIndex = index }
                         }

@@ -23,6 +23,15 @@ README.md                         project overview, quick start, licences
 LICENSE                           MIT (software)
 AGENTS.md                         this file
 CLAUDE.md                         extra notes for Claude; imports this file
+.github/workflows/ci.yml          GitHub Actions CI; each job calls a script in ci/
+.github/workflows/canary.yml      nightly BoAt canary (BoAt master + latest release), not blocking
+ci/check_static.sh                static checks (py_compile, repo rules, DBC, simulator, screenshots)
+ci/check_rules.py                 checks the rules of this file that a script can check
+ci/run_boat_sil.sh                BoAt smoke tests of hu-virtual/ (--install: pinned BoAt release)
+ci/boat.version                   the BoAt release CI tests against
+ci/dut/                           emulated aarch64 DUT for CI: Dockerfile, start script, private bus config
+ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
+ci/boat_report.py                 BoAt reports as Markdown (CI job summaries)
 docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D8
 hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
   run.py                          launcher, also renders screenshots headless
@@ -69,7 +78,8 @@ python3 hu-mockup/run.py --screenshots /tmp/shots  # render every screen to PNG,
 
 - Use `--screenshots` to check any UI change. Open the PNGs and look at them.
 - On a headless Debian/Ubuntu machine, `--screenshots` also needs:
-  `sudo apt install libegl1 libgl1 libxkbcommon0 libfontconfig1`.
+  `sudo apt install libegl1 libgl1 libxkbcommon0 libfontconfig1 libglib2.0-0t64 libdbus-1-3 libgssapi-krb5-2 libx11-6`
+  (Debian 12 / Ubuntu 22.04: `libglib2.0-0` instead of `libglib2.0-0t64`).
 
 Test CAN database and simulator:
 
@@ -89,13 +99,32 @@ cd hu-virtual
 ./hu-virtual.sh down
 ```
 
-There is no CI and no unit test suite yet. Before you commit:
+CI (GitHub Actions, `.github/workflows/ci.yml`) runs on every push to every branch.
+It runs the static checks on x86_64 and on aarch64 in Debian 13 (like the Pi bench),
+so an x86-only dependency fails CI (section 8).
+Its jobs only call scripts in `ci/`, so you can run the same checks locally:
 
-1. Run `python3 -m py_compile` on every Python file you changed.
+```bash
+ci/check_static.sh            # py_compile, repo rules, DBC and simulator drift, screenshots
+SKIP_UI=1 ci/check_static.sh  # same without the screenshots
+```
+
+CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
+(`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
+A second job runs them with the DUT (`mcu_emu/` + `hu/vehicled.py`) on aarch64 Debian 13
+in a QEMU-emulated container, while BoAt stays on the x86 host
+(`ci/run_boat_sil.sh --install --dut-arm64`; needs docker and qemu-user-static).
+The `boat-canary` workflow runs the same tests nightly against BoAt `master` and BoAt's
+latest release. It does not block anything. When it fails and the cause is in BoAt,
+follow section 7.
+
+There is no unit test suite yet. Before you commit:
+
+1. Run `ci/check_static.sh`, or at least `python3 -m py_compile` on every Python file you changed.
 2. If you changed QML, run `run.py --screenshots` and check the images.
 3. If you changed `hu-can/tools/make_dbc.py`, regenerate `r80_test.dbc` and commit both.
-4. If you changed anything in `hu-virtual/` and you can run BoAt, run `./hu-virtual.sh test`.
-   If you cannot run it, say so in your report.
+4. If you changed anything in `hu-virtual/` and you can run BoAt, run `ci/run_boat_sil.sh`
+   (or `./hu-virtual.sh test`). If you cannot run it, say so and check the `boat-sil` CI job instead.
 
 ## 4. Git rules
 
@@ -133,9 +162,16 @@ There is no CI and no unit test suite yet. Before you commit:
 
 - BoAt is a separate project by Alex. On Alex's PC it lives at `~/BoAt`
   (`/home/testuser/BoAt`). `hu-virtual/` uses it for the restbus and the tests.
+- BoAt (gateway, restbus, tester panel, tests) runs on the test PC (x86_64) only.
+  It never runs on the Raspberry Pi or the final headunit: those are the DUT.
 - NEVER change, patch or "fix" anything in BoAt. Not even a one-line fix.
+- Do not create, edit or delete any file in the BoAt repository or in `~/BoAt`
+  (no notes, no git operations there). Read it only. To look at other BoAt versions,
+  use a separate clone (as `ci/run_boat_sil.sh --install` does) or the GitHub API.
 - NEVER work around a BoAt bug silently in this repo.
-- When you find a BoAt issue, add an entry to `~/BoAt/test/foundIssues.md` with:
+- When you find a BoAt issue, check the BoAt GitHub issues (open and closed) and the
+  newer BoAt releases and `master`. If it is not already reported or fixed, open an issue
+  in `AlexTech-stack/BoAt` with:
   1. What you did (commands, inputs, versions).
   2. What you expected to happen.
   3. What actually happened (exact error text or output).
