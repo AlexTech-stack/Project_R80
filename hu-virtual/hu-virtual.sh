@@ -10,7 +10,7 @@
 #
 # Env overrides: BOAT_ROOT (~/BoAt), BOAT_PORT (50061), R80_MOCKUP (mockup dir),
 #                HU_DUT=external (up starts only buses + gateway; the DUT, i.e. MCU emulator,
-#                vehicled and mediad, runs elsewhere, e.g. in an aarch64 container: ci/run_boat_sil.sh --dut-arm64),
+#                vehicled and mediad, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
 #                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort),
 #                MUSIC_DIR (media library; unset = demo tones in $RUN/music),
 #                MEDIA_ARGS (extra hu/mediad.py arguments).

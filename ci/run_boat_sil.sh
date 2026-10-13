@@ -2,9 +2,11 @@
 # BoAt smoke tests of the virtual headunit (hu-virtual/), the same way locally and in CI.
 #
 #   ci/run_boat_sil.sh              use the BoAt you have (BOAT_ROOT, default ~/BoAt; `boat` on PATH)
-#   ci/run_boat_sil.sh --dut-arm64  run the DUT (mcu_emu + vehicled) in an aarch64 Debian Trixie
-#                                   container (ci/dut/) instead of on the host; BoAt stays on the host.
-#                                   Needs docker and QEMU binfmt for arm64 (CI: qemu-user-static).
+#   ci/run_boat_sil.sh --dut-arch=arm64|amd64
+#                                   run the DUT (mcu_emu + vehicled + mediad) in a Debian Trixie
+#                                   container (ci/dut/) for that CPU instead of on the host; BoAt stays
+#                                   on the host. Needs docker; arm64 on an x86 host also QEMU binfmt
+#                                   (CI: qemu-user-static).
 #   ci/run_boat_sil.sh --install    first install BoAt $BOAT_VERSION into $R80_CI_OUT/boat:
 #                                   the gateway, the BoAt source at that commit (restbus.py uses its
 #                                   SDK and tools/dbc2boatjson.py) and a venv with boat-py and
@@ -65,11 +67,11 @@ install_boat() {
   export BOAT_ROOT="$dir/src" BOAT_GATEWAY="$dir/bin/boat_gateway" PATH="$dir/venv/bin:$PATH"
 }
 
-INSTALL="" DUT_ARM64=""
+INSTALL="" DUT_ARCH=""
 for arg in "$@"; do
   case "$arg" in
     --install) INSTALL=1 ;;
-    --dut-arm64) DUT_ARM64=1 ;;
+    --dut-arch=arm64|--dut-arch=amd64) DUT_ARCH=${arg#--dut-arch=} ;;
     *) sed -n '2,25p' "$0"; exit 1 ;;
   esac
 done
@@ -92,34 +94,37 @@ run_local_dut() {
   ' _ "$ROOT"
 }
 
-run_arm64_dut() {
-  # BoAt on the host (the "test PC"), the DUT in an aarch64 container. They share the host
+# Tests never play audio out loud; mediad writes to a fake sink unless told otherwise.
+export MEDIA_ARGS="${MEDIA_ARGS:---sink fakesink}"
+
+run_container_dut() {
+  # BoAt on the host (the "test PC"), the DUT in a container for $DUT_ARCH. They share the host
   # network (vcan), XDG_RUNTIME_DIR (UART link, MCU control socket) and a session bus whose
   # socket lives there too. The container runs as our user so D-Bus accepts it.
-  local rt="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR must be set}" image=r80-dut-arm64 name=r80-dut
-  echo "== building the aarch64 DUT image"
-  docker build -q --platform linux/arm64 -t "$image" "$ROOT/ci/dut" >/dev/null
+  local rt="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR must be set}" image="r80-dut-$DUT_ARCH" name="r80-dut-$DUT_ARCH"
+  echo "== building the $DUT_ARCH DUT image"
+  docker build -q --platform "linux/$DUT_ARCH" -t "$image" "$ROOT/ci/dut" >/dev/null
   local bus_pid
   bus_pid=$(dbus-daemon --config-file="$ROOT/ci/dut/session-bus.conf" --fork --print-pid --address="unix:path=$rt/r80-bus")
   export DBUS_SESSION_BUS_ADDRESS="unix:path=$rt/r80-bus"
   local rc=0
-  arm64_dut_session "$rt" "$image" "$name" || rc=$?
+  container_dut_session "$rt" "$image" "$name" || rc=$?
   # Always: keep the DUT log, stop the container, the BoAt side and the bus.
   mkdir -p "$OUT/logs"
-  docker logs "$name" >"$OUT/logs/dut-arm64.log" 2>&1 || true
+  docker logs "$name" >"$OUT/logs/dut-$DUT_ARCH.log" 2>&1 || true
   docker rm -f "$name" >/dev/null 2>&1 || true
   (cd "$ROOT/hu-virtual" && ./hu-virtual.sh down) || true
   kill "$bus_pid" 2>/dev/null || true
   return $rc
 }
 
-arm64_dut_session() {
+container_dut_session() {
   local rt=$1 image=$2 name=$3
   (cd "$ROOT/hu-virtual" && HU_DUT=external ./hu-virtual.sh up) || return 1
-  docker run -d --name "$name" --platform linux/arm64 --network host --user "$(id -u):$(id -g)" \
-    -e HOME=/tmp -e XDG_RUNTIME_DIR="$rt" -e DBUS_SESSION_BUS_ADDRESS \
+  docker run -d --name "$name" --platform "linux/$DUT_ARCH" --network host --user "$(id -u):$(id -g)" \
+    -e HOME=/tmp -e XDG_RUNTIME_DIR="$rt" -e DBUS_SESSION_BUS_ADDRESS -e MEDIA_ARGS \
     -v "$rt:$rt" -v "$ROOT:$ROOT:ro" "$image" "$ROOT/ci/dut/start_dut.sh" "$ROOT/hu-virtual" >/dev/null
-  echo "== waiting for the DUT (de.r80.Vehicle with the MCU link up)"
+  echo "== waiting for the DUT (de.r80.Vehicle with the MCU link up, de.r80.Media)"
   python3 - <<'PY' || { docker logs "$name" | tail -20; return 1; }
 import time, dbus
 deadline = time.monotonic() + 120  # QEMU makes the first start slow
@@ -127,7 +132,7 @@ while time.monotonic() < deadline:
     try:
         props = dbus.SessionBus().get_object("de.r80.Vehicle", "/de/r80/Vehicle").GetAll(
             "de.r80.Vehicle1", dbus_interface="org.freedesktop.DBus.Properties")
-        if props.get("LinkUp"):
+        if props.get("LinkUp") and dbus.SessionBus().name_has_owner("de.r80.Media"):
             print(f"   DUT up after {120 - (deadline - time.monotonic()):.0f} s")
             raise SystemExit(0)
     except dbus.DBusException:
@@ -140,7 +145,7 @@ PY
 }
 
 set +e
-if [[ -n "$DUT_ARM64" ]]; then run_arm64_dut; else run_local_dut; fi
+if [[ -n "$DUT_ARCH" ]]; then run_container_dut; else run_local_dut; fi
 rc=$?
 set -e
 

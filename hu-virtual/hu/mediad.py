@@ -202,10 +202,12 @@ class Media(dbus.service.Object):
             log(f"playback error: {err.message if err else '?'} ({dbg or ''})")
             self.stop()
         elif t == Gst.MessageType.STATE_CHANGED and msg.src == self.player:
-            ok, state, _pending = self.player.get_state(0)
-            if ok:
+            _old, state, pending = msg.parse_state_changed()
+            # Only the state the player settles in; the PAUSED step on the way to PLAYING
+            # (every track change) would make the UI's play button flicker.
+            if pending == Gst.State.VOID_PENDING:
                 self.status = {Gst.State.PLAYING: "playing", Gst.State.PAUSED: "paused"}.get(state, "stopped")
-                self.dirty.update(("PlaybackStatus",))
+                self.set("PlaybackStatus", self.status)
         elif t == Gst.MessageType.DURATION_CHANGED:
             self.learn_duration()
         return True

@@ -10,6 +10,8 @@
     { "id": "TC_HU_003", "name": "Power states and shutdown handshake", "file": "python3 tests/test_power.py", "timeout_s": 30 },
     { "id": "TC_HU_004", "name": "Day/night dimming", "file": "python3 tests/test_dimming.py", "timeout_s": 20 },
     { "id": "TC_HU_005", "name": "Knob and button events", "file": "python3 tests/test_inputs.py", "timeout_s": 20 },
-    { "id": "TC_HU_006", "name": "Listen-only on Motor and Comfort", "file": "python3 tests/test_listen_only.py", "timeout_s": 20 }
+    { "id": "TC_HU_006", "name": "Listen-only on Motor and Comfort", "file": "python3 tests/test_listen_only.py", "timeout_s": 20 },
+    { "id": "TC_HU_007", "name": "Media play / pause status", "file": "python3 tests/test_media_playback.py", "timeout_s": 30 },
+    { "id": "TC_HU_008", "name": "Media track navigation", "file": "python3 tests/test_media_tracks.py", "timeout_s": 40 }
   ]
 }

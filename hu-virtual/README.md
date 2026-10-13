@@ -132,6 +132,8 @@ Media screen to this service and falls back to the mockup's own playlist when
 | TC_HU_004 | day/night from LightState, MCU dim override |
 | TC_HU_005 | knob and button events reach D-Bus in order |
 | TC_HU_006 | HU can send on Infotainment, never on Motor or Comfort (checked on the wire by BoAt) |
+| TC_HU_007 | media play / pause: `PlaybackStatus` follows the player, position runs or stands still, metadata matches |
+| TC_HU_008 | media tracks: SetTrack, Next/Previous (restart after 3 s), wrap-around, stop at the end without repeat, seek |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
@@ -147,11 +149,13 @@ BoAt's `report.junit.xml` is empty for script tests (AlexTech-stack/BoAt#50).
 BoAt runs on the x86_64 test PC only; on the bench the Raspberry Pi is the DUT and
 runs `mcu_emu/` and `hu/` (see `../docs/bench-pi.md`), so `--install` refuses other machines.
 
-`../ci/run_boat_sil.sh --dut-arm64` keeps that split on one x86 machine: BoAt on the
-host (`HU_DUT=external ./hu-virtual.sh up` starts only the buses and the gateway), the
-DUT in an aarch64 Debian 13 container under QEMU (`../ci/dut/`). Both share the host's
-vcan buses, `$XDG_RUNTIME_DIR` and a private session bus, so the tests run unchanged.
-CI runs this as the job `boat-sil-arm64-dut`.
+`../ci/run_boat_sil.sh --dut-arch=arm64` keeps that split on one x86 machine: BoAt on
+the host (`HU_DUT=external ./hu-virtual.sh up` starts only the buses and the gateway),
+the DUT (`mcu_emu/`, `vehicled`, `mediad`) in an aarch64 Debian 13 container under QEMU
+(`../ci/dut/`). `--dut-arch=amd64` does the same with an x86 container, in case the final
+hardware is x86. Both share the host's vcan buses, `$XDG_RUNTIME_DIR` and a private
+session bus, so the tests run unchanged. CI runs both as the job `boat-sil-dut`.
+`run_boat_sil.sh` passes `MEDIA_ARGS=--sink fakesink`, so test runs stay silent.
 
 ## Files
 

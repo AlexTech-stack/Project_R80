@@ -55,7 +55,8 @@ jobs:
       - name: Install vcan, D-Bus and Python packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y dbus python3-dbus python3-gi python3-venv
+          sudo apt-get install -y dbus python3-dbus python3-gi python3-venv \
+            gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
           sudo apt-get install -y "linux-modules-extra-$(uname -r)" || true
           sudo modprobe vcan
       - name: BoAt smoke tests against BoAt ${{ matrix.boat }}
