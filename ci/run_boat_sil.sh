@@ -76,6 +76,23 @@ for arg in "$@"; do
   esac
 done
 
+# Never borrow someone's running environment: hu-virtual.sh would report its services as
+# "already running", the tests would run against them, and the teardown below would stop
+# them. The pid files, MCU socket, vcan buses and gateway port are shared per user.
+env_in_use() {
+  local f busy=() port="${BOAT_PORT:-50061}"
+  for f in "$RUN"/*.pid; do
+    [[ -e "$f" ]] && kill -0 "$(cat "$f")" 2>/dev/null && busy+=("$(basename "$f" .pid)")
+  done
+  if command -v ss >/dev/null && [[ -n "$(ss -ltnH "sport = :$port" 2>/dev/null)" ]]; then
+    busy+=("something on port $port")
+  fi
+  ((${#busy[@]} == 0)) && return 1
+  echo "An R80 environment is already running here (${busy[*]}; $RUN)."
+  echo "Not touching it. Stop it first (hu-virtual/hu-virtual.sh down) if it is yours to stop."
+}
+env_in_use && exit 2
+
 mkdir -p "$OUT"
 [[ -n "$INSTALL" ]] && install_boat
 

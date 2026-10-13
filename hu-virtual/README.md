@@ -156,6 +156,9 @@ the DUT (`mcu_emu/`, `vehicled`, `mediad`) in an aarch64 Debian 13 container und
 hardware is x86. Both share the host's vcan buses, `$XDG_RUNTIME_DIR` and a private
 session bus, so the tests run unchanged. CI runs both as the job `boat-sil-dut`.
 `run_boat_sil.sh` passes `MEDIA_ARGS=--sink fakesink`, so test runs stay silent.
+It refuses to run (exit 2) while an environment is already up here (live services
+in `$XDG_RUNTIME_DIR/r80-hu` or anything on the gateway port), so it never tests
+against, or shuts down, a session someone is using.
 
 ## Files
 
