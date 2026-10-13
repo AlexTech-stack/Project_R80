@@ -84,6 +84,7 @@ Window {
             anchors.right: parent.right
             title: win.screens[win.current].title
             onBack: win.go("home")
+            onVolumeClicked: volumePopup.show()
         }
 
         MouseArea {
@@ -108,14 +109,7 @@ Window {
             }
         }
 
-        // master volume, bottom left on every screen (D9)
-        VolumeBadge {
-            id: volumeBadge
-            x: Theme.margin - 12
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 10
-            onClicked: volumePopup.show()
-        }
+        // master volume popup, opened from the volume in the header (D9)
         VolumePopup { id: volumePopup }
 
         CallOverlay { id: callOverlay; anchors.fill: parent }

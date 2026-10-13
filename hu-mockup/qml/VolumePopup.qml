@@ -1,6 +1,6 @@
 import QtQuick
 
-// Master volume popup (D9), opened from the VolumeBadge. Slider and mute button;
+// Master volume popup (D9), opened from the volume in the header. Slider and mute button;
 // the knob changes the volume while it is open, press or Back closes it, and it
 // closes by itself a few seconds after the last change.
 Item {
@@ -24,8 +24,8 @@ Item {
 
     Rectangle {
         id: panel
-        x: Theme.margin
-        y: parent.height - height - 78
+        x: parent.width - width - Theme.margin
+        y: Theme.headerHeight + 12
         width: 560; height: 190
         color: Theme.bg
         border.color: Theme.accent

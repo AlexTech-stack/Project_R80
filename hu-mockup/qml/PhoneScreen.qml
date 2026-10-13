@@ -92,7 +92,7 @@ Item {
     }
 
     T {
-        x: Theme.margin + Theme.volumeBadgeInset
+        x: Theme.margin + 14
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 22
         text: Sim.phoneName + "  ·  " + Sim.phoneBattery + " %"

@@ -97,7 +97,7 @@ on D-Bus `de.r80.Media` at `/de/r80/Media` (interface `de.r80.Media1`):
   `CanGoPrevious`
 - methods `Play`, `Pause`, `PlayPause`, `Next`, `Previous`, `SetTrack`, `Seek`,
   `SetPosition`, `SetPlaying`, `SetShuffle`, `SetRepeatAll`, `SetSource`,
-  `SetGain` (the playback level, set by hu-audiod)
+  `SetGain(gain, fade_ms)` (the playback level, set by hu-audiod)
 - signals `Seeked` and `PropertiesChanged`
 
 `./hu-virtual.sh up` starts it on a demo folder of short WAV tones. Point it at
@@ -132,7 +132,12 @@ Media screen to this service and falls back to the mockup's own playlist when
 For each source it computes `gain = ((Master / Max) * (Volume / Max)) ** curve`
 (0 while muted) and the source applies it itself: `mediad` through `SetGain`,
 with a GStreamer `volume` element, so PipeWire's own stream volume is never
-touched. The MCU's VOL_UP / VOL_DOWN / MUTE keys go straight to audiod (ignored
+touched. Every change is a linear ramp of `change_fade_ms` (audio.ini, 50 ms),
+computed per sample by GStreamer's controller, because a jump clicks. The
+`volume` element sits right in front of the audio sink (not in playbin's
+`audio-filter` slot, where it ran about 1.3 s ahead of what was heard), and the
+sink buffer is 60 ms (`mediad --buffer-ms`): a change is audible about 60–90 ms
+later. The MCU's VOL_UP / VOL_DOWN / MUTE keys go straight to audiod (ignored
 while the HU is off); the UI only shows the master volume and asks audiod to
 change it.
 
@@ -160,7 +165,7 @@ gdbus call --session -d de.r80.Audio -o /de/r80/Audio -m de.r80.Audio1.SetNavPro
 gdbus call --session -d de.r80.Audio -o /de/r80/Audio -m de.r80.Audio1.SetCallState ringing
 ```
 
-In the UI, the master volume sits bottom left on every screen and opens a popup
+In the UI, the master volume sits in the header on every screen and opens a popup
 (slider, mute); Settings → Audio has the four source volumes. `hu/ui/qml/Sim.qml`
 mirrors audiod's values into the mockup's property names (`volume`, `volumeMax`,
 `muted`, `mediaVolume`, `navVolume`, `phoneVolume`, `radioVolume`) and sends

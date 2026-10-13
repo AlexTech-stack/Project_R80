@@ -15,7 +15,7 @@ playback state on D-Bus for the UI and the other services:
       methods     Play(), Pause(), PlayPause(), Next(), Previous(),
                   SetTrack(i), Seek(x offset_us), SetPosition(x pos_us),
                   SetPlaying(b), SetShuffle(b), SetRepeatAll(b),
-                  SetSource(s), SetGain(d 0.0..1.0, set by hu-audiod)
+                  SetSource(s), SetGain(d gain 0.0..1.0, u fade_ms; set by hu-audiod)
       signal      Seeked(x position)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
@@ -44,7 +44,8 @@ import gi
 from dbus.mainloop.glib import DBusGMainLoop
 
 gi.require_version("Gst", "1.0")
-from gi.repository import GLib, Gst  # noqa: E402
+gi.require_version("GstController", "1.0")
+from gi.repository import GLib, Gst, GstController  # noqa: E402
 
 BUS_NAME = "de.r80.Media"
 OBJ_PATH = "/de/r80/Media"
@@ -93,14 +94,16 @@ def make_demo(music_dir: Path, count: int = 4) -> list:
 
     Fast on purpose, also on a Pi 3B or under QEMU: each frequency divides the sample
     rate, so one period is computed and repeated as bytes; only the fades are per sample.
+    44.1 kHz rather than less: wavparse hands out 4 KB chunks, which at 8 kHz were 256 ms
+    long and made every volume change late by up to that much.
     """
-    tones = [("Neon Autobahn", "Night Drive", 200, 24),
-             ("The Quattro Lines", "Red Horizon", 320, 20),
-             ("Lumen Drift", "Tunnel Vision", 160, 28),
-             ("Marta Kovac", "Coastline", 250, 18)]
+    tones = [("Neon Autobahn", "Night Drive", 225, 24),
+             ("The Quattro Lines", "Red Horizon", 315, 20),
+             ("Lumen Drift", "Tunnel Vision", 175, 28),
+             ("Marta Kovac", "Coastline", 245, 18)]
     music_dir.mkdir(parents=True, exist_ok=True)
     made = []
-    rate = 8000                      # plenty for test tones of 160..320 Hz
+    rate = 44100
     edge = rate // 10                # 0.1 s fade in / out so the tone does not click
     for artist, title, freq, secs in tones[:count]:
         f = music_dir / f"{artist} - {title}.wav"
@@ -126,7 +129,7 @@ def make_demo(music_dir: Path, count: int = 4) -> list:
 
 
 class Media(dbus.service.Object):
-    def __init__(self, bus, music_dir: Path, sink: str | None = None):
+    def __init__(self, bus, music_dir: Path, sink: str | None = None, buffer_ms: int = 60):
         super().__init__(bus, OBJ_PATH)
         self.dir = music_dir
         self.tracks = self.scan()
@@ -144,17 +147,22 @@ class Media(dbus.service.Object):
         self.player = Gst.ElementFactory.make("playbin", "player")
         if self.player is None:
             raise RuntimeError("GStreamer playbin not available")
-        if sink:
-            element = Gst.ElementFactory.make(sink, None)
-            if element is not None and element.find_property("sync") is not None:
-                element.set_property("sync", True)   # keep fakesink real-time for headless tests
-            self.player.set_property("audio-sink", element)
-        # Playback level from hu-audiod, applied by a volume element in the audio chain.
-        # Not playbin's own volume: that becomes the PipeWire stream volume, which
+        # Playback level from hu-audiod, applied by a volume element right in front of the
+        # audio sink: in playbin's audio-filter slot it ran ~1.3 s ahead of what was heard.
+        # Not playbin's own volume either: that becomes the PipeWire stream volume, which
         # WirePlumber saves per application and restores for every python3 program.
         self.gain = 1.0
-        self.gain_el = Gst.ElementFactory.make("volume", "gain")
-        self.player.set_property("audio-filter", self.gain_el)
+        self.player.set_property("audio-sink", self.make_output(sink, buffer_ms))
+        # Every change is a short linear ramp, interpolated per sample, so it does not click.
+        self.ramp = GstController.InterpolationControlSource()
+        self.ramp.set_property("mode", GstController.InterpolationMode.LINEAR)
+        self.gain_el.add_control_binding(GstController.DirectControlBinding.new_absolute(self.gain_el, "volume", self.ramp))
+        self.ramp.set(0, 1.0)
+        self.ramp_pts = None         # ((t0, level), (t1, level)) of the ramp now in the controller
+        self.segment = None          # of the stream entering the gain element
+        self.next_time = None        # stream time of the next audio it will process
+        pad = self.gain_el.get_static_pad("sink")
+        pad.add_probe(Gst.PadProbeType.BUFFER | Gst.PadProbeType.EVENT_DOWNSTREAM, self.on_gain_pad)
         bus_ = self.player.get_bus()
         bus_.add_signal_watch()
         bus_.connect("message", self.on_bus)
@@ -162,6 +170,80 @@ class Media(dbus.service.Object):
         GLib.timeout_add(100, self.flush)
         GLib.timeout_add(300, self.poll_position)
         self.refresh_props()
+
+    # ---- output and gain --------------------------------------------------
+    def make_output(self, sink: str | None, buffer_ms: int):
+        out = Gst.Bin.new("output")
+        self.gain_el = Gst.ElementFactory.make("volume", "gain")
+        conv = Gst.ElementFactory.make("audioconvert", None)
+        res = Gst.ElementFactory.make("audioresample", None)
+        snk = Gst.ElementFactory.make(sink or "autoaudiosink", "sink")
+        if snk is None:
+            raise RuntimeError(f"GStreamer element {sink!r} not available")
+        if snk.find_property("sync") is not None and sink:
+            snk.set_property("sync", True)   # keep fakesink real-time for headless tests
+
+        def small_buffer(_bin, _sub, el):
+            # autoaudiosink picks its real sink only when it starts; shrink that one's buffer
+            if el.find_property("buffer-time") is not None and el.find_property("latency-time") is not None:
+                el.set_property("buffer-time", buffer_ms * 1000)
+                el.set_property("latency-time", min(10, buffer_ms) * 1000)
+        out.connect("deep-element-added", small_buffer)
+        for e in (self.gain_el, conv, res, snk):
+            out.add(e)
+        self.gain_el.link(conv)
+        conv.link(res)
+        res.link(snk)
+        out.add_pad(Gst.GhostPad.new("sink", self.gain_el.get_static_pad("sink")))
+        return out
+
+    def on_gain_pad(self, _pad, info):
+        if info.type & Gst.PadProbeType.BUFFER:
+            b = info.get_buffer()
+            if b and self.segment and b.pts != Gst.CLOCK_TIME_NONE:
+                end = b.pts + (b.duration if b.duration != Gst.CLOCK_TIME_NONE else 0)
+                self.next_time = self.segment.to_stream_time(Gst.Format.TIME, end)
+        else:
+            ev = info.get_event()
+            if ev and ev.type == Gst.EventType.SEGMENT:
+                self.segment = ev.parse_segment()
+                self.hold_gain()       # new track or seek: stream times start over
+        return Gst.PadProbeReturn.OK
+
+    def hold_gain(self):
+        """Forget any ramp and play at the current target from now on."""
+        self.ramp.unset_all()
+        self.ramp.set(0, self.gain)
+        self.ramp_pts = None
+        self.next_time = None
+
+    def level_at(self, t: int) -> float:
+        """Gain the ramp gives at stream time t. Kept here: ControlSource.get_value() cannot
+        be called from Python (PyGObject: "Interface type 2 should have is_pointer set")."""
+        if not self.ramp_pts:
+            return self.gain
+        (t0, v0), (t1, v1) = self.ramp_pts
+        if t <= t0:
+            return v0
+        if t >= t1:
+            return v1
+        return v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+
+    def ramp_to(self, gain: float, fade_ms: int):
+        """Ramp from the level now reaching the gain element to `gain` over fade_ms. It starts
+        at the next audio the element processes: what it already passed cannot change."""
+        t0 = self.next_time
+        if t0 is None or t0 == Gst.CLOCK_TIME_NONE or fade_ms <= 0:
+            self.gain = gain
+            self.hold_gain()
+            return
+        now = self.level_at(t0)
+        self.gain = gain
+        t1 = t0 + fade_ms * Gst.MSECOND
+        self.ramp.unset_all()
+        self.ramp.set(t0, now)
+        self.ramp.set(t1, gain)
+        self.ramp_pts = ((t0, now), (t1, gain))
 
     # ---- playlist --------------------------------------------------------
     def scan(self) -> list:
@@ -383,10 +465,9 @@ class Media(dbus.service.Object):
         self.repeat_all = bool(on)
         self.refresh_props()
 
-    @dbus.service.method(IFACE, in_signature="d")
-    def SetGain(self, gain):
-        self.gain = max(0.0, min(float(gain), 1.0))
-        self.gain_el.set_property("volume", self.gain)
+    @dbus.service.method(IFACE, in_signature="du")
+    def SetGain(self, gain, fade_ms):
+        self.ramp_to(max(0.0, min(float(gain), 1.0)), int(fade_ms))
         self.set("Gain", self.gain)
 
     @dbus.service.method(IFACE, in_signature="s")
@@ -403,6 +484,8 @@ def main():
     ap.add_argument("--demo", action="store_true",
                     help="if the music dir has no audio, write a few short WAV tones into it")
     ap.add_argument("--sink", default=None, help="force a GStreamer audio sink (e.g. fakesink, for headless runs)")
+    ap.add_argument("--buffer-ms", type=int, default=60,
+                    help="audio sink buffer; smaller makes volume changes audible sooner (default 60)")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     a = ap.parse_args()
 
@@ -414,7 +497,7 @@ def main():
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
-    media = Media(bus, music_dir, a.sink)
+    media = Media(bus, music_dir, a.sink, a.buffer_ms)
     log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, "
         f"{len(media.tracks)} track(s) in {music_dir}")
     GLib.MainLoop().run()

@@ -42,7 +42,7 @@ use the project file.
 | Enter / Space | press the knob |
 | Esc / Backspace / H | back to home |
 | 1 – 8 | jump to Navigation, Media, Radio, Phone, Vehicle, Drive, Clock, Settings |
-| Volume (bottom left) | click: master volume popup; knob or slider changes it, Mute button, press or Esc closes |
+| Volume (header, right of the temperature) | click: master volume popup; knob or slider changes it, Mute button, press or Esc closes |
 | C | simulate an incoming call |
 | F11 | toggle fullscreen |
 
@@ -54,10 +54,9 @@ service), Drive (virtual cluster), Clock & Weather, Settings. Under
 Settings → Display you can change brightness and the accent colour (red, amber,
 white, ice blue) live.
 
-The master volume is shown bottom left on every screen; clicking it opens the
-volume popup. Settings → Audio has one volume per source (media, navigation,
-phone, radio) above the tone settings (decision D9). Screens keep the bottom-left
-corner (`Theme.volumeBadgeInset`) free for it.
+The master volume is shown in the header on every screen, right of the outside
+temperature; clicking it opens the volume popup. Settings → Audio has one volume
+per source (media, navigation, phone, radio) above the tone settings (decision D9).
 
 ## Layout of the code
 

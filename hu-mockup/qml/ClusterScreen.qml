@@ -136,7 +136,7 @@ Item {
     }
 
     // bottom info line
-    T { x: Theme.margin + Theme.volumeBadgeInset; anchors.bottom: parent.bottom; anchors.bottomMargin: 18
+    T { x: Theme.margin; anchors.bottom: parent.bottom; anchors.bottomMargin: 18
         text: Math.floor(Sim.odometer) + " km"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
     T { anchors.right: parent.right; anchors.rightMargin: Theme.margin; anchors.bottom: parent.bottom; anchors.bottomMargin: 18
         text: (Sim.outsideTemp >= 0 ? "+" : "") + Math.round(Sim.outsideTemp) + " °C"; font.pixelSize: Theme.fontNormal }

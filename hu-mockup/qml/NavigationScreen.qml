@@ -144,9 +144,9 @@ Item {
             border.width: 1
         }
 
-        // scale bar (right of the volume badge)
+        // scale bar
         Column {
-            x: 16 + Theme.volumeBadgeInset
+            x: 16
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 14
             spacing: 2

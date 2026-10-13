@@ -74,7 +74,7 @@ def load_config(extra: str | None = None) -> dict:
     if extra and not Path(extra).is_file():
         raise ConfigError(f"config file not found: {extra}")
     cp.read([str(f) for f in files if f.is_file()])
-    used = {"volume": {"max", "startup_cap", "default_master", "curve"} | {f"default_{s}" for s in SOURCES},
+    used = {"volume": {"max", "startup_cap", "default_master", "curve", "change_fade_ms"} | {f"default_{s}" for s in SOURCES},
             "focus": {"duck_level", "duck_fade_ms", "call_starts_on", "resume_media_after_call",
                       "call_mutes_radio", "mute_spares_call"}}
 
@@ -108,6 +108,7 @@ def load_config(extra: str | None = None) -> dict:
         "startup_cap": num("volume", "startup_cap", int, 0, vmax),
         "default_master": num("volume", "default_master", int, 0, vmax),
         "curve": num("volume", "curve", float, 0.1, 10.0),
+        "change_fade_ms": num("volume", "change_fade_ms", int, 0, 1000),
         "default_volumes": {s: num("volume", f"default_{s}", int, 0, vmax) for s in SOURCES},
         "duck_level": num("focus", "duck_level", float, 0.0, 1.0),
         "duck_fade_ms": num("focus", "duck_fade_ms", int, 0, 5000),
@@ -271,11 +272,16 @@ class Audio(dbus.service.Object):
         g = self.gains()["media"]
         if g == self.media_gain:
             return False
+        # Remember what was sent, not what was confirmed: a quick mute + unmute would
+        # otherwise skip the unmute (same value as the last confirmed one). On an error
+        # forget it, so the next change sends again.
+        self.media_gain = g
 
-        def done(*_):
-            self.media_gain = g           # only what mediad confirmed counts as sent
-        self.bus.call_async(MEDIA[0], MEDIA[1], MEDIA[2], "SetGain", "d", (g,),
-                            done, lambda e: None, timeout=1.0)
+        def failed(_e):
+            if self.media_gain == g:
+                self.media_gain = None
+        self.bus.call_async(MEDIA[0], MEDIA[1], MEDIA[2], "SetGain", "du", (g, self.cfg["change_fade_ms"]),
+                            lambda *_: None, failed, timeout=1.0)
         return False
 
     def on_owner(self, name, _old, new):
