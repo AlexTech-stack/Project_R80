@@ -89,6 +89,27 @@ def parse_name(path: Path) -> dict:
     return {"title": title or path.stem, "artist": artist, "album": path.parent.name}
 
 
+def _wav_rate_is(path: Path, rate: int) -> bool:
+    try:
+        with wave.open(str(path)) as w:
+            return w.getframerate() == rate
+    except (OSError, wave.Error, EOFError):
+        return False
+
+
+DEMO_TONES = [("Neon Autobahn", "Night Drive", 225, 24),
+              ("The Quattro Lines", "Red Horizon", 315, 20),
+              ("Lumen Drift", "Tunnel Vision", 175, 28),
+              ("Marta Kovac", "Coastline", 245, 18)]
+
+
+def only_demo_tones(music_dir: Path) -> bool:
+    """True if the folder has no audio, or only (possibly older) demo tones of ours."""
+    names = {f"{a} - {t}.wav" for a, t, _f, _s in DEMO_TONES}
+    audio = [p for p in music_dir.rglob("*") if p.suffix.lower() in AUDIO_EXT] if music_dir.is_dir() else []
+    return all(p.name in names and p.parent == music_dir for p in audio)
+
+
 def make_demo(music_dir: Path, count: int = 4) -> list:
     """Write a few short WAV tones (stdlib only) so the UI has real audio.
 
@@ -97,17 +118,14 @@ def make_demo(music_dir: Path, count: int = 4) -> list:
     44.1 kHz rather than less: wavparse hands out 4 KB chunks, which at 8 kHz were 256 ms
     long and made every volume change late by up to that much.
     """
-    tones = [("Neon Autobahn", "Night Drive", 225, 24),
-             ("The Quattro Lines", "Red Horizon", 315, 20),
-             ("Lumen Drift", "Tunnel Vision", 175, 28),
-             ("Marta Kovac", "Coastline", 245, 18)]
+    tones = DEMO_TONES
     music_dir.mkdir(parents=True, exist_ok=True)
     made = []
     rate = 44100
     edge = rate // 10                # 0.1 s fade in / out so the tone does not click
     for artist, title, freq, secs in tones[:count]:
         f = music_dir / f"{artist} - {title}.wav"
-        if not f.exists():
+        if not f.exists() or not _wav_rate_is(f, rate):     # also replaces older 8 kHz tones
             period = rate // freq
             one = array("h", (int(0.25 * 32767 * math.sin(2 * math.pi * k / period)) for k in range(period)))
             total = rate * secs
@@ -152,6 +170,12 @@ class Media(dbus.service.Object):
         # Not playbin's own volume either: that becomes the PipeWire stream volume, which
         # WirePlumber saves per application and restores for every python3 program.
         self.gain = 1.0
+        self.fade_ms = 50            # ramp length, from the last SetGain (audio.ini change_fade_ms)
+        self.buffer_ms = buffer_ms
+        self.silenced = False        # faded out for a pause or a track change / seek
+        self.fade_in_next = False    # the next new segment starts at 0 and ramps up
+        self.pending = None          # timer of a fade-out in progress ...
+        self.pending_actions = []    # ... and what runs once it has been heard
         self.player.set_property("audio-sink", self.make_output(sink, buffer_ms))
         # Every change is a short linear ramp, interpolated per sample, so it does not click.
         self.ramp = GstController.InterpolationControlSource()
@@ -207,21 +231,34 @@ class Media(dbus.service.Object):
             ev = info.get_event()
             if ev and ev.type == Gst.EventType.SEGMENT:
                 self.segment = ev.parse_segment()
-                self.hold_gain()       # new track or seek: stream times start over
+                # new track or seek: stream times start over
+                if self.fade_in_next:
+                    self.fade_in_next = False
+                    self.silenced = False
+                    start = self.segment.time
+                    self.set_ramp((start, 0.0), (start + self.fade_ms * Gst.MSECOND, self.gain))
+                else:
+                    self.hold_gain()
         return Gst.PadProbeReturn.OK
 
     def hold_gain(self):
-        """Forget any ramp and play at the current target from now on."""
+        """Forget any ramp and play at the current target (0 while silenced) from now on."""
         self.ramp.unset_all()
-        self.ramp.set(0, self.gain)
+        self.ramp.set(0, 0.0 if self.silenced else self.gain)
         self.ramp_pts = None
         self.next_time = None
+
+    def set_ramp(self, a, b):
+        self.ramp.unset_all()
+        self.ramp.set(*a)
+        self.ramp.set(*b)
+        self.ramp_pts = (a, b)
 
     def level_at(self, t: int) -> float:
         """Gain the ramp gives at stream time t. Kept here: ControlSource.get_value() cannot
         be called from Python (PyGObject: "Interface type 2 should have is_pointer set")."""
         if not self.ramp_pts:
-            return self.gain
+            return 0.0 if self.silenced else self.gain
         (t0, v0), (t1, v1) = self.ramp_pts
         if t <= t0:
             return v0
@@ -229,21 +266,53 @@ class Media(dbus.service.Object):
             return v1
         return v0 + (v1 - v0) * (t - t0) / (t1 - t0)
 
-    def ramp_to(self, gain: float, fade_ms: int):
-        """Ramp from the level now reaching the gain element to `gain` over fade_ms. It starts
-        at the next audio the element processes: what it already passed cannot change."""
+    def ramp_level(self, level: float, fade_ms: int, start: float | None = None):
+        """Ramp from the level now reaching the gain element (or `start`) to `level` over
+        fade_ms. It starts at the next audio the element processes: what it already passed
+        cannot change."""
         t0 = self.next_time
         if t0 is None or t0 == Gst.CLOCK_TIME_NONE or fade_ms <= 0:
-            self.gain = gain
-            self.hold_gain()
+            self.ramp.unset_all()
+            self.ramp.set(0, level)
+            self.ramp_pts = None
             return
-        now = self.level_at(t0)
+        now = self.level_at(t0) if start is None else start
+        self.set_ramp((t0, now), (t0 + fade_ms * Gst.MSECOND, level))
+
+    def ramp_to(self, gain: float, fade_ms: int):
+        """New target from hu-audiod. While silenced it only takes effect on the fade-in."""
         self.gain = gain
-        t1 = t0 + fade_ms * Gst.MSECOND
-        self.ramp.unset_all()
-        self.ramp.set(t0, now)
-        self.ramp.set(t1, gain)
-        self.ramp_pts = ((t0, now), (t1, gain))
+        if fade_ms > 0:
+            self.fade_ms = fade_ms
+        if not self.silenced:
+            self.ramp_level(gain, fade_ms)
+
+    # ---- transitions without clicks ----------------------------------------
+    def fade_out_then(self, action):
+        """Fade to silence, and run `action` once that silence is what is being heard
+        (fade + sink buffer + a chunk). Stopping, switching or seeking mid-waveform clicks."""
+        if self.pending:                         # already fading out: just queue it
+            self.pending_actions.append(action)
+            return
+        if self.status != "playing" or self.next_time is None:
+            action()                             # nothing audible to fade
+            return
+        self.silenced = True
+        self.ramp_level(0.0, self.fade_ms)
+        self.pending_actions = [action]
+        self.pending = GLib.timeout_add(self.fade_ms + self.buffer_ms + 50, self.run_pending)
+
+    def run_pending(self):
+        self.pending = None
+        actions, self.pending_actions = self.pending_actions, []
+        for a in actions:
+            a()
+        return False
+
+    def fade_in_from_silence(self):
+        """Resume: what the element already passed is silent; ramp up from the next audio."""
+        self.silenced = False
+        self.ramp_level(self.gain, self.fade_ms, start=0.0)
 
     # ---- playlist --------------------------------------------------------
     def scan(self) -> list:
@@ -260,19 +329,30 @@ class Media(dbus.service.Object):
         return {k: t[k] for k in ("title", "artist", "album", "duration")}
 
     # ---- GStreamer -------------------------------------------------------
-    def load(self, start: bool):
+    def load(self, start: bool, fade_out: bool = True):
+        """Switch to self.index. The new title shows at once; the pipeline switches after
+        a fade-out (not at the natural end of a track) and the new track fades in."""
         if not self.tracks:
             self.stop()
             return
         self.index = self.index % len(self.tracks)
-        t = self.tracks[self.index]
-        self.uri = Path(t["path"]).as_uri()
-        self.player.set_state(Gst.State.NULL)
-        self.player.set_property("uri", self.uri)
+        uri = Path(self.tracks[self.index]["path"]).as_uri()
+        was_playing = self.status == "playing"
         self.position = 0
-        self.status = "playing" if start else "paused"
-        self.player.set_state(Gst.State.PLAYING if start else Gst.State.PAUSED)
         self.refresh_props()
+
+        def switch():
+            self.uri = uri
+            self.fade_in_next = True
+            self.player.set_state(Gst.State.NULL)
+            self.player.set_property("uri", uri)
+            self.status = "playing" if start else "paused"
+            self.player.set_state(Gst.State.PLAYING if start else Gst.State.PAUSED)
+            self.refresh_props()
+        if fade_out and was_playing:
+            self.fade_out_then(switch)
+        else:
+            switch()
 
     def stop(self):
         self.player.set_state(Gst.State.NULL)
@@ -294,7 +374,7 @@ class Media(dbus.service.Object):
     def on_bus(self, _bus, msg):
         t = msg.type
         if t == Gst.MessageType.EOS:
-            self.advance(1)
+            self.advance(1, natural=True)
         elif t == Gst.MessageType.ERROR:
             err, dbg = msg.parse_error()
             log(f"playback error: {err.message if err else '?'} ({dbg or ''})")
@@ -319,7 +399,7 @@ class Media(dbus.service.Object):
             self.refresh_props()
 
     def poll_position(self):
-        if self.status == "playing":
+        if self.status == "playing" and not self.pending:     # not while switching away
             self.position = self.current_time()
             self.set("Position", self.position)
             if self.tracks and not self.tracks[self.index]["duration"]:
@@ -342,7 +422,7 @@ class Media(dbus.service.Object):
         self.set("CanGoPrevious", bool(self.tracks) and (self.index > 0 or self.repeat_all))
         self.set("Gain", self.gain)
 
-    def advance(self, step: int):
+    def advance(self, step: int, natural: bool = False):
         if not self.tracks:
             return
         n = len(self.tracks)
@@ -352,7 +432,7 @@ class Media(dbus.service.Object):
                 self.index = random.choice([i for i in range(n) if i != self.index])
             elif self.history:
                 self.index = self.history.pop()
-            self.load(True)
+            self.load(True, fade_out=not natural)
             return
         last = n - 1
         nxt = self.index + step
@@ -364,7 +444,7 @@ class Media(dbus.service.Object):
         elif nxt < 0:
             nxt = last if self.repeat_all else 0
         self.index = nxt
-        self.load(True)
+        self.load(True, fade_out=not natural)
 
     def set(self, name, value):
         if self.props.get(name) != value:
@@ -401,11 +481,25 @@ class Media(dbus.service.Object):
     def Play(self):
         if not self.uri:
             self.load(True)
-        else:
-            self.player.set_state(Gst.State.PLAYING)
+            return
+        if self.pending and self.pending_actions == [self.pause_now]:
+            GLib.source_remove(self.pending)     # pause not reached the speaker yet: undo it
+            self.pending, self.pending_actions = None, []
+        self.status = "playing"
+        self.set("PlaybackStatus", "playing")
+        self.fade_in_from_silence()
+        self.player.set_state(Gst.State.PLAYING)
 
     @dbus.service.method(IFACE)
     def Pause(self):
+        if self.status != "playing":
+            return
+        self.fade_out_then(self.pause_now)       # needs status "playing" to fade at all
+        self.status = "paused"                   # shown at once; heard after the fade-out
+        self.set("PlaybackStatus", "paused")
+
+    def pause_now(self):
+        self.silenced = True
         self.player.set_state(Gst.State.PAUSED)
 
     @dbus.service.method(IFACE)
@@ -449,8 +543,12 @@ class Media(dbus.service.Object):
     def seek_abs(self, position_us: int):
         if not self.uri:
             return
-        self.player.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
-                                max(0, position_us) * 1000)
+
+        def seek():
+            self.fade_in_next = self.status == "playing"
+            self.player.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
+                                    max(0, position_us) * 1000)
+        self.fade_out_then(seek)
         self.position = max(0, position_us)
         self.set("Position", self.position)
         self.Seeked(self.position)
@@ -490,8 +588,8 @@ def main():
     a = ap.parse_args()
 
     music_dir = Path(a.music_dir).expanduser()
-    if a.demo and not (music_dir.is_dir() and any(p.suffix.lower() in AUDIO_EXT for p in music_dir.rglob("*"))):
-        make_demo(music_dir)
+    if a.demo and only_demo_tones(music_dir):     # never touches a folder with real music
+        make_demo(music_dir)                      # writes missing or outdated demo tones
 
     Gst.init(None)
     DBusGMainLoop(set_as_default=True)

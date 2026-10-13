@@ -137,7 +137,10 @@ computed per sample by GStreamer's controller, because a jump clicks. The
 `volume` element sits right in front of the audio sink (not in playbin's
 `audio-filter` slot, where it ran about 1.3 s ahead of what was heard), and the
 sink buffer is 60 ms (`mediad --buffer-ms`): a change is audible about 60–90 ms
-later. The MCU's VOL_UP / VOL_DOWN / MUTE keys go straight to audiod (ignored
+later. Track changes, seeks and pause/resume fade out and in the same way
+(the new title and status show at once; the audio follows after the fade), since
+stopping or jumping mid-waveform clicks too. `--demo` also replaces outdated demo
+tones, but only in a folder that holds nothing else. The MCU's VOL_UP / VOL_DOWN / MUTE keys go straight to audiod (ignored
 while the HU is off); the UI only shows the master volume and asks audiod to
 change it.
 
