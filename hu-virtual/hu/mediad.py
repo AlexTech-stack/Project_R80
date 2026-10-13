@@ -33,8 +33,9 @@ import argparse
 import math
 import os
 import random
-import struct
+import sys
 import wave
+from array import array
 from pathlib import Path
 
 import dbus
@@ -88,28 +89,37 @@ def parse_name(path: Path) -> dict:
 
 
 def make_demo(music_dir: Path, count: int = 4) -> list:
-    """Write a few short WAV tones (stdlib only) so the UI has real audio."""
-    tones = [("Neon Autobahn", "Night Drive", 220.0, 24),
-             ("The Quattro Lines", "Red Horizon", 330.0, 20),
-             ("Lumen Drift", "Tunnel Vision", 174.0, 28),
-             ("Marta Kovac", "Coastline", 262.0, 18)]
+    """Write a few short WAV tones (stdlib only) so the UI has real audio.
+
+    Fast on purpose, also on a Pi 3B or under QEMU: each frequency divides the sample
+    rate, so one period is computed and repeated as bytes; only the fades are per sample.
+    """
+    tones = [("Neon Autobahn", "Night Drive", 200, 24),
+             ("The Quattro Lines", "Red Horizon", 320, 20),
+             ("Lumen Drift", "Tunnel Vision", 160, 28),
+             ("Marta Kovac", "Coastline", 250, 18)]
     music_dir.mkdir(parents=True, exist_ok=True)
     made = []
-    rate = 44100
+    rate = 8000                      # plenty for test tones of 160..320 Hz
+    edge = rate // 10                # 0.1 s fade in / out so the tone does not click
     for artist, title, freq, secs in tones[:count]:
         f = music_dir / f"{artist} - {title}.wav"
         if not f.exists():
+            period = rate // freq
+            one = array("h", (int(0.25 * 32767 * math.sin(2 * math.pi * k / period)) for k in range(period)))
+            total = rate * secs
+            samples = array("h")
+            samples.frombytes((one.tobytes() * (total // period + 1))[:total * 2])
+            for n in range(edge):
+                samples[n] = int(samples[n] * n / edge)
+                samples[total - 1 - n] = int(samples[total - 1 - n] * (n + 1) / edge)
+            if sys.byteorder == "big":
+                samples.byteswap()   # WAV is little-endian
             with wave.open(str(f), "w") as w:
                 w.setnchannels(1)
                 w.setsampwidth(2)
                 w.setframerate(rate)
-                frames = bytearray()
-                for n in range(rate * secs):
-                    # fade in / out so the tone does not click
-                    edge = min(n, rate * secs - n, rate // 10) / (rate // 10)
-                    amp = 0.25 * edge * 32767
-                    frames += struct.pack("<h", int(amp * math.sin(2 * math.pi * freq * n / rate)))
-                w.writeframes(bytes(frames))
+                w.writeframes(samples.tobytes())
             log(f"demo tone: {f.name}")
         made.append(f)
     return made
