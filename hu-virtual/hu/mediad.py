@@ -349,13 +349,28 @@ class Media(dbus.service.Object):
             self.status = "playing" if start else "paused"
             self.player.set_state(Gst.State.PLAYING if start else Gst.State.PAUSED)
             self.refresh_props()
-        if fade_out and was_playing:
-            self.fade_out_then(switch)
+        if (fade_out and was_playing) or self.pending:
+            self.fade_out_then(switch)           # queues behind a pending fade-out or stop
         else:
             switch()
 
-    def stop(self):
-        self.player.set_state(Gst.State.NULL)
+    def stop(self, fade: bool = False):
+        """Stop. It wins over a queued track switch (else that would start playing again);
+        when stopping mid-track (fade=True) it fades out first."""
+        was_playing = self.status == "playing"
+        if self.pending:
+            GLib.source_remove(self.pending)
+            self.pending, self.pending_actions = None, []
+            fade = False                         # already faded out for the switch
+
+        def now():
+            self.player.set_state(Gst.State.NULL)
+            self.silenced = False
+            self.fade_in_next = False
+        if fade and was_playing:
+            self.fade_out_then(now)              # needs status "playing" to fade
+        else:
+            now()
         self.uri = ""
         self.status = "stopped"
         self.position = 0
@@ -438,7 +453,7 @@ class Media(dbus.service.Object):
         nxt = self.index + step
         if nxt > last:
             if not self.repeat_all:
-                self.stop()
+                self.stop(fade=not natural)
                 return
             nxt = 0
         elif nxt < 0:
