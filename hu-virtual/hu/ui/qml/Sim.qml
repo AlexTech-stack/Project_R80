@@ -16,24 +16,38 @@ QtObject {
         target: Vehicle
         function onValuesChanged() { sim._syncTrip() }
         // With hu-audiod on the bus it handles the MCU's volume keys itself.
-        function onVolumeStep(d) { if (!sim.audioLive) sim.volume = Math.min(30, Math.max(0, sim.volume + d)) }
-        function onMuteToggled() { if (sim.audioLive) return; if (sim.volume > 0) { sim._unmuteVolume = sim.volume; sim.volume = 0 } else sim.volume = sim._unmuteVolume }
+        function onVolumeStep(d) { if (!sim.audioLive) sim.volume = Math.min(sim.volumeMax, Math.max(0, sim.volume + d)) }
+        function onMuteToggled() { if (!sim.audioLive) sim.muted = !sim.muted }
         function onDimChanged() { Theme.brightness = Math.max(0.2, Vehicle.dimLevel / 100) }
     }
 
     signal navigate(string screen)
 
     // ---- audio (hu-audiod) -------------------------------------------------
-    // volume shows audiod's master volume (0 while muted); changing it asks audiod.
+    // Master volume, mute and the per-source volumes mirror audiod; changing one asks
+    // audiod, which owns them (D9). Without audiod they are plain local values.
     readonly property bool audioLive: Audio.available
     property bool _audioSync: false
     function _pullAudio() {
         if (!audioLive) return
         _audioSync = true
-        volume = Audio.muted ? 0 : Audio.master
+        volumeMax = Audio.max
+        volume = Audio.master
+        muted = Audio.muted
+        const v = Audio.volumes
+        if (v.media !== undefined) mediaVolume = v.media
+        if (v.navigation !== undefined) navVolume = v.navigation
+        if (v.phone !== undefined) phoneVolume = v.phone
+        if (v.radio !== undefined) radioVolume = v.radio
         _audioSync = false
     }
-    onVolumeChanged: if (audioLive && !_audioSync) { if (Audio.muted) Audio.setMuted(false); Audio.setMaster(volume) }
+    function _push(f) { if (audioLive && !_audioSync) f() }
+    onVolumeChanged: _push(() => Audio.setMaster(volume))
+    onMutedChanged: _push(() => Audio.setMuted(muted))
+    onMediaVolumeChanged: _push(() => Audio.setVolume("media", mediaVolume))
+    onNavVolumeChanged: _push(() => Audio.setVolume("navigation", navVolume))
+    onPhoneVolumeChanged: _push(() => Audio.setVolume("phone", phoneVolume))
+    onRadioVolumeChanged: _push(() => Audio.setVolume("radio", radioVolume))
     // Until there is a phone service, the simulated call tells audiod about calls
     // (D9: media pauses and radio is silent from ringing on).
     function _pushCall() { if (audioLive) Audio.setCallState(callState === "incoming" ? "ringing" : callState) }
@@ -83,8 +97,14 @@ QtObject {
     readonly property int serviceKm: live ? Vehicle.serviceKm : 6400
     readonly property int serviceDays: live ? Vehicle.serviceDays : 112
     property int altitude: 412
-    property int volume: 14
-    property int _unmuteVolume: 14
+    property int volume: 14                // master volume, 0 .. volumeMax
+    property int volumeMax: 30
+    property bool muted: false
+    property int mediaVolume: 30
+    property int navVolume: 30
+    property int phoneVolume: 30
+    property int radioVolume: 30
+    function toggleMute() { muted = !muted }
     property int homeIndex: 0
     property bool units_metric: true
 

@@ -9,7 +9,7 @@ Item {
     Rectangle {
         x: Theme.margin; y: 24
         width: parent.width - 2 * Theme.margin
-        height: parent.height - 48
+        height: parent.height - 24 - 68     // ends above the volume badge
         color: "transparent"
         border.color: Theme.accent; border.width: 2
         radius: 8

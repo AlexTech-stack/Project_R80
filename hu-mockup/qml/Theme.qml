@@ -30,6 +30,8 @@ QtObject {
     readonly property int screenHeight: 768
     readonly property int headerHeight: 72
     readonly property int margin: 36
+    // Bottom-left corner every screen keeps free for the volume badge (D9).
+    readonly property int volumeBadgeInset: 140
 
     readonly property int fontSmall: 19
     readonly property int fontNormal: 24

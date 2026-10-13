@@ -160,7 +160,11 @@ gdbus call --session -d de.r80.Audio -o /de/r80/Audio -m de.r80.Audio1.SetNavPro
 gdbus call --session -d de.r80.Audio -o /de/r80/Audio -m de.r80.Audio1.SetCallState ringing
 ```
 
-Not yet: the volume UI on every screen and in Settings → Audio (step 3).
+In the UI, the master volume sits bottom left on every screen and opens a popup
+(slider, mute); Settings → Audio has the four source volumes. `hu/ui/qml/Sim.qml`
+mirrors audiod's values into the mockup's property names (`volume`, `volumeMax`,
+`muted`, `mediaVolume`, `navVolume`, `phoneVolume`, `radioVolume`) and sends
+changes back to audiod.
 
 ## Tests (BoAt)
 

@@ -22,7 +22,7 @@ def main():
     if args.screenshots and "QT_QPA_PLATFORM" not in os.environ:
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
-    from PySide6.QtCore import QTimer, QUrl
+    from PySide6.QtCore import QObject, QTimer, QUrl
     from PySide6.QtGui import QGuiApplication, QImage, QPainter, QColor, QFont
     from PySide6.QtQml import QQmlApplicationEngine
     from PySide6.QtQuick import QQuickWindow  # noqa: F401  (gives the root window grabWindow())
@@ -41,7 +41,7 @@ def main():
         out = Path(args.screenshots)
         out.mkdir(parents=True, exist_ok=True)
         shots = ["home", "navigation", "media", "radio", "phone", "vehicle",
-                 "cluster", "clock", "settings", "call"]
+                 "cluster", "clock", "settings", "call", "volume", "audio"]
         state = {"i": 0, "images": []}
 
         def step():
@@ -59,6 +59,13 @@ def main():
             if name == "call":
                 win.setProperty("current", "home")
                 win.setProperty("demoCall", True)
+            elif name == "volume":
+                win.setProperty("current", "media")
+                win.setProperty("demoVolume", True)
+            elif name == "audio":
+                win.setProperty("demoVolume", False)
+                win.setProperty("current", "settings")
+                QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 2))
             else:
                 win.setProperty("current", name)
             state["i"] += 1

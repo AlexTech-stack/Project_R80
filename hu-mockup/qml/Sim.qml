@@ -34,7 +34,15 @@ QtObject {
     property int serviceKm: 6400
     property int serviceDays: 112
     property int altitude: 412
-    property int volume: 14
+    // ---- audio (D9): master volume, mute, one volume per source ----------
+    property int volume: 14                // master volume, 0 .. volumeMax
+    property int volumeMax: 30
+    property bool muted: false
+    property int mediaVolume: 30
+    property int navVolume: 30
+    property int phoneVolume: 30
+    property int radioVolume: 30
+    function toggleMute() { muted = !muted }
     property int homeIndex: 0
     property bool units_metric: true
 

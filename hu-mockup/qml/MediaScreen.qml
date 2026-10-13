@@ -94,15 +94,6 @@ Item {
         LineButton { round: true; icon: Icons.repeat; iconSize: 28; highlighted: Sim.repeatAll; width: 60; height: 60; anchors.verticalCenter: parent.verticalCenter; onClicked: Sim.repeatAll = !Sim.repeatAll }
     }
 
-    T {
-        x: Theme.margin
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 22
-        text: "Volume " + Sim.volume
-        color: Theme.accentMid
-        font.pixelSize: Theme.fontSmall
-    }
-
     // up next
     Rectangle { x: 880; y: 86; width: 1; height: 560; color: Theme.accentDim }
     Column {
