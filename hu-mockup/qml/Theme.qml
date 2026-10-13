@@ -19,6 +19,8 @@ QtObject {
     readonly property color accentFaint: Qt.rgba(accent.r, accent.g, accent.b, 0.14)
     readonly property color bg: "#000000"
     readonly property color textOnAccent: "#0a0000"
+    readonly property color shade: "#000000"          // dimming and modal backdrops, used with opacity
+    readonly property color selectionRing: "#ffffff"  // ring around the selected accent swatch
 
     // 0.2 .. 1.0, applied as a dimming overlay over the whole display
     property real brightness: 0.9

@@ -66,7 +66,7 @@ the BoAt gateway at its cycle time, like `restbus.py`, and lets a tester:
   keys and the dimming override.
 
 Ranges, enums and units come from the DBC itself (not from BoAt's PDU JSON,
-whose min/max are currently wrong; see BoAt's `test/foundIssues.md`).
+whose min/max are wrong up to BoAt v0.1.1; AlexTech-stack/BoAt#11, fixed on master).
 
 Poke it from the command line while it runs:
 
@@ -135,6 +135,23 @@ Media screen to this service and falls back to the mockup's own playlist when
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
+
+CI runs these tests on every push (job `boat-sil`) with `../ci/run_boat_sil.sh --install`:
+the BoAt release pinned in `../ci/boat.version`, a private D-Bus session, and
+reports plus logs uploaded as the `boat-reports` artifact. Run the same thing
+locally with `../ci/run_boat_sil.sh` (your BoAt) or with `--install` (the pinned
+one, under `build/ci-boat/`). The verdict is the exit code of `boat test run`;
+BoAt's `report.junit.xml` is empty for script tests (AlexTech-stack/BoAt#50).
+`BOAT_VERSION=master ../ci/run_boat_sil.sh --install` tests against BoAt master
+(gateway from BoAt's CI image); the nightly `boat-canary` workflow does that too.
+BoAt runs on the x86_64 test PC only; on the bench the Raspberry Pi is the DUT and
+runs `mcu_emu/` and `hu/` (see `../docs/bench-pi.md`), so `--install` refuses other machines.
+
+`../ci/run_boat_sil.sh --dut-arm64` keeps that split on one x86 machine: BoAt on the
+host (`HU_DUT=external ./hu-virtual.sh up` starts only the buses and the gateway), the
+DUT in an aarch64 Debian 13 container under QEMU (`../ci/dut/`). Both share the host's
+vcan buses, `$XDG_RUNTIME_DIR` and a private session bus, so the tests run unchanged.
+CI runs this as the job `boat-sil-arm64-dut`.
 
 ## Files
 

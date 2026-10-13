@@ -1,0 +1,158 @@
+# R80 CI. Each job only calls a script in ci/, so every check also runs locally:
+#   ci/check_static.sh
+#   ci/run_boat_sil.sh [--install]
+#
+# Runs on pushes to every branch (R80 does not use pull requests, see AGENTS.md
+# section 4) and by hand from the Actions tab.
+
+name: ci
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install system libraries for headless Qt (AGENTS.md section 3)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 \
+            libglib2.0-0t64 libdbus-1-3 libgssapi-krb5-2 libx11-6
+      - name: Install Python dependencies
+        run: python3 -m pip install PySide6 cantools python-can
+      - name: Static checks
+        run: ci/check_static.sh
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots
+          path: build/ci/screenshots/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  boat-sil:
+    # The 6 BoAt smoke tests against the virtual headunit, with the BoAt release
+    # pinned in ci/boat.version. System Python (3.12): boat-py needs 3.11+ and
+    # the D-Bus bindings come from apt.
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install vcan, D-Bus and Python packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus python3-dbus python3-gi python3-venv
+          sudo apt-get install -y "linux-modules-extra-$(uname -r)" || true
+          sudo modprobe vcan
+      - name: BoAt smoke tests
+        run: ci/run_boat_sil.sh --install
+      - name: Summary
+        if: always()
+        run: |
+          python3 ci/boat_report.py build/ci-boat/reports \
+            --title "$(cat build/ci-boat/boat/tested.txt 2>/dev/null || echo 'BoAt (install failed)')" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload BoAt reports and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: boat-reports
+          path: |
+            build/ci-boat/reports/
+            build/ci-boat/logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  boat-sil-arm64-dut:
+    # The same BoAt smoke tests with the DUT (mcu_emu + vehicled) on aarch64 Debian
+    # Trixie in a QEMU-emulated container, like the Pi bench. BoAt stays on the x86
+    # host: it runs on the test PC only, the Pi is the DUT.
+    needs: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install vcan, D-Bus, Python packages and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus python3-dbus python3-gi python3-venv qemu-user-static
+          sudo apt-get install -y "linux-modules-extra-$(uname -r)" || true
+          sudo modprobe vcan
+      - name: Check that arm64 containers run
+        run: docker run --rm --platform linux/arm64 debian:trixie uname -m
+      - name: BoAt smoke tests, aarch64 DUT
+        run: ci/run_boat_sil.sh --install --dut-arm64
+      - name: Summary
+        if: always()
+        run: |
+          python3 ci/boat_report.py build/ci-boat/reports \
+            --title "aarch64 DUT, $(cat build/ci-boat/boat/tested.txt 2>/dev/null || echo 'BoAt (install failed)')" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload BoAt reports and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: boat-reports-arm64-dut
+          path: |
+            build/ci-boat/reports/
+            build/ci-boat/logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  static-arm64:
+    # The same static checks on the bench target: aarch64, Debian 13 "Trixie" like
+    # Raspberry Pi OS 64-bit (docs/bench-pi.md), its Python and a PySide6 venv.
+    # BoAt is not run here: it runs on the x86 test PC, the Pi is the DUT.
+    runs-on: ubuntu-24.04-arm
+    container: debian:trixie
+    timeout-minutes: 20
+    steps:
+      - name: Install Debian packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv \
+            libegl1 libgl1 libxkbcommon0 libfontconfig1 libglib2.0-0t64 libdbus-1-3 libgssapi-krb5-2 libx11-6
+      - uses: actions/checkout@v7
+      - name: Python venv with the R80 dependencies
+        run: |
+          python3 -m venv /opt/r80-venv
+          /opt/r80-venv/bin/pip install PySide6 cantools python-can
+      - name: Static checks
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          uname -m && python3 --version
+          PYTHON=/opt/r80-venv/bin/python ci/check_static.sh
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-arm64
+          path: build/ci/screenshots/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  python-3-9:
+    # AGENTS.md section 9 promises Python 3.9+. Compile only: no dependencies needed.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.9"
+      - name: py_compile on Python 3.9
+        run: git ls-files -z '*.py' | xargs -0 python3 -m py_compile

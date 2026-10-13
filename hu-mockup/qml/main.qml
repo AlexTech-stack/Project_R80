@@ -11,7 +11,7 @@ Window {
     width: Theme.screenWidth
     height: Theme.screenHeight
     visible: true
-    color: "black"
+    color: Theme.bg
     title: "R80 Headunit - UI mockup"
 
     property string current: "home"
@@ -109,7 +109,7 @@ Window {
         // brightness
         Rectangle {
             anchors.fill: parent
-            color: "black"
+            color: Theme.shade
             opacity: (1 - Theme.brightness) * 0.85
         }
     }

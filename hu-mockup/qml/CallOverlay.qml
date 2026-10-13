@@ -17,7 +17,7 @@ Item {
         sel = 0;
     }
 
-    Rectangle { anchors.fill: parent; color: "black"; opacity: 0.72 }
+    Rectangle { anchors.fill: parent; color: Theme.shade; opacity: 0.72 }
     MouseArea { anchors.fill: parent }  // modal
 
     Rectangle {

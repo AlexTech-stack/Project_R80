@@ -1,0 +1,10 @@
+# Copy to /etc/r80-bench.conf. Read by r80-can.service (EnvironmentFile).
+
+# IP address of the test PC running BoAt and the cannelloni servers.
+PC_IP=192.168.1.10
+
+# First UDP port; one port per bus, in the order of IFACES.
+BASE_PORT=20000
+
+# Space-separated CAN interfaces, in port order.
+IFACES=vcan_info vcan_motor vcan_comfort
