@@ -124,8 +124,10 @@ Media screen to this service and falls back to the mockup's own playlist when
 `/de/r80/Audio` (interface `de.r80.Audio1`):
 
 - properties `Max`, `Master`, `Muted`, `StartupCap`, `Volumes` (per source:
-  media, navigation, phone, radio), `Gains` (the level each source should play at)
-- methods `SetMaster`, `Step`, `SetMuted`, `ToggleMute`, `SetVolume(source, value)`
+  media, navigation, phone, radio), `Gains` (the level each source should play at),
+  `NavPrompt`, `CallState` (idle / ringing / active), `Duck`
+- methods `SetMaster`, `Step`, `SetMuted`, `ToggleMute`, `SetVolume(source, value)`,
+  `SetNavPrompt(active)`, `SetCallState(state)`
 
 For each source it computes `gain = ((Master / Max) * (Volume / Max)) ** curve`
 (0 while muted) and the source applies it itself: `mediad` through `SetGain`,
@@ -146,8 +148,19 @@ gdbus call --session -d de.r80.Audio -o /de/r80/Audio \
   -m org.freedesktop.DBus.Properties.GetAll de.r80.Audio1
 ```
 
-Not yet: ducking for navigation prompts and the call rules (step 2), and the
-volume UI on every screen and in Settings → Audio (step 3).
+Rules between sources (`[focus]` in `audio.ini`): while a navigation prompt
+plays, media and radio fade to `duck_level`; during a call (from ringing on)
+audiod pauses mediad if it was playing and resumes it afterwards, radio is
+silent, and mute leaves the phone audible. There is no navigation or phone
+service yet, so `SetNavPrompt` / `SetCallState` come from tests, `gdbus`, or the
+UI's simulated call (key `C`), which reports itself as a call:
+
+```bash
+gdbus call --session -d de.r80.Audio -o /de/r80/Audio -m de.r80.Audio1.SetNavPrompt true
+gdbus call --session -d de.r80.Audio -o /de/r80/Audio -m de.r80.Audio1.SetCallState ringing
+```
+
+Not yet: the volume UI on every screen and in Settings → Audio (step 3).
 
 ## Tests (BoAt)
 
@@ -168,6 +181,9 @@ volume UI on every screen and in Settings → Audio (step 3).
 | TC_HU_008 | media tracks: SetTrack, Next/Previous (restart after 3 s), wrap-around, stop at the end without repeat, seek |
 | TC_HU_009 | audio: master / source volume and mute reach mediad's gain, values from `audio.ini`, MCU VOL_UP / VOL_DOWN / MUTE |
 | TC_HU_010 | audio: volumes saved to the state file, master capped at startup (audiod's own startup logic on that file; no real restart) |
+| TC_HU_011 | audio: a navigation prompt fades media and radio to `duck_level` and back; navigation and phone untouched |
+| TC_HU_012 | audio: a call pauses media and silences radio from ringing on, media resumes only if it played before, mute spares the phone |
+| TC_HU_013 | audio: VOL_UP / MUTE from the MCU are ignored while the HU is off and work again after wake-up |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).

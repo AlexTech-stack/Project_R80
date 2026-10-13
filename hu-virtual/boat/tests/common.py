@@ -75,7 +75,10 @@ def finish():
 
 
 class InputListener:
-    """Collect de.r80.Vehicle1.Input signals in a background GLib loop."""
+    """Collect de.r80.Vehicle1.Input signals in a background GLib loop.
+
+    Create it before any other D-Bus call in the test: dbus-python shares one session
+    connection, and it can only receive signals if a main loop is set before it exists."""
 
     def __init__(self):
         from dbus.mainloop.glib import DBusGMainLoop

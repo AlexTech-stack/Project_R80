@@ -347,3 +347,8 @@ class Audio(QObject):
     @Slot(str, int)
     def setVolume(self, source, value):
         self._call("SetVolume", "si", (str(source), int(value)))
+
+    @Slot(str)
+    def setCallState(self, state):
+        """Stand-in for the phone service: the UI's simulated call (idle|ringing|active)."""
+        self._call("SetCallState", "s", (str(state),))

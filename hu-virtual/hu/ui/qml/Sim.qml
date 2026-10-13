@@ -34,10 +34,14 @@ QtObject {
         _audioSync = false
     }
     onVolumeChanged: if (audioLive && !_audioSync) { if (Audio.muted) Audio.setMuted(false); Audio.setMaster(volume) }
+    // Until there is a phone service, the simulated call tells audiod about calls
+    // (D9: media pauses and radio is silent from ringing on).
+    function _pushCall() { if (audioLive) Audio.setCallState(callState === "incoming" ? "ringing" : callState) }
+    onCallStateChanged: _pushCall()
     property Connections audioConn: Connections {
         target: Audio
         function onChanged() { sim._pullAudio() }
-        function onAvailableChanged() { sim._pullAudio() }
+        function onAvailableChanged() { sim._pullAudio(); sim._pushCall() }
     }
 
     // ---- time ------------------------------------------------------------

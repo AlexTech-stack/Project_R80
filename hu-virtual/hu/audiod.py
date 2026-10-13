@@ -5,9 +5,10 @@
     object     /de/r80/Audio
     interface  de.r80.Audio1
       properties  Max (i), Master (i), Muted (b), StartupCap (i),
-                  Volumes (a{si}: source -> 0..Max), Gains (a{sd}: source -> 0.0..1.0)
+                  Volumes (a{si}: source -> 0..Max), Gains (a{sd}: source -> 0.0..1.0),
+                  NavPrompt (b), CallState (s: idle|ringing|active), Duck (d: 1.0 = none)
       methods     SetMaster(i), Step(i delta), SetMuted(b), ToggleMute(),
-                  SetVolume(s source, i value)
+                  SetVolume(s source, i value), SetNavPrompt(b), SetCallState(s)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
 Sources: media, navigation, phone, radio. For each source audiod computes the level
@@ -16,6 +17,14 @@ through de.r80.Media1.SetGain. Navigation, phone and radio have no service yet; 
 gains are already published for when they do.
 
     gain = ((Master / Max) * (Volumes[source] / Max)) ** curve      (0 while muted)
+
+Rules between sources ([focus] in audio.ini, decision D9):
+- While a navigation prompt plays (SetNavPrompt), media and radio fade to duck_level.
+- During a call (SetCallState; from "ringing" or only "active", see call_starts_on)
+  mediad is paused if it was playing and resumed afterwards, and radio is at gain 0.
+- Mute silences everything except the phone during a call (mute_spares_call).
+The navigation and phone services do not exist yet; until then tests and the UI's
+simulated call report prompts and calls.
 
 The MCU's VOL_UP / VOL_DOWN / MUTE buttons (de.r80.Vehicle1.Input) go straight to
 audiod, so volume keeps working without the UI; they are ignored while the HU is off.
@@ -59,34 +68,60 @@ class ConfigError(ValueError):
 
 
 def load_config(extra: str | None = None) -> dict:
-    """Read the config files in order and return checked numbers."""
+    """Read the config files in order and return checked values."""
     cp = configparser.ConfigParser()
     files = [DEFAULT_CONFIG, SYSTEM_CONFIG] + ([Path(extra)] if extra else [])
     if extra and not Path(extra).is_file():
         raise ConfigError(f"config file not found: {extra}")
     cp.read([str(f) for f in files if f.is_file()])
+    used = {"volume": {"max", "startup_cap", "default_master", "curve"} | {f"default_{s}" for s in SOURCES},
+            "focus": {"duck_level", "duck_fade_ms", "call_starts_on", "resume_media_after_call",
+                      "call_mutes_radio", "mute_spares_call"}}
 
-    def num(key, conv, lo, hi):
+    def get(section, key, conv):
         try:
-            v = conv(cp.get("volume", key))
+            return conv(cp.get(section, key))
         except (configparser.Error, ValueError) as e:
-            raise ConfigError(f"[volume] {key}: {e}") from None
+            raise ConfigError(f"[{section}] {key}: {e}") from None
+
+    def num(section, key, conv, lo, hi):
+        v = get(section, key, conv)
         if not lo <= v <= hi:
-            raise ConfigError(f"[volume] {key} = {v} is outside {lo}..{hi}")
+            raise ConfigError(f"[{section}] {key} = {v} is outside {lo}..{hi}")
         return v
 
-    vmax = num("max", int, 1, 1000)
+    def flag(section, key):
+        try:
+            return cp.getboolean(section, key)
+        except (configparser.Error, ValueError) as e:
+            raise ConfigError(f"[{section}] {key}: {e}") from None
+
+    def choice(section, key, options):
+        v = get(section, key, str).strip()
+        if v not in options:
+            raise ConfigError(f"[{section}] {key} = {v!r}, expected one of {', '.join(options)}")
+        return v
+
+    vmax = num("volume", "max", int, 1, 1000)
     cfg = {
         "max": vmax,
-        "startup_cap": num("startup_cap", int, 0, vmax),
-        "default_master": num("default_master", int, 0, vmax),
-        "curve": num("curve", float, 0.1, 10.0),
-        "default_volumes": {s: num(f"default_{s}", int, 0, vmax) for s in SOURCES},
+        "startup_cap": num("volume", "startup_cap", int, 0, vmax),
+        "default_master": num("volume", "default_master", int, 0, vmax),
+        "curve": num("volume", "curve", float, 0.1, 10.0),
+        "default_volumes": {s: num("volume", f"default_{s}", int, 0, vmax) for s in SOURCES},
+        "duck_level": num("focus", "duck_level", float, 0.0, 1.0),
+        "duck_fade_ms": num("focus", "duck_fade_ms", int, 0, 5000),
+        "call_starts_on": choice("focus", "call_starts_on", ("ring", "answer")),
+        "resume_media_after_call": flag("focus", "resume_media_after_call"),
+        "call_mutes_radio": flag("focus", "call_mutes_radio"),
+        "mute_spares_call": flag("focus", "mute_spares_call"),
     }
-    unknown = set(cp.options("volume")) - {"max", "startup_cap", "default_master", "curve"} \
-        - {f"default_{s}" for s in SOURCES}
-    if unknown:
-        raise ConfigError(f"[volume] unknown key(s): {', '.join(sorted(unknown))}")
+    for section in cp.sections():
+        if section not in used:
+            raise ConfigError(f"unknown section [{section}]")
+        unknown = set(cp.options(section)) - used[section]
+        if unknown:
+            raise ConfigError(f"[{section}] unknown key(s): {', '.join(sorted(unknown))}")
     return cfg
 
 
@@ -113,6 +148,25 @@ def gain(cfg: dict, master: int, volume: int, muted: bool) -> float:
     return round(level ** cfg["curve"], 6)
 
 
+def in_call(cfg: dict, call_state: str) -> bool:
+    return call_state == "active" or (call_state == "ringing" and cfg["call_starts_on"] == "ring")
+
+
+def gains_for(cfg: dict, master: int, volumes: dict, muted: bool, duck: float, call_state: str) -> dict:
+    """Every source's gain under the D9 rules: volumes, mute (sparing the phone during a
+    call), ducking of media and radio, radio silent during a call."""
+    call = in_call(cfg, call_state)
+    out = {}
+    for s in SOURCES:
+        g = gain(cfg, master, volumes[s], muted and not (s == "phone" and call and cfg["mute_spares_call"]))
+        if s in ("media", "radio"):
+            g *= duck
+        if s == "radio" and call and cfg["call_mutes_radio"]:
+            g = 0.0
+        out[s] = round(g, 6)
+    return out
+
+
 def read_state(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text())
@@ -137,6 +191,11 @@ class Audio(dbus.service.Object):
         saved = read_state(state_path)
         self.master, self.volumes = startup_state(cfg, saved)
         self.muted = False
+        self.nav_prompt = False
+        self.call_state = "idle"
+        self.duck = 1.0                 # current factor on media and radio, fades to its target
+        self.duck_timer = None
+        self.media_paused_by_call = False
         self.props = {}
         self.dirty = set()
         self.save_pending = False
@@ -153,7 +212,7 @@ class Audio(dbus.service.Object):
 
     # ---- state -------------------------------------------------------------
     def gains(self) -> dict:
-        return {s: gain(self.cfg, self.master, self.volumes[s], self.muted) for s in SOURCES}
+        return gains_for(self.cfg, self.master, self.volumes, self.muted, self.duck, self.call_state)
 
     def refresh(self):
         self.set("Max", self.cfg["max"])
@@ -162,6 +221,9 @@ class Audio(dbus.service.Object):
         self.set("Muted", self.muted)
         self.set("Volumes", dict(self.volumes))
         self.set("Gains", self.gains())
+        self.set("NavPrompt", self.nav_prompt)
+        self.set("CallState", self.call_state)
+        self.set("Duck", round(self.duck, 6))
         self.push_media()
 
     def changed_volume(self):
@@ -198,6 +260,10 @@ class Audio(dbus.service.Object):
             return dbus.Dictionary({k: dbus.Double(x) for k, x in v.items()}, signature="sd")
         if isinstance(v, bool):
             return dbus.Boolean(v)
+        if isinstance(v, str):
+            return dbus.String(v)
+        if isinstance(v, float):
+            return dbus.Double(v)
         return dbus.Int32(v)
 
     # ---- sources -----------------------------------------------------------
@@ -216,6 +282,47 @@ class Audio(dbus.service.Object):
         if name == MEDIA[0] and new:
             self.media_gain = None       # a (re)started mediad needs its gain
             self.push_media()
+
+    # ---- rules ---------------------------------------------------------------
+    def start_duck_fade(self):
+        target = self.cfg["duck_level"] if self.nav_prompt else 1.0
+        steps = max(1, self.cfg["duck_fade_ms"] // 50)
+        delta = (target - self.duck) / steps
+        if self.duck_timer:
+            GLib.source_remove(self.duck_timer)
+            self.duck_timer = None
+
+        def step():
+            nonlocal steps
+            steps -= 1
+            self.duck = target if steps <= 0 else self.duck + delta
+            self.refresh()
+            if steps <= 0:
+                self.duck_timer = None
+                return False
+            return True
+        if self.cfg["duck_fade_ms"] < 50:
+            self.duck = target
+            self.refresh()
+        else:
+            self.duck_timer = GLib.timeout_add(50, step)
+
+    def media_call(self, method, signature="", args=(), reply=None):
+        self.bus.call_async(MEDIA[0], MEDIA[1], MEDIA[2] if method != "Get" else PROPS_IFACE, method,
+                            signature, args, reply or (lambda *_: None), lambda e: None, timeout=1.0)
+
+    def call_started(self):
+        def status(s):
+            # still in the call, and media was playing: pause it and remember that
+            if in_call(self.cfg, self.call_state) and str(s) == "playing":
+                self.media_paused_by_call = True
+                self.media_call("SetPlaying", "b", (False,))
+        self.media_call("Get", "ss", (MEDIA[2], "PlaybackStatus"), status)
+
+    def call_ended(self):
+        if self.media_paused_by_call and self.cfg["resume_media_after_call"]:
+            self.media_call("SetPlaying", "b", (True,))
+        self.media_paused_by_call = False
 
     # ---- vehicle -----------------------------------------------------------
     def on_input(self, kind, _value):
@@ -274,6 +381,29 @@ class Audio(dbus.service.Object):
     @dbus.service.method(IFACE)
     def ToggleMute(self):
         self.SetMuted(not self.muted)
+
+    @dbus.service.method(IFACE, in_signature="b")
+    def SetNavPrompt(self, active):
+        active = bool(active)
+        if active != self.nav_prompt:
+            self.nav_prompt = active
+            self.refresh()
+            self.start_duck_fade()
+
+    @dbus.service.method(IFACE, in_signature="s")
+    def SetCallState(self, state):
+        state = str(state)
+        if state not in ("idle", "ringing", "active"):
+            raise dbus.exceptions.DBusException(f"unknown call state {state!r}; known: idle, ringing, active",
+                                                name="de.r80.Audio1.Error.UnknownCallState")
+        was = in_call(self.cfg, self.call_state)
+        self.call_state = state
+        now = in_call(self.cfg, state)
+        self.refresh()
+        if now and not was:
+            self.call_started()
+        elif was and not now:
+            self.call_ended()
 
     @dbus.service.method(IFACE, in_signature="si")
     def SetVolume(self, source, value):

@@ -14,6 +14,9 @@
     { "id": "TC_HU_007", "name": "Media play / pause status", "file": "python3 tests/test_media_playback.py", "timeout_s": 30 },
     { "id": "TC_HU_008", "name": "Media track navigation", "file": "python3 tests/test_media_tracks.py", "timeout_s": 40 },
     { "id": "TC_HU_009", "name": "Audio volume and mute reach the player", "file": "python3 tests/test_audio_volume.py", "timeout_s": 40 },
-    { "id": "TC_HU_010", "name": "Audio volumes remembered, master capped at start", "file": "python3 tests/test_audio_state.py", "timeout_s": 20 }
+    { "id": "TC_HU_010", "name": "Audio volumes remembered, master capped at start", "file": "python3 tests/test_audio_state.py", "timeout_s": 20 },
+    { "id": "TC_HU_011", "name": "Navigation prompt ducks the music", "file": "python3 tests/test_audio_prompt.py", "timeout_s": 30 },
+    { "id": "TC_HU_012", "name": "Call pauses media and silences radio", "file": "python3 tests/test_audio_call.py", "timeout_s": 30 },
+    { "id": "TC_HU_013", "name": "Volume keys ignored while the HU is off", "file": "python3 tests/test_audio_power.py", "timeout_s": 40 }
   ]
 }
