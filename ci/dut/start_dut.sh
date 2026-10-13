@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs inside the DUT container: the MCU stand-in, the vehicle and the media service,
+# Runs inside the DUT container: the MCU stand-in, the vehicle, media and audio service,
 # like r80_pi_testbench/r80-kiosk.sh on the Pi (without the UI). mediad plays the demo
 # tones into $MEDIA_ARGS (the caller passes --sink fakesink).
 #   start_dut.sh <path to hu-virtual>
@@ -14,6 +14,7 @@ for _ in $(seq 150); do [[ -e "$XDG_RUNTIME_DIR/r80-mcu-uart" ]] && break; sleep
 python3 "$HU/hu/vehicled.py" &
 # shellcheck disable=SC2086  # MEDIA_ARGS is a list of flags
 python3 "$HU/hu/mediad.py" --music-dir "$XDG_RUNTIME_DIR/r80-hu/music" --demo ${MEDIA_ARGS:-} &
+python3 "$HU/hu/audiod.py" --state "$XDG_RUNTIME_DIR/r80-hu/audio-state.json" &
 wait -n   # either one ending ends the DUT
 echo "DUT: a process exited"
 exit 1

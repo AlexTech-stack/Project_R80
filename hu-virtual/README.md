@@ -96,7 +96,8 @@ on D-Bus `de.r80.Media` at `/de/r80/Media` (interface `de.r80.Media1`):
   `Position` (µs), `Metadata`, `Playlist`, `Shuffle`, `RepeatAll`, `CanGoNext`,
   `CanGoPrevious`
 - methods `Play`, `Pause`, `PlayPause`, `Next`, `Previous`, `SetTrack`, `Seek`,
-  `SetPosition`, `SetPlaying`, `SetShuffle`, `SetRepeatAll`, `SetSource`
+  `SetPosition`, `SetPlaying`, `SetShuffle`, `SetRepeatAll`, `SetSource`,
+  `SetGain` (the playback level, set by hu-audiod)
 - signals `Seeked` and `PropertiesChanged`
 
 `./hu-virtual.sh up` starts it on a demo folder of short WAV tones. Point it at
@@ -117,6 +118,37 @@ Bluetooth A2DP and MPRIS are not wired up yet. `hu/ui/qml/Sim.qml` binds the
 Media screen to this service and falls back to the mockup's own playlist when
 `hu-mediad` is not on the bus, so `run_hu.py` still works alone.
 
+## Audio (hu-audiod)
+
+`hu/audiod.py` owns volume and mute (decision D9), on D-Bus `de.r80.Audio` at
+`/de/r80/Audio` (interface `de.r80.Audio1`):
+
+- properties `Max`, `Master`, `Muted`, `StartupCap`, `Volumes` (per source:
+  media, navigation, phone, radio), `Gains` (the level each source should play at)
+- methods `SetMaster`, `Step`, `SetMuted`, `ToggleMute`, `SetVolume(source, value)`
+
+For each source it computes `gain = ((Master / Max) * (Volume / Max)) ** curve`
+(0 while muted) and the source applies it itself: `mediad` through `SetGain`,
+with a GStreamer `volume` element, so PipeWire's own stream volume is never
+touched. The MCU's VOL_UP / VOL_DOWN / MUTE keys go straight to audiod (ignored
+while the HU is off); the UI only shows the master volume and asks audiod to
+change it.
+
+The numbers are in `hu/audio.ini` (overridden by `/etc/r80/audio.ini`, then
+`--config`); audiod refuses to start on a bad value. The volumes themselves are
+state: `hu-virtual.sh` keeps them in `$XDG_RUNTIME_DIR/r80-hu/audio-state.json`
+(default elsewhere: `~/.local/state/r80/audio.json`), and the master volume is
+capped at `startup_cap` when audiod starts. Extra flags go in `AUDIO_ARGS`.
+
+```bash
+gdbus call --session -d de.r80.Audio -o /de/r80/Audio -m de.r80.Audio1.SetMaster 15
+gdbus call --session -d de.r80.Audio -o /de/r80/Audio \
+  -m org.freedesktop.DBus.Properties.GetAll de.r80.Audio1
+```
+
+Not yet: ducking for navigation prompts and the call rules (step 2), and the
+volume UI on every screen and in Settings → Audio (step 3).
+
 ## Tests (BoAt)
 
 ```bash
@@ -134,6 +166,8 @@ Media screen to this service and falls back to the mockup's own playlist when
 | TC_HU_006 | HU can send on Infotainment, never on Motor or Comfort (checked on the wire by BoAt) |
 | TC_HU_007 | media play / pause: `PlaybackStatus` follows the player, position runs or stands still, metadata matches |
 | TC_HU_008 | media tracks: SetTrack, Next/Previous (restart after 3 s), wrap-around, stop at the end without repeat, seek |
+| TC_HU_009 | audio: master / source volume and mute reach mediad's gain, values from `audio.ini`, MCU VOL_UP / VOL_DOWN / MUTE |
+| TC_HU_010 | audio: volumes saved to the state file, master capped at startup (audiod's own startup logic on that file; no real restart) |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
@@ -170,6 +204,8 @@ hu/mcu_link.py           MCU <-> Linux UART protocol (framing, message types)
 hu/dbc.py                small DBC decoder/encoder, no dependencies
 hu/vehicled.py           Linux vehicle service: UART -> DBC -> D-Bus de.r80.Vehicle
 hu/mediad.py             Linux media service: GStreamer playbin -> D-Bus de.r80.Media
+hu/audiod.py             Linux audio service: volume, mute -> D-Bus de.r80.Audio, gain to mediad
+hu/audio.ini             audiod's numbers (scale, startup cap, defaults, curve)
 hu/ui/run_hu.py          UI launcher: mockup + Sim.qml overlay + MCU key input + power blanking
 hu/ui/backend.py         QML singletons `Vehicle` and `Media` (R80.Backend 1.0) mirroring D-Bus
 hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`

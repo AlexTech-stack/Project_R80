@@ -143,3 +143,39 @@ def media_reset():
     m.SetRepeatAll(True)
     m.SetTrack(0)
     return m
+
+
+# ---- audio (hu/audiod.py) -------------------------------------------------
+AUDIO_SERVICE, AUDIO_PATH, AUDIO_IFACE = "de.r80.Audio", "/de/r80/Audio", "de.r80.Audio1"
+# Where hu-virtual.sh and ci/dut/start_dut.sh let audiod save its volumes.
+AUDIO_STATE = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu" / "audio-state.json"
+
+
+def audio():
+    """The de.r80.Audio1 interface (SetMaster, SetVolume, SetMuted, ...)."""
+    return dbus.Interface(dbus.SessionBus().get_object(AUDIO_SERVICE, AUDIO_PATH), AUDIO_IFACE)
+
+
+def audio_props() -> dict:
+    obj = dbus.SessionBus().get_object(AUDIO_SERVICE, AUDIO_PATH)
+    raw = obj.GetAll(AUDIO_IFACE, dbus_interface="org.freedesktop.DBus.Properties")
+    return {str(k): _plain(v) for k, v in raw.items()}
+
+
+def wait_audio(cond, timeout=3.0, step=0.05):
+    """Poll cond(audio props) until true; returns (ok, last props, seconds waited)."""
+    t0 = time.monotonic()
+    props = {}
+    while time.monotonic() - t0 < timeout:
+        props = audio_props()
+        if cond(props):
+            return True, props, time.monotonic() - t0
+        time.sleep(step)
+    return False, props, time.monotonic() - t0
+
+
+def audio_config():
+    """audiod's own config loader and gain formula, so tests never repeat its numbers."""
+    sys.path.insert(0, str(ROOT / "hu"))
+    import audiod
+    return audiod, audiod.load_config()

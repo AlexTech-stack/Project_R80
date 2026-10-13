@@ -7,7 +7,7 @@ playback state on D-Bus for the UI and the other services:
     bus name   de.r80.Media
     object     /de/r80/Media
     interface  de.r80.Media1
-      properties  PlaybackStatus (s: playing|paused|stopped), Source (s),
+      properties  PlaybackStatus (s: playing|paused|stopped), Source (s), Gain (d),
                   Sources (as), TrackIndex (i), TrackCount (i),
                   Position (x, microseconds), Metadata (a{sv}),
                   Playlist (aa{sv}), Shuffle (b), RepeatAll (b),
@@ -15,7 +15,7 @@ playback state on D-Bus for the UI and the other services:
       methods     Play(), Pause(), PlayPause(), Next(), Previous(),
                   SetTrack(i), Seek(x offset_us), SetPosition(x pos_us),
                   SetPlaying(b), SetShuffle(b), SetRepeatAll(b),
-                  SetSource(s)
+                  SetSource(s), SetGain(d 0.0..1.0, set by hu-audiod)
       signal      Seeked(x position)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
@@ -149,6 +149,12 @@ class Media(dbus.service.Object):
             if element is not None and element.find_property("sync") is not None:
                 element.set_property("sync", True)   # keep fakesink real-time for headless tests
             self.player.set_property("audio-sink", element)
+        # Playback level from hu-audiod, applied by a volume element in the audio chain.
+        # Not playbin's own volume: that becomes the PipeWire stream volume, which
+        # WirePlumber saves per application and restores for every python3 program.
+        self.gain = 1.0
+        self.gain_el = Gst.ElementFactory.make("volume", "gain")
+        self.player.set_property("audio-filter", self.gain_el)
         bus_ = self.player.get_bus()
         bus_.add_signal_watch()
         bus_.connect("message", self.on_bus)
@@ -252,6 +258,7 @@ class Media(dbus.service.Object):
         self.set("RepeatAll", self.repeat_all)
         self.set("CanGoNext", bool(self.tracks) and (self.index < len(self.tracks) - 1 or self.repeat_all))
         self.set("CanGoPrevious", bool(self.tracks) and (self.index > 0 or self.repeat_all))
+        self.set("Gain", self.gain)
 
     def advance(self, step: int):
         if not self.tracks:
@@ -375,6 +382,12 @@ class Media(dbus.service.Object):
     def SetRepeatAll(self, on):
         self.repeat_all = bool(on)
         self.refresh_props()
+
+    @dbus.service.method(IFACE, in_signature="d")
+    def SetGain(self, gain):
+        self.gain = max(0.0, min(float(gain), 1.0))
+        self.gain_el.set_property("volume", self.gain)
+        self.set("Gain", self.gain)
 
     @dbus.service.method(IFACE, in_signature="s")
     def SetSource(self, source):

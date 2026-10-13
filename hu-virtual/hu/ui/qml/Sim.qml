@@ -5,8 +5,9 @@ import R80.Backend 1.0
 // hu-virtual overlay of the mockup's Sim.qml. Same property names as the
 // mockup; the vehicle values come from hu-vehicled over D-Bus (the Vehicle
 // singleton) whenever the MCU link is up, and the media values from hu-mediad
-// (the Media singleton), each falling back to the mockup's fake data when the
-// matching service is not there. Radio / phone / nav are still simulated.
+// (the Media singleton) and volume / mute from hu-audiod (the Audio singleton),
+// each falling back to the mockup's fake data when the matching service is not
+// there. Radio / phone / nav are still simulated.
 QtObject {
     id: sim
 
@@ -14,12 +15,30 @@ QtObject {
     property Connections vehicleConn: Connections {
         target: Vehicle
         function onValuesChanged() { sim._syncTrip() }
-        function onVolumeStep(d) { sim.volume = Math.min(30, Math.max(0, sim.volume + d)) }
-        function onMuteToggled() { if (sim.volume > 0) { sim._unmuteVolume = sim.volume; sim.volume = 0 } else sim.volume = sim._unmuteVolume }
+        // With hu-audiod on the bus it handles the MCU's volume keys itself.
+        function onVolumeStep(d) { if (!sim.audioLive) sim.volume = Math.min(30, Math.max(0, sim.volume + d)) }
+        function onMuteToggled() { if (sim.audioLive) return; if (sim.volume > 0) { sim._unmuteVolume = sim.volume; sim.volume = 0 } else sim.volume = sim._unmuteVolume }
         function onDimChanged() { Theme.brightness = Math.max(0.2, Vehicle.dimLevel / 100) }
     }
 
     signal navigate(string screen)
+
+    // ---- audio (hu-audiod) -------------------------------------------------
+    // volume shows audiod's master volume (0 while muted); changing it asks audiod.
+    readonly property bool audioLive: Audio.available
+    property bool _audioSync: false
+    function _pullAudio() {
+        if (!audioLive) return
+        _audioSync = true
+        volume = Audio.muted ? 0 : Audio.master
+        _audioSync = false
+    }
+    onVolumeChanged: if (audioLive && !_audioSync) { if (Audio.muted) Audio.setMuted(false); Audio.setMaster(volume) }
+    property Connections audioConn: Connections {
+        target: Audio
+        function onChanged() { sim._pullAudio() }
+        function onAvailableChanged() { sim._pullAudio() }
+    }
 
     // ---- time ------------------------------------------------------------
     property date now: new Date()
