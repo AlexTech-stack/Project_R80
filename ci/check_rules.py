@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Top-level modules that only exist on the PC: BoAt's SDK/CLI, the MCU emulator, the BoAt nodes.
 PC_ONLY_MODULES = {"boat", "boat_cli", "mcu_emu", "mcuctl", "restbus", "restbus_panel"}
 PC_ONLY_PATHS = ("mcu_emu", "boat")
-OSM_PATTERNS = ("*.osm", "*.osm.pbf", "*.pbf", "*.mbtiles")
+OSM_PATTERNS = ("*.osm", "*.osm.pbf", "*.pbf", "*.mbtiles", "*.pmtiles")
 SIM_MOCKUP = ROOT / "hu-mockup/qml/Sim.qml"
 SIM_VIRTUAL = ROOT / "hu-virtual/hu/ui/qml/Sim.qml"
 HEX_COLOUR = re.compile(r"[\"']#[0-9a-fA-F]{3,8}[\"']")

@@ -260,6 +260,7 @@ Vehicle → Trip tab shows both trips side by side, each with its own Reset.
 | TC_HU_017 | chimes: information chime at the chime volume, music ducks; muted: information silent, warning chime still audible; notice silent |
 | TC_HU_018 | trip: distance from the odometer in both trips, max speed, reset since start only, odometer jump ignored, no time while off, car's consumption |
 | TC_HU_019 | trip: state file; since start starts over after > 2 h off, also after a power loss while driving; average speed (tripd's logic, simulated clock) |
+| TC_HU_020 | companion link protocol: every message type through encode/decode, a stream in pieces, bad and unknown lines dropped without losing the rest (no services) |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
@@ -302,6 +303,7 @@ hu/warnd.py              Linux warning service: rules on vehicled's signals -> D
 hu/warnings.ini          warnd's rules (placeholder thresholds)
 hu/tripd.py              Linux trip computer: odometer / speed -> D-Bus de.r80.Trip
 hu/trip.ini              tripd's settings (auto reset after 2 h, ...)
+hu/companion_link.py     companion app <-> HU protocol (D11, ../docs/companion-protocol.md)
 hu/ui/run_hu.py          UI launcher: mockup + Sim.qml overlay + MCU key input + power blanking
 hu/ui/backend.py         QML singletons `Vehicle` and `Media` (R80.Backend 1.0) mirroring D-Bus
 hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`

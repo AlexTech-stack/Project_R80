@@ -32,7 +32,8 @@ ci/boat.version                   the BoAt release CI tests against
 ci/dut/                           emulated aarch64 DUT for CI: Dockerfile, start script, private bus config
 ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
 ci/boat_report.py                 BoAt reports as Markdown (CI job summaries)
-docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D8
+docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D11
+docs/companion-protocol.md        phone (R80 Companion app) <-> HU link protocol (D11)
 hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
   run.py                          launcher, also renders screenshots headless
   hu-mockup.qmlproject            Qt Design Studio project (open this in Design Studio)
@@ -58,6 +59,7 @@ hu-virtual/
     audiod.py, audio.ini          audio service (volume, mute, D9), D-Bus de.r80.Audio, and its config
     warnd.py, warnings.ini        vehicle warnings (D10), D-Bus de.r80.Warnings, and its rules
     tripd.py, trip.ini            trip computer (D10), D-Bus de.r80.Trip, and its config
+    companion_link.py             companion app <-> HU protocol (D11, docs/companion-protocol.md)
     ui/run_hu.py, ui/backend.py   UI launcher and QML backend over D-Bus
     ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
   mcu_emu/                        MCU emulator and its control client (PC only)
@@ -199,8 +201,11 @@ There is no unit test suite yet. Before you commit:
 - The MCU link protocol in `hu-virtual/hu/mcu_link.py` is a placeholder. Keep all
   framing in that one file. Do not treat it as final.
 - No Android Auto and no CarPlay. Do not add them.
+- Navigation: the phone navigates, the HU only displays its guidance (D11). Do not add
+  offline routing or a map renderer on the HU without asking Alex. Keep the companion
+  link format in `hu/companion_link.py` and `docs/companion-protocol.md`, in step.
 - The stock instrument cluster stays (decision D1).
-- The architecture decisions D1 to D8 are in `docs/architecture/HU_architecture_v0.3.md`.
+- The architecture decisions D1 to D11 are in `docs/architecture/HU_architecture_v0.3.md`.
   Do not contradict them. If a change needs a different decision, ask Alex first.
 
 ## 9. Code conventions
