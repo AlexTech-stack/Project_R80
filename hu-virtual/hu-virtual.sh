@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
 # Start / stop the virtual R80 headunit environment.
 #
-#   ./hu-virtual.sh up          buses, BoAt gateway, MCU emulator, hu-vehicled, hu-mediad, hu-audiod, hu-warnd, hu-tripd
+#   ./hu-virtual.sh up          buses, BoAt gateway, MCU emulator, hu-vehicled, hu-mediad, hu-audiod, hu-warnd, hu-tripd, hu-navd
 #   ./hu-virtual.sh drive       ... plus the BoAt restbus playing the drive cycle
+#   ./hu-virtual.sh phone       phone emulator: plays a navigation route as the companion app would (D11)
 #   ./hu-virtual.sh ui          start the UI (window) on top of a running env
 #   ./hu-virtual.sh panel       tester panel: the restbus with a GUI to change signals and press HU keys
-#   ./hu-virtual.sh test        run the BoAt test suite (env must be up, no restbus running)
+#   ./hu-virtual.sh test        run the BoAt test suite (env must be up; stops restbus, panel and phone)
 #   ./hu-virtual.sh status | logs | down
 #
 # Env overrides: BOAT_ROOT (~/BoAt), BOAT_PORT (50061), R80_MOCKUP (mockup dir),
 #                HU_DUT=external (up starts only buses + gateway; the DUT, i.e. MCU emulator,
-#                vehicled, mediad, audiod, warnd and tripd, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
+#                vehicled, mediad, audiod, warnd, tripd and navd, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
 #                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort),
 #                MUSIC_DIR (media library; unset = demo tones in $RUN/music),
 #                MEDIA_ARGS (extra hu/mediad.py arguments),
 #                AUDIO_ARGS (extra hu/audiod.py arguments; volumes are saved in $RUN/audio-state.json),
 #                WARN_ARGS (extra hu/warnd.py arguments, e.g. --config my-warnings.ini),
-#                TRIP_ARGS (extra hu/tripd.py arguments; trips are saved in $RUN/trip-state.json).
+#                TRIP_ARGS (extra hu/tripd.py arguments; trips are saved in $RUN/trip-state.json),
+#                NAV_ARGS (extra hu/navd.py arguments), PHONE_ARGS (extra phone_emu/phone_emu.py arguments).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -71,7 +73,7 @@ up() {
   [[ -x "$GATEWAY" ]] || { echo "BoAt gateway not built at $GATEWAY"; exit 1; }
   start gateway env BOAT_CAN_INTERFACES="$(IFS=,; echo "${BUSES[*]}")" BOAT_GRPC_PORT="$BOAT_PORT" "$GATEWAY"
   wait_gateway
-  if [[ "${HU_DUT:-}" == external ]]; then echo "  DUT is external: not starting mcu, vehicled, mediad, audiod, warnd and tripd"; return; fi
+  if [[ "${HU_DUT:-}" == external ]]; then echo "  DUT is external: not starting mcu, vehicled, mediad, audiod, warnd, tripd and navd"; return; fi
   start mcu python3 "$HERE/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 "${MCU_CAN2:-vcan_motor}" --can2-bus "${MCU_CAN2_BUS:-motor}"
   sleep 0.5
   start vehicled python3 "$HERE/hu/vehicled.py"
@@ -85,6 +87,8 @@ up() {
   start warnd python3 "$HERE/hu/warnd.py" ${WARN_ARGS:-}
   # shellcheck disable=SC2086  # TRIP_ARGS is a list of flags
   start tripd python3 "$HERE/hu/tripd.py" --state "$RUN/trip-state.json" ${TRIP_ARGS:-}
+  # shellcheck disable=SC2086  # NAV_ARGS is a list of flags
+  start navd python3 "$HERE/hu/navd.py" --socket "$RUN/companion.sock" ${NAV_ARGS:-}
 }
 
 case "${1:-status}" in
@@ -92,20 +96,22 @@ case "${1:-status}" in
   drive) up; stop panel; start restbus python3 "$HERE/boat/restbus.py" --address "localhost:$BOAT_PORT" --drive ${RESTBUS_ARGS:-} ;;
   restbus) start restbus python3 "$HERE/boat/restbus.py" --address "localhost:$BOAT_PORT" ${RESTBUS_ARGS:-} ;;
   ui) start ui python3 "$HERE/hu/ui/run_hu.py" ${UI_ARGS:-} ;;
+  # shellcheck disable=SC2086  # PHONE_ARGS is a list of flags
+  phone) start phone python3 "$HERE/phone_emu/phone_emu.py" --socket "$RUN/companion.sock" ${PHONE_ARGS:-} ;;
   panel) stop restbus; start panel python3 "$HERE/boat/restbus_panel.py" --address "localhost:$BOAT_PORT" ;;
   test)
-    stop restbus; stop panel
+    stop restbus; stop panel; stop phone
     cd "$HERE"
     BOAT_HOST="localhost:$BOAT_PORT" boat test run boat/manifest_hu_smoke.json --report-dir "$RUN/reports" "${@:2}"
     ;;
-  down) for n in ui panel restbus tripd warnd audiod mediad vehicled mcu gateway; do stop "$n"; done ;;
+  down) for n in ui panel phone restbus navd tripd warnd audiod mediad vehicled mcu gateway; do stop "$n"; done ;;
   status)
-    for n in gateway mcu vehicled mediad audiod warnd tripd restbus panel ui; do
+    for n in gateway mcu vehicled mediad audiod warnd tripd navd restbus phone panel ui; do
       if [[ -f "$RUN/$n.pid" ]] && kill -0 "$(cat "$RUN/$n.pid")" 2>/dev/null; then s=running; else s=stopped; fi
       printf "  %-9s %s\n" "$n" "$s"
     done
     ip -br link show type vcan 2>/dev/null | sed 's/^/  /' || true
     ;;
   logs) tail -n 20 "$RUN"/*.log ;;
-  *) sed -n '2,12p' "$0"; exit 1 ;;
+  *) sed -n '2,13p' "$0"; exit 1 ;;
 esac

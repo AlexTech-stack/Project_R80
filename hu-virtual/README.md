@@ -232,6 +232,37 @@ trips (`$XDG_RUNTIME_DIR/r80-hu/trip-state.json` under hu-virtual.sh), and if
 the HU lost power while driving, the last save counts as switch-off. The
 Vehicle → Trip tab shows both trips side by side, each with its own Reset.
 
+## Navigation (hu-navd, phone emulator)
+
+The phone navigates, the HU displays (decision D11). `hu/navd.py` runs the HU's
+side of the companion link (`hu/companion_link.py`,
+[`../docs/companion-protocol.md`](../docs/companion-protocol.md)) and publishes
+on D-Bus `de.r80.Nav` at `/de/r80/Nav` (interface `de.r80.Nav1`):
+
+- `Phone`: connected, device, app, bad_lines (dropped invalid lines).
+- `Guidance`: active, stale, source, maneuver, modifier, exit, distance_m,
+  street, text, remaining_m, remaining_s (-1 = not sent), arrival (unix time
+  from the HU's clock + remaining_s; 0 = unknown).
+
+One phone at a time; a new connection replaces the old one. A phone that sends
+nothing for `link_timeout_s` is dropped. The last guidance then stays, marked
+`stale`, for `keep_after_loss_s`, so a quick reconnect continues seamlessly
+(`hu/nav.ini`). Here the link is a local socket
+(`$XDG_RUNTIME_DIR/r80-hu/companion.sock`). Bluetooth RFCOMM on the target comes
+later and only changes how the bytes arrive.
+
+`phone_emu/phone_emu.py` stands in for the R80 Companion app. As a program
+(`./hu-virtual.sh phone`) it plays `phone_emu/route_demo.json`: the distance to
+the next maneuver counts down with `VehicleSpeed` (with `drive`) or
+`--speed-kmh`, rounded like a navigation app, and the route starts over after
+arriving. The tests use its `Phone` class.
+
+```bash
+./hu-virtual.sh drive && ./hu-virtual.sh phone
+gdbus call --session -d de.r80.Nav -o /de/r80/Nav \
+  -m org.freedesktop.DBus.Properties.Get de.r80.Nav1 Guidance
+```
+
 ## Tests (BoAt)
 
 ```bash
@@ -261,6 +292,8 @@ Vehicle → Trip tab shows both trips side by side, each with its own Reset.
 | TC_HU_018 | trip: distance from the odometer in both trips, max speed, reset since start only, odometer jump ignored, no time while off, car's consumption |
 | TC_HU_019 | trip: state file; since start starts over after > 2 h off, also after a power loss while driving; average speed (tripd's logic, simulated clock) |
 | TC_HU_020 | companion link protocol: every message type through encode/decode, a stream in pieces, bad and unknown lines dropped without losing the rest (no services) |
+| TC_HU_021 | navigation: phone hello and guidance reach `de.r80.Nav`, arrival from the HU's clock, bad lines counted with the link kept, guidance ended, wrong protocol and missing hello refused |
+| TC_HU_022 | navigation: silent phone dropped after `link_timeout_s`, closed link noticed at once, guidance kept as stale and continued on reconnect, a second phone replaces the first; cleared after `keep_after_loss_s` (navd's logic, simulated clock) |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
@@ -304,11 +337,15 @@ hu/warnings.ini          warnd's rules (placeholder thresholds)
 hu/tripd.py              Linux trip computer: odometer / speed -> D-Bus de.r80.Trip
 hu/trip.ini              tripd's settings (auto reset after 2 h, ...)
 hu/companion_link.py     companion app <-> HU protocol (D11, ../docs/companion-protocol.md)
+hu/navd.py               Linux navigation service: phone guidance -> D-Bus de.r80.Nav
+hu/nav.ini               navd's timing (heartbeat, link timeout, how long stale guidance stays)
 hu/ui/run_hu.py          UI launcher: mockup + Sim.qml overlay + MCU key input + power blanking
 hu/ui/backend.py         QML singletons `Vehicle` and `Media` (R80.Backend 1.0) mirroring D-Bus
 hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`
 mcu_emu/mcu_emu.py       MCU emulator
 mcu_emu/mcuctl.py        control client (also used by the tests)
+phone_emu/phone_emu.py   phone emulator (companion app stand-in), also the tests' Phone class
+phone_emu/route_demo.json  demo route the emulator plays
 boat/restbus.py          BoAt restbus node / library
 boat/restbus_panel.py    tester GUI: the restbus with live signal editing + HU controls
 boat/env_hu_virtual.json BoAt test environment (gateway started by hu-virtual.sh)

@@ -3,7 +3,7 @@
 
     python3 ci/check_rules.py
 
-- hu-virtual/hu/ (target software) does not import BoAt, mcu_emu/ or boat/   (AGENTS.md 8)
+- hu-virtual/hu/ (target software) does not import BoAt, mcu_emu/, phone_emu/ or boat/   (AGENTS.md 8)
 - no OpenStreetMap data is committed                                       (AGENTS.md 6)
 - every property, function and signal of hu-mockup/qml/Sim.qml also exists
   in hu-virtual/hu/ui/qml/Sim.qml                                         (AGENTS.md 9)
@@ -23,8 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Top-level modules that only exist on the PC: BoAt's SDK/CLI, the MCU emulator, the BoAt nodes.
-PC_ONLY_MODULES = {"boat", "boat_cli", "mcu_emu", "mcuctl", "restbus", "restbus_panel"}
-PC_ONLY_PATHS = ("mcu_emu", "boat")
+PC_ONLY_MODULES = {"boat", "boat_cli", "mcu_emu", "mcuctl", "phone_emu", "restbus", "restbus_panel"}
+PC_ONLY_PATHS = ("mcu_emu", "phone_emu", "boat")
 OSM_PATTERNS = ("*.osm", "*.osm.pbf", "*.pbf", "*.mbtiles", "*.pmtiles")
 SIM_MOCKUP = ROOT / "hu-mockup/qml/Sim.qml"
 SIM_VIRTUAL = ROOT / "hu-virtual/hu/ui/qml/Sim.qml"

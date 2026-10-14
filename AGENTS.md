@@ -60,9 +60,11 @@ hu-virtual/
     warnd.py, warnings.ini        vehicle warnings (D10), D-Bus de.r80.Warnings, and its rules
     tripd.py, trip.ini            trip computer (D10), D-Bus de.r80.Trip, and its config
     companion_link.py             companion app <-> HU protocol (D11, docs/companion-protocol.md)
+    navd.py, nav.ini              navigation service (D11), D-Bus de.r80.Nav, and its timing
     ui/run_hu.py, ui/backend.py   UI launcher and QML backend over D-Bus
     ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
   mcu_emu/                        MCU emulator and its control client (PC only)
+  phone_emu/                      phone emulator: companion app stand-in and demo route (PC only)
   boat/                           BoAt restbus node, tester panel and the 6 BoAt tests (PC only)
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```
@@ -117,7 +119,7 @@ SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 
 CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
 (`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
-A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`, `hu/warnd.py`, `hu/tripd.py`) in a
+A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`, `hu/warnd.py`, `hu/tripd.py`, `hu/navd.py`) in a
 Debian 13 container per CPU, arm64 (QEMU-emulated, like the Pi) and amd64, while BoAt
 stays on the x86 host (`ci/run_boat_sil.sh --install --dut-arch=arm64`; needs docker,
 and qemu-user-static for arm64).
@@ -191,7 +193,7 @@ There is no unit test suite yet. Before you commit:
 - Keep all software portable. Put hardware-specific code in a thin, separate layer.
   No Pi-specific code outside that layer. No x86-only dependencies.
 - Code under `hu-virtual/hu/` is target software. It must not import BoAt,
-  `mcu_emu/` or `boat/`.
+  `mcu_emu/`, `phone_emu/` or `boat/`.
 - The CAN database is a made-up test DBC. Rules for it: classic CAN only (no CAN FD),
   one signal per message, 11-bit standard IDs plus one 29-bit extended ID (`0x18FF0100`).
 - Edit the DBC through `hu-can/tools/make_dbc.py`, never by hand.
