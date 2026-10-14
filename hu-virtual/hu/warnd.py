@@ -8,15 +8,21 @@ hu/warnings.ini (then /etc/r80/warnings.ini, then --config):
     object     /de/r80/Warnings
     interface  de.r80.Warnings1
       properties  Active (aa{sv}): one dict per active warning, most severe first:
-                  id (s), severity (s: info|warning|critical), text (s), value (d),
+                  id (s), severity (s: notice|information|warning), text (s), value (d),
                   since (d: seconds the warning is active), acknowledged (b)
       methods     Acknowledge(s id), AcknowledgeAll()
       signal      Raised(s id, s severity, s text)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
-Rule kinds: threshold with hysteresis, drop rate (bar/s over a window; a fast pressure
-drop is urgent even while the value is still fine), difference between two signals,
-and missing data (hu-vehicled StaleSignals). A rule can require the engine to run.
+Severity says how soon the driver has to act (Alex, D10):
+  warning      within seconds (tyre pressure falling fast, oil pressure gone)
+  information  within minutes or hours; the car can still reach a workshop or fuel
+  notice       not dangerous, some time soon (service due)
+
+Rule kinds: threshold with hysteresis (optionally a band, at_least), drop rate (bar/s
+over a window; a fast tyre pressure drop is urgent even while the value is still fine),
+difference between two signals, and missing data (hu-vehicled StaleSignals). A rule
+can require the engine to run. Texts get {value}, {value_abs} and {label}.
 Warnings are only evaluated while the HU is on; an acknowledged warning stays in the
 list but does not pop up again until it has cleared.
 
@@ -33,8 +39,8 @@ from pathlib import Path
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "warnings.ini"
 SYSTEM_CONFIG = Path("/etc/r80/warnings.ini")
-SEVERITIES = ("info", "warning", "critical")
-RULE_KEYS = {"signal", "signals", "labels", "below", "above", "clear_above", "clear_below",
+SEVERITIES = ("notice", "information", "warning")       # least to most urgent
+RULE_KEYS = {"signal", "signals", "labels", "below", "at_least", "above", "clear_above", "clear_below",
              "drop_rate", "window_s", "hold_s", "diff_above", "diff_clear", "stale",
              "for_s", "when", "severity", "text"}
 
@@ -106,6 +112,8 @@ def load_config(extra: str | None = None) -> tuple[dict, list]:
         if len(kinds) != 1:
             raise ConfigError(f"[{s}] needs exactly one of below, above, drop_rate, diff_above, stale")
         kind = kinds[0]
+        if "at_least" in sec and kind != "below":
+            raise ConfigError(f"[{s}] at_least only goes with below")
         if kind == "stale":
             if sec.get("stale").strip().lower() not in ("yes", "true", "1"):
                 raise ConfigError(f"[{s}] stale must be yes")
@@ -123,9 +131,12 @@ def load_config(extra: str | None = None) -> tuple[dict, list]:
                      label=labels[i] if labels else sig)
             if kind == "below":
                 b = num(s, "below", lo=-1e9)
-                r.update(kind="below", raise_=b, clear=num(s, "clear_above", b, lo=-1e9))
+                r.update(kind="below", raise_=b, clear=num(s, "clear_above", b, lo=-1e9),
+                         floor=num(s, "at_least", -1e18, lo=-1e18))
                 if r["clear"] < b:
                     raise ConfigError(f"[{s}] clear_above must not be below 'below'")
+                if r["floor"] >= b:
+                    raise ConfigError(f"[{s}] at_least must be below 'below'")
             elif kind == "above":
                 a = num(s, "above", lo=-1e9)
                 r.update(kind="above", raise_=a, clear=num(s, "clear_below", a, lo=-1e9))
@@ -145,7 +156,7 @@ def load_config(extra: str | None = None) -> tuple[dict, list]:
             rules.append(dict(base, id=f"{base['section']}.{sig}", kind="stale", signals=[sig], label=sig))
     for r in rules:                                          # the text must format
         try:
-            r["text"].format(value=0.0, label="x")
+            r["text"].format(value=0.0, value_abs=0.0, label="x")
         except (KeyError, ValueError, IndexError) as e:
             raise ConfigError(f"[{r['section']}] text: {e}") from None
     ids = [r["id"] for r in rules]
@@ -203,8 +214,8 @@ class Engine:
         v = self.value_at(r["signals"][0], now)
         if v is None:
             return False, True, None
-        if r["kind"] == "below":
-            return v < r["raise_"], v >= r["clear"], v
+        if r["kind"] == "below":                               # at_least: a band, e.g. 0..1000 km
+            return r["floor"] <= v < r["raise_"], v >= r["clear"] or v < r["floor"], v
         if r["kind"] == "above":
             return v > r["raise_"], v <= r["clear"], v
         # rate: drop per second over the window; the value holds until the next sample
@@ -238,7 +249,7 @@ class Engine:
                     cleared.append(rid)
                 elif value is not None:
                     self.active[rid]["value"] = value
-                    self.active[rid]["text"] = r["text"].format(value=value, label=r["label"])
+                    self.active[rid]["text"] = r["text"].format(value=value, value_abs=abs(value), label=r["label"])
                 continue
             if not up:
                 st["pending"] = None
@@ -248,7 +259,9 @@ class Engine:
             if now - st["pending"] >= r["for_s"]:
                 st["pending"] = None
                 self.active[rid] = {"severity": r["severity"], "value": value if value is not None else 0.0,
-                                    "text": r["text"].format(value=value if value is not None else 0.0, label=r["label"]),
+                                    "text": r["text"].format(value=value if value is not None else 0.0,
+                                                             value_abs=abs(value) if value is not None else 0.0,
+                                                             label=r["label"]),
                                     "raised": now, "acknowledged": False}
                 raised.append(rid)
         return raised, cleared

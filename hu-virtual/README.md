@@ -185,12 +185,15 @@ and `AcknowledgeAll()`, signal `Raised(id, severity, text)`.
 The rules are in `hu/warnings.ini` (overridden by `/etc/r80/warnings.ini`, then
 `--config`, or `WARN_ARGS` for `hu-virtual.sh`); warnd refuses a bad file.
 **The numbers there are placeholders, not the real car's.** Rule kinds:
-threshold with hysteresis (`below` / `above`, `clear_above` / `clear_below`),
-drop rate (`drop_rate` per second over `window_s`, held `hold_s`; a fast oil or
-tyre pressure drop is critical while the value is still fine), difference of two
-signals (`diff_above`), and missing data (`stale`). Every rule has a debounce
-(`for_s`), a severity (info / warning / critical) and can require the engine to
-run. Warnings are only evaluated while the HU is on.
+threshold with hysteresis (`below` / `above`, `clear_above` / `clear_below`, a
+band with `at_least`), drop rate (`drop_rate` per second over `window_s`, held
+`hold_s`; a fast tyre pressure drop is a warning while the value is still fine),
+difference of two signals (`diff_above`), and missing data (`stale`). Every rule
+has a debounce (`for_s`), can require the engine to run, and a severity by how
+soon the driver has to act: `warning` (within seconds), `information` (within
+minutes or hours) or `notice` (some time soon; silent). Warnings are only
+evaluated while the HU is on. Oil pressure has a static limit only, since it
+falls fast on every lift-off.
 
 ```bash
 python3 hu/warnd.py --check            # check warnings.ini and list every rule
@@ -220,8 +223,8 @@ gdbus call --session -d de.r80.Warnings -o /de/r80/Warnings \
 | TC_HU_011 | audio: a navigation prompt fades media and radio to `duck_level` and back; navigation and phone untouched |
 | TC_HU_012 | audio: a call pauses media and silences radio from ringing on, media resumes only if it played before, mute spares the phone |
 | TC_HU_013 | audio: VOL_UP / MUTE from the MCU are ignored while the HU is off and work again after wake-up |
-| TC_HU_014 | warnings: debounce, hysteresis, acknowledge; oil pressure only with the engine running |
-| TC_HU_015 | warnings: fast oil / tyre pressure drop is critical while the value is still fine; a slow drop is not |
+| TC_HU_014 | warnings: debounce, hysteresis, acknowledge; oil pressure gone is a warning only with the engine running |
+| TC_HU_015 | warnings: a fast tyre pressure drop is a warning while the value is still fine; a slow drop is not; no oil drop-rate rule |
 | TC_HU_016 | warnings: missing CAN message -> 'No data', clears when back; no warnings while the HU is off |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """TC_HU_014: a warning is raised after its debounce time, holds through the hysteresis
-band, clears beyond it, and can be acknowledged; a rule tied to the running engine stays
-quiet with the engine off (D10, thresholds from hu/warnings.ini)."""
+band, clears beyond it, and can be acknowledged; oil pressure gone is a warning only with
+the engine running (D10, thresholds and severities from hu/warnings.ini)."""
 import time
 
 from common import ADDRESS, Restbus, active_warnings, check, finish, wait_for, wait_warnings, warn_rules, warnings
@@ -36,7 +36,7 @@ with Restbus(address=ADDRESS) as rb:
     ok, _, _ = wait_warnings(lambda a: "fuel_low" not in a, timeout=4.0)
     check(ok, f"fuel {fuel['clear'] + 3} %: cleared")
 
-    rb.set(EngineSpeed=0, OilPressure=oil["raise_"] - 0.3)
+    rb.set(EngineSpeed=0, OilPressure=0.0)
     time.sleep(oil["for_s"] + 1.5)
     check("oil_pressure_low" not in active_warnings(), "oil pressure low with the engine off: no warning")
     rb.set(EngineSpeed=800)
