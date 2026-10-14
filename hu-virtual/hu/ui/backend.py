@@ -412,3 +412,56 @@ class Warnings(QObject):
     @Slot()
     def acknowledgeAll(self):
         self._call("AcknowledgeAll")
+
+
+TRIP_SERVICE, TRIP_PATH, TRIP_IFACE = "de.r80.Trip", "/de/r80/Trip", "de.r80.Trip1"
+
+
+class Trip(QObject):
+    """QML singleton mirroring hu-tripd (de.r80.Trip1): the "since start" and "long-term"
+    trips as dicts {distance, time, avg_speed, max_speed, avg_consumption}."""
+    changed = Signal()
+    availableChanged = Signal()
+
+    def __init__(self, system_bus=False, parent=None):
+        super().__init__(parent)
+        self._available = False
+        self._v = {"SinceStart": {}, "LongTerm": {}}
+        DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
+        self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, TRIP_PATH)
+        self._poll = QTimer(self, interval=3000, timeout=self.refresh)
+        self._poll.start()
+        QTimer.singleShot(0, self.refresh)
+
+    def refresh(self):
+        self.bus.call_async(TRIP_SERVICE, TRIP_PATH, PROPS, "GetAll", "s", (TRIP_IFACE,),
+                            self._apply, self._on_gone, timeout=1.0)
+
+    def _on_gone(self, _err):
+        if self._available:
+            self._available = False
+            self.availableChanged.emit()
+            self.changed.emit()
+
+    def _on_props(self, iface, changed, _invalidated):
+        if iface == TRIP_IFACE:
+            self._apply(changed)
+
+    def _apply(self, changed: dict):
+        if not self._available:
+            self._available = True
+            self.availableChanged.emit()
+        for k in ("SinceStart", "LongTerm"):
+            if k in changed:
+                self._v[k] = {str(a): _py(b) for a, b in changed[k].items()}
+        self.changed.emit()
+
+    available = Property(bool, lambda self: self._available, notify=availableChanged)
+    sinceStart = Property("QVariantMap", lambda self: dict(self._v["SinceStart"]), notify=changed)
+    longTerm = Property("QVariantMap", lambda self: dict(self._v["LongTerm"]), notify=changed)
+
+    @Slot(str)
+    def reset(self, which):
+        self.bus.call_async(TRIP_SERVICE, TRIP_PATH, TRIP_IFACE, "Reset", "s", (str(which),),
+                            lambda *_: None, lambda *_: None, timeout=1.0)

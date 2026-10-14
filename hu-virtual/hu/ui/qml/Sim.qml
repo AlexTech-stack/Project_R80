@@ -14,7 +14,6 @@ QtObject {
     readonly property bool live: Vehicle.linkUp
     property Connections vehicleConn: Connections {
         target: Vehicle
-        function onValuesChanged() { sim._syncTrip() }
         // With hu-audiod on the bus it handles the MCU's volume keys itself.
         function onVolumeStep(d) { if (!sim.audioLive) sim.volume = Math.min(sim.volumeMax, Math.max(0, sim.volume + d)) }
         function onMuteToggled() { if (!sim.audioLive) sim.muted = !sim.muted }
@@ -85,16 +84,36 @@ QtObject {
     readonly property real fuelLevel: live ? Vehicle.fuelLevel : _fuelLevel          // 0..1
     readonly property int rangeKm: live ? Vehicle.rangeKm : Math.round(fuelLevel * 760)
     readonly property real odometer: live ? Vehicle.odometer : _odometer
-    // writable: the Vehicle screen resets it. Live, a reset keeps an offset
-    // against the car's trip counter (the real HU would ask the cluster instead).
-    property real tripKm: 43.7
-    property real _tripBase: 0
-    property bool _tripSync: false
-    onTripKmChanged: if (live && !_tripSync) _tripBase = Vehicle.tripKm - tripKm
-    function _syncTrip() { if (!live) return; _tripSync = true; tripKm = Vehicle.tripKm - _tripBase; _tripSync = false }
-    property int tripMinutes: 52
     readonly property real avgConsumption: live ? Vehicle.avgConsumption : 11.8
-    readonly property int avgSpeed: Math.round(tripKm / Math.max(tripMinutes, 1) * 60)
+    // ---- trip computer (D10; from hu-tripd in hu-virtual) -------------------
+    // {km, minutes, avgSpeed, maxSpeed}; "since start" and "long-term"
+    // Live from hu-tripd; without it the fake data counts its own (as in the mockup).
+    readonly property bool tripLive: Trip.available
+    property var _fakeStart: ({ km: 43.7, minutes: 52, avgSpeed: 50, maxSpeed: 128 })
+    property var _fakeLong: ({ km: 1874.2, minutes: 1712, avgSpeed: 66, maxSpeed: 187 })
+    function _fromTripd(v) {
+        return { km: v.distance || 0, minutes: Math.floor((v.time || 0) / 60),
+                 avgSpeed: Math.round(v.avg_speed || 0), maxSpeed: Math.round(v.max_speed || 0) }
+    }
+    readonly property var tripStart: tripLive ? _fromTripd(Trip.sinceStart) : _fakeStart
+    readonly property var tripLong: tripLive ? _fromTripd(Trip.longTerm) : _fakeLong
+    function resetTrip(which) {
+        if (tripLive) Trip.reset(which === "start" ? "since_start" : "long_term")
+        else _setTrip(which, { km: 0, minutes: 0, avgSpeed: 0, maxSpeed: 0 })
+    }
+    function _setTrip(which, v) { if (which === "start") _fakeStart = v; else _fakeLong = v }
+    property real _tripSeconds: 0
+    function _driveTrips(dt) {                // the fake data's own trip computer
+        _tripSeconds += dt
+        for (const which of ["start", "long"]) {
+            const t = which === "start" ? _fakeStart : _fakeLong
+            const km = t.km + speed * dt / 3600
+            const minutes = t.minutes + (_tripSeconds >= 60 ? 1 : 0)
+            _setTrip(which, { km: km, minutes: minutes, avgSpeed: minutes ? Math.round(km / minutes * 60) : 0,
+                              maxSpeed: Math.max(t.maxSpeed, Math.round(speed)) })
+        }
+        if (_tripSeconds >= 60) _tripSeconds = 0
+    }
     readonly property var tyres: live ? Vehicle.tyres : [2.3, 2.3, 2.2, 2.2]   // FL FR RL RR, bar
     readonly property int serviceKm: live ? Vehicle.serviceKm : 6400
     readonly property int serviceDays: live ? Vehicle.serviceDays : 112
@@ -342,12 +361,11 @@ QtObject {
             if (sim.callState === "active") sim.callSeconds += 1;
             if (!sim.live) {
                 sim._odometer += sim.speed / 3600;
-                sim.tripKm += sim.speed / 3600;
+                sim._driveTrips(1);
                 sim._fuelLevel = Math.max(0.05, sim._fuelLevel - sim.speed * 0.0000004);
                 sim._batteryVolt = 14.1 + Math.random() * 0.2;
                 sim._oilTemp = Math.round(91 + Math.random() * 2);
             }
-            if (Math.random() < 0.02) sim.tripMinutes += 1;
         }
     }
     property Timer driveTimer: Timer {

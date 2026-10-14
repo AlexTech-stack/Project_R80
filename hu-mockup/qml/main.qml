@@ -32,7 +32,7 @@ Window {
     property bool demoCall: false
     onDemoCallChanged: if (demoCall) Sim.simulateIncomingCall()
     property bool demoWarnings: false
-    onDemoWarningsChanged: if (demoWarnings) Sim.simulateWarnings()
+    onDemoWarningsChanged: if (demoWarnings) Sim.simulateWarnings(); else Sim.acknowledgeAllWarnings()
     property bool demoVolume: false
     onDemoVolumeChanged: if (demoVolume) { Sim.hangUp(); volumePopup.show() } else volumePopup.close()
 

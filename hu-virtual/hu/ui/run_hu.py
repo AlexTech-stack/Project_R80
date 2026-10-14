@@ -70,7 +70,7 @@ def main():
     from PySide6.QtQuick import QQuickItem  # noqa: F401
 
     sys.path.insert(0, str(HERE))
-    from backend import Audio, Media, Vehicle, Warnings
+    from backend import Audio, Media, Trip, Vehicle, Warnings
 
     app = QGuiApplication(sys.argv)
     app.setApplicationName("R80 Headunit (virtual)")
@@ -78,10 +78,12 @@ def main():
     media = Media(system_bus=a.system)
     audio = Audio(system_bus=a.system)
     warnings = Warnings(system_bus=a.system)
+    trip = Trip(system_bus=a.system)
     qmlRegisterSingletonInstance(Vehicle, "R80.Backend", 1, 0, "Vehicle", vehicle)
     qmlRegisterSingletonInstance(Media, "R80.Backend", 1, 0, "Media", media)
     qmlRegisterSingletonInstance(Audio, "R80.Backend", 1, 0, "Audio", audio)
     qmlRegisterSingletonInstance(Warnings, "R80.Backend", 1, 0, "Warnings", warnings)
+    qmlRegisterSingletonInstance(Trip, "R80.Backend", 1, 0, "Trip", trip)
 
     root = overlay_dir(mockup)
     engine = QQmlApplicationEngine()

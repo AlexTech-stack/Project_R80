@@ -22,6 +22,8 @@ test PC.
         │                                            │ hu/vehicled.py -> D-Bus      │
         │                                            │ hu/mediad.py   -> D-Bus      │
         │                                            │ hu/audiod.py   -> D-Bus      │
+        │                                            │ hu/warnd.py    -> D-Bus      │
+        │                                            │ hu/tripd.py    -> D-Bus      │
                                                      │ hu/ui/run_hu.py (eglfs)      │
                                                      └──────────────────────────────┘
 ```
@@ -36,7 +38,7 @@ The ready-made files live in `r80_pi_testbench/`:
 | `pc-cannelloni.sh` | test PC | starts the three cannelloni servers |
 | `r80-can.sh` | Pi | creates the vcans and starts the three cannelloni clients |
 | `r80-can.service` | Pi | systemd unit for `r80-can.sh` |
-| `r80-kiosk.sh` | Pi | starts mcu emu + vehicled + mediad + audiod + the UI |
+| `r80-kiosk.sh` | Pi | starts mcu emu + vehicled + mediad + audiod + warnd + tripd + the UI |
 | `r80-hu.service` | Pi | systemd unit for `r80-kiosk.sh` (eglfs kiosk) |
 | `r80-bench.conf.example` | Pi | `PC_IP`/ports for the can service |
 
@@ -187,6 +189,8 @@ Validate before the kiosk, so the desktop owns the display:
 cd ~/Project_R80/hu-virtual
 ~/r80-venv/bin/python hu/mediad.py --music-dir ~/Music &
 ~/r80-venv/bin/python hu/audiod.py &
+~/r80-venv/bin/python hu/warnd.py &
+~/r80-venv/bin/python hu/tripd.py &
 ~/r80-venv/bin/python hu/ui/run_hu.py
 ```
 
@@ -203,7 +207,7 @@ sudo systemctl disable --now lightdm 2>/dev/null || true
 sudo usermod -aG video,render,input,audio $USER
 ```
 
-`r80-kiosk.sh` starts mcu emu, `vehicled`, `mediad` and `audiod`, then execs the UI with
+`r80-kiosk.sh` starts mcu emu, `vehicled`, `mediad`, `audiod`, `warnd` and `tripd`, then execs the UI with
 `QT_QPA_PLATFORM=eglfs`. `r80-hu.service` wraps it in `dbus-run-session` so the
 services and the UI share one session bus (`de.r80.Vehicle` / `de.r80.Media`),
 and requires `r80-can.service`:

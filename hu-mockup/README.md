@@ -63,6 +63,8 @@ Vehicle warnings (D10): an unacknowledged *warning* (filled) or *information*
 (outlined) shows as a banner below the header until OK or a knob press; a
 *notice* shows for 5 s only. The header shows a warning triangle with the count
 (bright while one is open); clicking it opens Vehicle → Warnings, the full list.
+Vehicle → Trip shows two trips, "since start" (starts over after 2 h with the
+ignition off) and "long-term", each with its own Reset.
 
 ## Layout of the code
 
