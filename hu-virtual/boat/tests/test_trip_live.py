@@ -39,6 +39,7 @@ with Restbus(address=ADDRESS) as rb:
 
     rb.set(IgnitionState="Off")
     ok, _, _ = wait_for(lambda p: p["Power"] not in cfg["count_time_in"], timeout=5.0)
+    time.sleep(1.5)   # tripd counts in 1 s ticks and gets the power change a moment after us: let that tick land
     before = trip_props()["LongTerm"]["time"]
     time.sleep(3.0)
     check(trip_props()["LongTerm"]["time"] == before, "no driving time while the HU is off")
