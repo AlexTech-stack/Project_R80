@@ -9,6 +9,7 @@ runs the HU's side of that link and publishes what to show:
     object     /de/r80/Nav
     interface  de.r80.Nav1
       properties  Phone (a{sv}): connected (b), device (s), app (s: name and version),
+                                 via (s: "Bluetooth dev_…", "TCP <ip>", "local socket"),
                                  bad_lines (u: dropped invalid lines, all sessions)
                   Guidance (a{sv}): active (b), stale (b: the phone link is lost, last state kept),
                                  source (s), maneuver (s), modifier (s, "" = none), exit (u, 0 = none),
@@ -17,11 +18,15 @@ runs the HU's side of that link and publishes what to show:
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
 One phone at a time: a new connection replaces the old one (a phone that reconnects
-before the old link timed out). The timing is in nav.ini. The transport here is a local
-stream socket (--socket; the phone emulator in the virtual environment connects to it);
-for development with a real phone over Wi-Fi, --tcp PORT also listens on TCP (no
-authentication or encryption: only on a trusted network, never on the target);
-Bluetooth RFCOMM on the target comes later and only replaces how bytes arrive.
+before the old link timed out). The timing is in nav.ini. Ways in, all the same protocol:
+  Bluetooth   --bluetooth system: navd registers the companion service (RFCOMM, UUID
+              companion_link.SERVICE_UUID) with BlueZ (org.bluez.ProfileManager1); BlueZ hands
+              over each connection of a paired phone (Profile1.NewConnection). Registration is
+              renewed whenever bluetoothd (re)starts. --bluetooth session looks for BlueZ on
+              the session bus instead (the tests' stand-in BlueZ).
+  local       --socket: a local stream socket (the phone emulator, the tests)
+  TCP         --tcp PORT: development with a real phone over Wi-Fi (no authentication or
+              encryption: only on a trusted network, never on the target)
 The session logic (Link) has no sockets and no clock, so tests can drive it with their own time.
 """
 from __future__ import annotations
@@ -176,15 +181,16 @@ class Link:
                 "remaining_s": num("remaining_s"), "arrival": self.arrival}
 
 
-def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None = None):
+def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None = None, bluez_bus: str | None = None):
     import dbus
     import dbus.service
     from dbus.mainloop.glib import DBusGMainLoop
     from gi.repository import GLib
 
     BUS_NAME, OBJ_PATH, IFACE = "de.r80.Nav", "/de/r80/Nav", "de.r80.Nav1"
+    BLUEZ, PROFILE_PATH = "org.bluez", "/de/r80/Nav/companion_profile"
     PROPS = "org.freedesktop.DBus.Properties"
-    TYPES = {"connected": dbus.Boolean, "device": dbus.String, "app": dbus.String, "bad_lines": dbus.UInt32,
+    TYPES = {"connected": dbus.Boolean, "device": dbus.String, "app": dbus.String, "bad_lines": dbus.UInt32, "via": dbus.String,
              "active": dbus.Boolean, "stale": dbus.Boolean, "source": dbus.String, "maneuver": dbus.String,
              "modifier": dbus.String, "exit": dbus.UInt32, "distance_m": dbus.Double, "street": dbus.String,
              "text": dbus.String, "remaining_m": dbus.Double, "remaining_s": dbus.Double, "arrival": dbus.Int64}
@@ -197,6 +203,7 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             super().__init__(bus, OBJ_PATH)
             self.link = Link(cfg)
             self.conn: socket.socket | None = None
+            self.conn_from = ""
             self.watch = None
             self.decoder = cl.Decoder()
             self.published = {}
@@ -221,16 +228,20 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
 
         # ---- transport ------------------------------------------------------
         def on_accept(self, _fd, _cond, server):
-            conn, _addr = server.accept()
+            conn, addr = server.accept()
+            self.adopt(conn, "TCP " + addr[0] if server.family == socket.AF_INET else "local socket")
+            return True
+
+        def adopt(self, conn: socket.socket, how: str):
+            """Takes over a new phone connection, whichever way it came in."""
             if self.conn:
                 log("a new phone connection replaces the old one")
                 self.drop()
             conn.setblocking(False)
-            self.conn, self.decoder = conn, cl.Decoder()
+            self.conn, self.decoder, self.conn_from = conn, cl.Decoder(), how
             self.link.connect(time.monotonic())
             self.watch = GLib.io_add_watch(conn.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.on_data)
-            log("phone connection opened")
-            return True
+            log(f"phone connection opened ({how})")
 
         def on_data(self, _fd, cond):
             try:
@@ -297,7 +308,9 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
 
         # ---- D-Bus ----------------------------------------------------------
         def props(self):
-            return {"Phone": self.link.phone(), "Guidance": self.link.view()}
+            phone = self.link.phone()
+            phone["via"] = self.conn_from if phone["connected"] else ""
+            return {"Phone": phone, "Guidance": self.link.view()}
 
         def publish(self):
             changed = {}
@@ -323,11 +336,59 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
         def PropertiesChanged(self, iface, changed, invalidated):
             pass
 
+    class Profile(dbus.service.Object):
+        """org.bluez.Profile1: BlueZ calls this for each RFCOMM connection to our UUID."""
+
+        def __init__(self, bt_bus, nav):
+            super().__init__(bt_bus, PROFILE_PATH)
+            self.bt_bus, self.nav = bt_bus, nav
+            self.devices: dict[str, socket.socket] = {}
+            bt_bus.add_signal_receiver(self.on_owner, "NameOwnerChanged", "org.freedesktop.DBus",
+                                       "org.freedesktop.DBus", "/org/freedesktop/DBus", arg0=BLUEZ)
+            if bt_bus.name_has_owner(BLUEZ):
+                self.register()
+            else:
+                log(f"waiting for BlueZ on the {bluez_bus} bus")
+
+        def on_owner(self, _name, _old, new):
+            if new:
+                self.register()
+
+        def register(self):
+            opts = dbus.Dictionary({"Name": "R80 Companion", "Role": "server",
+                                    "RequireAuthentication": True, "RequireAuthorization": False},
+                                   signature="sv")
+            self.bt_bus.call_async(BLUEZ, "/org/bluez", "org.bluez.ProfileManager1", "RegisterProfile", "osa{sv}",
+                                   (dbus.ObjectPath(PROFILE_PATH), cl.SERVICE_UUID, opts),
+                                   lambda: log(f"Bluetooth: companion service registered with BlueZ ({cl.SERVICE_UUID})"),
+                                   lambda e: log(f"Bluetooth: BlueZ refused the companion service: {e.get_dbus_message()}"),
+                                   timeout=5.0)
+
+        @dbus.service.method("org.bluez.Profile1", in_signature="oha{sv}")
+        def NewConnection(self, device, fd, _props):
+            conn = socket.socket(fileno=fd.take())
+            self.devices[str(device)] = conn
+            self.nav.adopt(conn, f"Bluetooth {str(device).rsplit('/', 1)[-1]}")
+
+        @dbus.service.method("org.bluez.Profile1", in_signature="o")
+        def RequestDisconnection(self, device):
+            conn = self.devices.pop(str(device), None)
+            if conn is not None and conn is self.nav.conn:
+                log("Bluetooth: BlueZ asks to disconnect the phone")
+                self.nav.drop()
+
+        @dbus.service.method("org.bluez.Profile1")
+        def Release(self):
+            log("Bluetooth: BlueZ released the companion service")
+
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus() if system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
-    Nav(bus)
+    nav = Nav(bus)
     log(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, phone link on {sock_path}")
+    if bluez_bus:
+        bt_bus = dbus.SystemBus() if bluez_bus == "system" else dbus.SessionBus()
+        Profile(bt_bus, nav)
     GLib.MainLoop().run()
 
 
@@ -337,13 +398,16 @@ def main():
     run = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu"
     ap.add_argument("--socket", default=str(run / "companion.sock"), help="local socket the phone (emulator) connects to")
     ap.add_argument("--tcp", type=int, metavar="PORT", help="also accept the phone on this TCP port (development, trusted network only)")
+    ap.add_argument("--bluetooth", choices=("system", "session"), metavar="BUS",
+                    help="accept the phone over Bluetooth: register with BlueZ on this bus (system = the real "
+                         "Bluetooth stack, session = the tests' stand-in)")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     a = ap.parse_args()
     try:
         cfg = load_config(a.config)
     except ConfigError as e:
         sys.exit(f"[navd] bad config: {e}")
-    run_service(cfg, Path(a.socket), a.system, a.tcp)
+    run_service(cfg, Path(a.socket), a.system, a.tcp, a.bluetooth)
 
 
 if __name__ == "__main__":

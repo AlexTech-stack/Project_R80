@@ -18,7 +18,7 @@ python3 "$HU/hu/audiod.py" --state "$XDG_RUNTIME_DIR/r80-hu/audio-state.json" &
 # shellcheck disable=SC2086  # WARN_ARGS is a list of flags
 python3 "$HU/hu/warnd.py" ${WARN_ARGS:-} &
 python3 "$HU/hu/tripd.py" --state "$XDG_RUNTIME_DIR/r80-hu/trip-state.json" &
-python3 "$HU/hu/navd.py" --socket "$XDG_RUNTIME_DIR/r80-hu/companion.sock" &
+python3 "$HU/hu/navd.py" --socket "$XDG_RUNTIME_DIR/r80-hu/companion.sock" --bluetooth session &
 wait -n   # either one ending ends the DUT
 echo "DUT: a process exited"
 exit 1

@@ -10,6 +10,14 @@ object Settings {
     fun huAddress(ctx: Context): String = prefs(ctx).getString("hu_address", "192.168.1.10:47800")!!
     fun setHuAddress(ctx: Context, v: String) = prefs(ctx).edit().putString("hu_address", v.trim()).apply()
 
+    /** "bluetooth" (the HU, paired) or "wifi" (development: navd --tcp on a PC). */
+    fun transport(ctx: Context): String = prefs(ctx).getString("transport", "bluetooth")!!
+    fun setTransport(ctx: Context, v: String) = prefs(ctx).edit().putString("transport", v).apply()
+
+    /** Bluetooth address of the paired HU. */
+    fun huDevice(ctx: Context): String = prefs(ctx).getString("hu_device", "")!!
+    fun setHuDevice(ctx: Context, v: String) = prefs(ctx).edit().putString("hu_device", v).apply()
+
     fun capture(ctx: Context): Boolean = prefs(ctx).getBoolean("capture", false)
     fun setCapture(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("capture", v).apply()
 

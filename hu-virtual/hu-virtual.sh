@@ -18,7 +18,8 @@
 #                AUDIO_ARGS (extra hu/audiod.py arguments; volumes are saved in $RUN/audio-state.json),
 #                WARN_ARGS (extra hu/warnd.py arguments, e.g. --config my-warnings.ini),
 #                TRIP_ARGS (extra hu/tripd.py arguments; trips are saved in $RUN/trip-state.json),
-#                NAV_ARGS (extra hu/navd.py arguments), PHONE_ARGS (extra phone_emu/phone_emu.py arguments).
+#                NAV_ARGS (extra hu/navd.py arguments, e.g. --tcp 47800), PHONE_ARGS (extra phone_emu/phone_emu.py arguments),
+#                NAV_BLUETOOTH (session: BlueZ stand-in of the tests, default; system: this PC's real Bluetooth).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -88,7 +89,7 @@ up() {
   # shellcheck disable=SC2086  # TRIP_ARGS is a list of flags
   start tripd python3 "$HERE/hu/tripd.py" --state "$RUN/trip-state.json" ${TRIP_ARGS:-}
   # shellcheck disable=SC2086  # NAV_ARGS is a list of flags
-  start navd python3 "$HERE/hu/navd.py" --socket "$RUN/companion.sock" ${NAV_ARGS:-}
+  start navd python3 "$HERE/hu/navd.py" --socket "$RUN/companion.sock" --bluetooth "${NAV_BLUETOOTH:-session}" ${NAV_ARGS:-}
 }
 
 case "${1:-status}" in

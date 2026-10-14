@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -24,14 +26,18 @@ class LinkService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         if (link == null) {
-            val address = Settings.parseAddress(Settings.huAddress(this))
-            if (address == null) {
-                AppState.setLink(Link.Status(Link.State.STOPPED, "bad HU address"))
-                stopSelf()
-                return START_NOT_STICKY
+            val transports: () -> Transport
+            if (Settings.transport(this) == "wifi") {
+                val address = Settings.parseAddress(Settings.huAddress(this)) ?: return fail("bad HU address")
+                transports = { TcpTransport(address.first, address.second) }
+            } else {
+                val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return fail("no Bluetooth")
+                val device = Settings.huDevice(this).takeIf { BluetoothAdapter.checkBluetoothAddress(it) }
+                    ?: return fail("no headunit chosen")
+                transports = { BluetoothTransport(adapter, device) }
             }
             link = Link(
-                transports = { TcpTransport(address.first, address.second) },
+                transports = transports,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}",
                 version = BuildConfig.VERSION_NAME,
                 onStatus = { AppState.setLink(it) },
@@ -42,6 +48,12 @@ class LinkService : Service() {
             AppState.listen(onChange)
         }
         return START_STICKY
+    }
+
+    private fun fail(why: String): Int {
+        AppState.setLink(Link.Status(Link.State.STOPPED, why))
+        stopSelf()
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {

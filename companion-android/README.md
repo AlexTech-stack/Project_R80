@@ -16,10 +16,11 @@ Android 14 or newer, Kotlin, no Google Play services, MIT like the rest of R80.
   That table is empty until it is built from captured drives (see Capture). Until
   then the HU gets maneuver `unknown` with distance and road, and shows a generic
   arrow.
-- **Link to the HU:** for now over TCP to a PC running `hu-navd --tcp 47800`
-  (development, trusted Wi-Fi only). Bluetooth RFCOMM to the real HU is the next
-  step. The link reconnects by itself and runs as a foreground service, so
-  Android keeps it alive during a drive.
+- **Link to the HU:** Bluetooth RFCOMM to the paired HU (hu-navd registers the
+  companion service with BlueZ and only accepts paired phones). For development
+  also Wi-Fi: TCP to a PC running `hu-navd --tcp 47800` (trusted network only, no
+  authentication). The link reconnects by itself and runs as a foreground
+  service, so Android keeps it alive during a drive.
 - **Capture (development):** records every Google Maps notification (all text
   fields, the arrow's fingerprint) and each different arrow image once. "Export
   to Downloads" saves a zip. The recording contains the streets of the drive and
@@ -33,22 +34,35 @@ Android 14 or newer, Kotlin, no Google Play services, MIT like the rest of R80.
 3. Open the app → "Open notification access" → enable R80 Companion. Android 13+
    greys this out for apps not installed from a store: App info → ⋮ → "Allow
    restricted settings", then try again.
-4. Allow notifications when asked (the foreground service shows one).
+4. Allow notifications and "Nearby devices" when asked (the foreground service
+   shows a notification; "Nearby devices" lets the app list the paired HU).
 
 Each CI build is signed with a new debug key, so a newer APK from CI cannot
 update an installed one: uninstall first (the settings are lost).
 
 ## Try it with the virtual HU
 
-On the PC (phone and PC in the same Wi-Fi; the PC's firewall must allow TCP 47800):
+**Over Bluetooth** (the PC plays the HU; it needs a Bluetooth adapter):
+
+1. Pair the phone with the PC (the PC's Bluetooth settings, or `bluetoothctl`).
+2. Start the virtual HU with the PC's real Bluetooth:
+   ```bash
+   cd hu-virtual
+   NAV_BLUETOOTH=system ./hu-virtual.sh up && ./hu-virtual.sh ui
+   ```
+   `$XDG_RUNTIME_DIR/r80-hu/navd.log` should say "companion service registered with BlueZ".
+3. In the app: Bluetooth, choose the PC, Connect, then start a route in Google Maps.
+
+**Over Wi-Fi** (phone and PC in the same network; the PC's firewall must allow TCP 47800):
 
 ```bash
 cd hu-virtual
 NAV_ARGS="--tcp 47800" ./hu-virtual.sh up && ./hu-virtual.sh ui
 ```
 
-In the app: enter `<PC's IP>:47800`, Connect, then start a route in Google Maps.
-The HU's Navigation screen follows.
+In the app: Wi-Fi (development), enter `<PC's IP>:47800`, Connect.
+
+Either way the HU's Navigation screen follows the route.
 
 ## Build
 
@@ -69,6 +83,7 @@ fingerprints, and the link against a fake HU.
 app/src/main/java/de/r80/companion/
   Protocol.kt             companion link protocol v1 (phone side)
   Link.kt                 session: hello, guidance, heartbeats, reconnect; TCP transport
+  BluetoothTransport.kt   RFCOMM to the paired HU
   MapsParser.kt           Google Maps notification text -> Guidance
   IconTable.kt            arrow image fingerprints -> maneuver
   MapsListenerService.kt  notification listener; capture hook

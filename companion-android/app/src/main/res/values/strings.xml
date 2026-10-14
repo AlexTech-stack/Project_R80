@@ -8,6 +8,11 @@
     <string name="access_missing">Not granted. Without it the app cannot read Google Maps. If the switch is greyed out: App info → ⋮ → Allow restricted settings (needed for apps not installed from a store).</string>
     <string name="grant">Open notification access</string>
     <string name="hu_title">Headunit</string>
+    <string name="transport_bluetooth">Bluetooth</string>
+    <string name="transport_wifi">Wi-Fi (development)</string>
+    <string name="bt_hint">Pair the headunit in the phone\'s Bluetooth settings first, then choose it here.</string>
+    <string name="bt_permission">Allow \"Nearby devices\" to list the paired headunit.</string>
+    <string name="no_paired">No paired devices</string>
     <string name="address_hint">PC running navd --tcp, host:port</string>
     <string name="bad_address">Address must be host:port, e.g. 192.168.1.10:47800</string>
     <string name="connect">Connect</string>

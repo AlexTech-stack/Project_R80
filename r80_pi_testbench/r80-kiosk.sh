@@ -20,7 +20,7 @@ PY="$VENV/bin/python"
 "$PY" "$HU/hu/audiod.py" >/tmp/r80-audiod.log 2>&1 &
 "$PY" "$HU/hu/warnd.py" >/tmp/r80-warnd.log 2>&1 &
 "$PY" "$HU/hu/tripd.py" >/tmp/r80-tripd.log 2>&1 &
-"$PY" "$HU/hu/navd.py" >/tmp/r80-navd.log 2>&1 &
+"$PY" "$HU/hu/navd.py" --bluetooth system >/tmp/r80-navd.log 2>&1 &
 sleep 1
 
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-eglfs}"

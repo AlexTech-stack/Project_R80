@@ -192,7 +192,7 @@ cd ~/Project_R80/hu-virtual
 ~/r80-venv/bin/python hu/audiod.py &
 ~/r80-venv/bin/python hu/warnd.py &
 ~/r80-venv/bin/python hu/tripd.py &
-~/r80-venv/bin/python hu/navd.py &
+~/r80-venv/bin/python hu/navd.py --bluetooth system &
 ~/r80-venv/bin/python hu/ui/run_hu.py
 ```
 

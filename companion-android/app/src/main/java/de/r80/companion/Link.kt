@@ -51,6 +51,7 @@ class Link(
     @Volatile private var running = false
     @Volatile private var current: Guidance? = null
     @Volatile private var transport: Transport? = null
+    @Volatile private var opened = false
     private val outbox = LinkedBlockingQueue<String>()
     private var thread: Thread? = null
 
@@ -64,6 +65,7 @@ class Link(
     fun stop() {
         running = false
         thread?.interrupt()
+        if (!opened) transport?.close()     // aborts a connect that is still trying (Bluetooth takes ~12 s)
     }
 
     /** The guidance to show; sent when it changed and again after every reconnect. */
@@ -85,6 +87,7 @@ class Link(
             } catch (e: Exception) {
                 if (running) onStatus(Status(State.WAITING, "${t.description}: ${e.message ?: e.javaClass.simpleName}"))
             } finally {
+                opened = false
                 t.close()
             }
             if (!running) break
@@ -96,6 +99,7 @@ class Link(
 
     private fun session(t: Transport) {
         val (input, output) = t.open()
+        opened = true
         val incoming = LinkedBlockingQueue<Protocol.HuMessage>()
         val lastRx = AtomicLong(clock())
         val reader = Thread({

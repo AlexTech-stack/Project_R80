@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- TCP to the HU during development (navd with a TCP port); Bluetooth comes with the real link. -->
+    <!-- The link to the HU: Bluetooth RFCOMM to the paired HU (only paired devices, no scan),
+         or TCP during development (navd with a TCP port on a PC). -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

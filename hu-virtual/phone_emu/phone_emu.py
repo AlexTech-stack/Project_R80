@@ -55,10 +55,16 @@ class Phone:
         self._lock = threading.Lock()
         self._stop = threading.Event()
 
-    def connect(self, hello: bool = True, proto: int = cl.PROTO_VERSION, timeout: float = 3.0) -> dict | None:
-        """Connect; with hello, send ours and wait for the HU's. Returns the HU's hello (or None)."""
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(self.path)
+    def connect(self, hello: bool = True, proto: int = cl.PROTO_VERSION, timeout: float = 3.0,
+                sock: socket.socket | None = None) -> dict | None:
+        """Connect (or use `sock`, an already connected stream, e.g. the phone's end of what a test hands
+        to navd as a Bluetooth connection); with hello, send ours and wait for the HU's.
+        Returns the HU's hello (or None)."""
+        if sock is not None:
+            self.sock = sock
+        else:
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(self.path)
         threading.Thread(target=self._reader, daemon=True).start()
         threading.Thread(target=self._beater, daemon=True).start()
         if not hello:

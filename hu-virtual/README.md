@@ -248,9 +248,12 @@ One phone at a time; a new connection replaces the old one. A phone that sends
 nothing for `link_timeout_s` is dropped. The last guidance then stays, marked
 `stale`, for `keep_after_loss_s`, so a quick reconnect continues seamlessly
 (`hu/nav.ini`). Here the link is a local socket
-(`$XDG_RUNTIME_DIR/r80-hu/companion.sock`). Bluetooth RFCOMM on the target comes
-later and only changes how the bytes arrive. For the real app on a phone in the
-same Wi-Fi, `NAV_ARGS="--tcp 47800"` also opens a TCP port (development only: no
+(`$XDG_RUNTIME_DIR/r80-hu/companion.sock`), plus Bluetooth: navd registers the
+companion service with BlueZ (RFCOMM, UUID in `companion_link.py`, paired phones
+only) and BlueZ hands over each connection. `hu-virtual.sh` points that at the
+tests' BlueZ stand-in on the session bus; `NAV_BLUETOOTH=system ./hu-virtual.sh up`
+uses this PC's real Bluetooth (pair the phone with the PC first). For the real app
+on a phone in the same Wi-Fi, `NAV_ARGS="--tcp 47800"` also opens a TCP port (development only: no
 authentication; see [`../companion-android/README.md`](../companion-android/README.md)).
 
 `phone_emu/phone_emu.py` stands in for the R80 Companion app. As a program
@@ -302,6 +305,7 @@ gdbus call --session -d de.r80.Nav -o /de/r80/Nav \
 | TC_HU_020 | companion link protocol: every message type through encode/decode, a stream in pieces, bad and unknown lines dropped without losing the rest (no services) |
 | TC_HU_021 | navigation: phone hello and guidance reach `de.r80.Nav`, arrival from the HU's clock, bad lines counted with the link kept, guidance ended, wrong protocol and missing hello refused |
 | TC_HU_022 | navigation: silent phone dropped after `link_timeout_s`, closed link noticed at once, guidance kept as stale and continued on reconnect, a second phone replaces the first; cleared after `keep_after_loss_s` (navd's logic, simulated clock) |
+| TC_HU_023 | navigation over Bluetooth with a BlueZ stand-in: navd registers the companion service (RFCOMM server, protocol UUID, paired phones only), a connection handed over like bluetoothd does carries the protocol, BlueZ's disconnect request, re-registration after a bluetoothd restart |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).

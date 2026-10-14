@@ -3,19 +3,26 @@ package de.r80.companion
 import android.Manifest
 import android.app.Activity
 import android.app.NotificationManager
+import android.bluetooth.BluetoothManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.RadioGroup
+import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
 /**
- * The app's only screen: notification access, the HU's address (development: the PC
- * running navd --tcp), connect / disconnect, what is sent, and capture mode.
+ * The app's only screen: notification access, which HU (the paired one over Bluetooth, or a
+ * PC running navd with a TCP port over Wi-Fi for development), connect / disconnect, what is
+ * sent, and capture mode.
  */
 class MainActivity : Activity() {
     private lateinit var access: TextView
@@ -23,6 +30,9 @@ class MainActivity : Activity() {
     private lateinit var guidance: TextView
     private lateinit var captureInfo: TextView
     private lateinit var connect: Button
+    private lateinit var devices: Spinner
+    private lateinit var address: EditText
+    private var paired: List<Pair<String, String>> = emptyList()    // (address, label)
     private val refresh: () -> Unit = { show() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,15 +47,30 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.grant).setOnClickListener {
             startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
-        val address = findViewById<EditText>(R.id.address)
+        address = findViewById(R.id.address)
         address.setText(Settings.huAddress(this))
+        devices = findViewById(R.id.hu_device)
+        devices.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                paired.getOrNull(pos)?.let { Settings.setHuDevice(this@MainActivity, it.first) }
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        val transport = findViewById<RadioGroup>(R.id.transport)
+        transport.check(if (Settings.transport(this) == "wifi") R.id.transport_wifi else R.id.transport_bluetooth)
+        transport.setOnCheckedChangeListener { _, id ->
+            Settings.setTransport(this, if (id == R.id.transport_wifi) "wifi" else "bluetooth")
+            show()
+        }
         connect.setOnClickListener {
             if (AppState.link.state == Link.State.STOPPED) {
-                if (Settings.parseAddress(address.text.toString()) == null) {
-                    Toast.makeText(this, R.string.bad_address, Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
+                if (Settings.transport(this) == "wifi") {
+                    if (Settings.parseAddress(address.text.toString()) == null) {
+                        Toast.makeText(this, R.string.bad_address, Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+                    Settings.setHuAddress(this, address.text.toString())
                 }
-                Settings.setHuAddress(this, address.text.toString())
                 LinkService.start(this)
             } else {
                 LinkService.stop(this)
@@ -63,13 +88,35 @@ class MainActivity : Activity() {
         }
         findViewById<Button>(R.id.clear).setOnClickListener { Capture.clear(this); show() }
 
-        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        val missing = arrayOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.BLUETOOTH_CONNECT)
+            .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        show()
+    }
+
+    /** The phone's paired devices, for choosing the HU. */
+    @android.annotation.SuppressLint("MissingPermission")    // checked right here
+    private fun listPaired() {
+        val allowed = checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        paired = if (!allowed) emptyList() else
+            getSystemService(BluetoothManager::class.java)?.adapter?.bondedDevices.orEmpty()
+                .map { it.address to "${it.name ?: "?"}  (${it.address})" }.sortedBy { it.second }
+        val labels = when {
+            !allowed -> listOf(getString(R.string.bt_permission))
+            paired.isEmpty() -> listOf(getString(R.string.no_paired))
+            else -> paired.map { it.second }
         }
+        devices.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        paired.indexOfFirst { it.first == Settings.huDevice(this) }.takeIf { it >= 0 }?.let { devices.setSelection(it) }
     }
 
     override fun onResume() {
         super.onResume()
+        listPaired()                // the user may have paired the HU meanwhile
         AppState.listen(refresh)
         show()
     }
@@ -83,6 +130,11 @@ class MainActivity : Activity() {
         val granted = getSystemService(NotificationManager::class.java)
             .isNotificationListenerAccessGranted(ComponentName(this, MapsListenerService::class.java))
         access.setText(if (granted) R.string.access_granted else R.string.access_missing)
+        val wifi = Settings.transport(this) == "wifi"
+        address.visibility = if (wifi) View.VISIBLE else View.GONE
+        devices.visibility = if (wifi) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.bt_hint).visibility = devices.visibility
+        if (!wifi && devices.adapter == null) listPaired()
         val s = AppState.link
         linkStatus.text = getString(R.string.link_status, s.state.name.lowercase(), s.detail)
         connect.setText(if (s.state == Link.State.STOPPED) R.string.connect else R.string.disconnect)
