@@ -41,6 +41,7 @@ hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
   qml/Theme.qml                   all colours, fonts and sizes
   qml/Sim.qml                     fake vehicle/media/radio/phone/nav data
   qml/Icons.qml                   self-drawn line icons as SVG path data
+  qml/ManeuverIcon.qml            navigation maneuver arrows, drawn in code (D11)
   qml/*Screen.qml                 one file per screen
   qml/Logo.qml                    the placeholder "R80" brand mark
   fonts/                          B612 and OSP-DIN with their licence files

@@ -33,6 +33,9 @@ Window {
     onDemoCallChanged: if (demoCall) Sim.simulateIncomingCall()
     property bool demoWarnings: false
     onDemoWarningsChanged: if (demoWarnings) Sim.simulateWarnings(); else Sim.acknowledgeAllWarnings()
+    // run.py --screenshots: navigation state to show ("live", "stale", "idle", "nophone")
+    property string demoNav: ""
+    onDemoNavChanged: if (demoNav !== "") { Sim.navDemo = demoNav; Sim._navDriven = 1050 }
     property bool demoVolume: false
     onDemoVolumeChanged: if (demoVolume) { Sim.hangUp(); volumePopup.show() } else volumePopup.close()
 
@@ -80,6 +83,7 @@ Window {
                 else win.go("home"); break;
             case Qt.Key_C: Sim.simulateIncomingCall(); break;
             case Qt.Key_W: Sim.simulateWarnings(); break;
+            case Qt.Key_N: Sim.simulateNavState(); break;
             case Qt.Key_F11: win.visibility = win.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen; break;
             default:
                 if (e.key >= Qt.Key_1 && e.key <= Qt.Key_8) win.go(win.order[e.key - Qt.Key_1]);

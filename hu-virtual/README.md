@@ -257,6 +257,12 @@ the next maneuver counts down with `VehicleSpeed` (with `drive`) or
 `--speed-kmh`, rounded like a navigation app, and the route starts over after
 arriving. The tests use its `Phone` class.
 
+In the UI (`hu/ui/backend.py` → `Sim.guidance`, `Sim.navPhone`) the Navigation
+screen shows the maneuver arrow, distance, street and arrival; dimmed with
+"Phone connection lost" while stale, and what to do when there is no route or
+no phone. The Home tile and the Drive screen show the next maneuver too.
+Without navd the UI falls back to the mockup's fake guidance.
+
 ```bash
 ./hu-virtual.sh drive && ./hu-virtual.sh phone
 gdbus call --session -d de.r80.Nav -o /de/r80/Nav \
@@ -340,7 +346,7 @@ hu/companion_link.py     companion app <-> HU protocol (D11, ../docs/companion-p
 hu/navd.py               Linux navigation service: phone guidance -> D-Bus de.r80.Nav
 hu/nav.ini               navd's timing (heartbeat, link timeout, how long stale guidance stays)
 hu/ui/run_hu.py          UI launcher: mockup + Sim.qml overlay + MCU key input + power blanking
-hu/ui/backend.py         QML singletons `Vehicle` and `Media` (R80.Backend 1.0) mirroring D-Bus
+hu/ui/backend.py         QML singletons `Vehicle`, `Media`, `Audio`, `Warnings`, `Trip`, `Nav` (R80.Backend 1.0) mirroring D-Bus
 hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`
 mcu_emu/mcu_emu.py       MCU emulator
 mcu_emu/mcuctl.py        control client (also used by the tests)

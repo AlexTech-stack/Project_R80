@@ -40,7 +40,7 @@ def main():
     if args.screenshots:
         out = Path(args.screenshots)
         out.mkdir(parents=True, exist_ok=True)
-        shots = ["home", "navigation", "media", "radio", "phone", "vehicle",
+        shots = ["home", "navigation", "nav_stale", "nav_nophone", "media", "radio", "phone", "vehicle",
                  "cluster", "clock", "settings", "call", "volume", "audio", "trip", "warning", "warnings"]
         state = {"i": 0, "images": []}
 
@@ -56,6 +56,8 @@ def main():
                 app.quit()
                 return
             name = shots[i]
+            if name not in ("nav_stale", "nav_nophone"):
+                win.setProperty("demoNav", "live")
             if name == "call":
                 win.setProperty("current", "home")
                 win.setProperty("demoCall", True)
@@ -68,6 +70,9 @@ def main():
             elif name == "warnings":
                 win.setProperty("current", "vehicle")
                 QTimer.singleShot(300, lambda: win.findChild(QObject, "vehicleScreen").setProperty("tab", 4))
+            elif name in ("nav_stale", "nav_nophone"):
+                win.setProperty("current", "navigation")
+                win.setProperty("demoNav", name[4:])
             elif name == "trip":
                 win.setProperty("demoWarnings", False)
                 win.setProperty("current", "vehicle")

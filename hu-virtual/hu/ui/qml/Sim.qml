@@ -278,68 +278,53 @@ QtObject {
     function answer() { callSeconds = 0; callState = "active" }
     function hangUp() { callState = "idle" }
 
-    // ---- navigation --------------------------------------------------------
-    // Route in map coordinates (map is 2000 x 2000 units). One unit ~ 3.4 m.
-    readonly property var routePoints: [
-        [1000, 1960], [1000, 1560], [1180, 1380], [1560, 1380], [1560, 980],
-        [1300, 720], [880, 720], [880, 420], [1080, 220], [1080, 60]
+    // ---- navigation (D11: the phone navigates, the HU shows its guidance) ----
+    // Live from hu-navd; without it a fake phone drives a demo route (as in the mockup):
+    // the same legs as hu-virtual/phone_emu/route_demo.json.
+    readonly property bool navLive: Nav.available
+    readonly property var navRoute: [
+        { m: 1400, maneuver: "turn", modifier: "right", street: "Ringstraße" },
+        { m: 1300, maneuver: "turn", modifier: "slight_right", street: "Bergstraße" },
+        { m: 1300, maneuver: "turn", modifier: "left", street: "Parkallee" },
+        { m: 1250, maneuver: "roundabout", exit: 2, street: "Uferweg" },
+        { m: 1400, maneuver: "turn", modifier: "left", street: "Lindenstraße" },
+        { m: 1000, maneuver: "turn", modifier: "right", street: "Marktplatz" },
+        { m: 700, maneuver: "fork", modifier: "slight_left", street: "Schlossweg" },
+        { m: 550, maneuver: "arrive", street: "Schlossweg 8" }
     ]
-    readonly property var routeStreets: [
-        "Hauptstraße", "Ringstraße", "Bergstraße", "Parkallee", "Uferweg",
-        "Lindenstraße", "Marktplatz", "Schlossweg", "Am Ziel"
-    ]
-    readonly property string destination: "Schlossweg 8, Altstadt"
-    readonly property real routeKm: 8.4
-    readonly property var routeLengths: {
-        const out = [0];
-        for (let i = 1; i < routePoints.length; i++) {
-            const dx = routePoints[i][0] - routePoints[i - 1][0], dy = routePoints[i][1] - routePoints[i - 1][1];
-            out.push(out[i - 1] + Math.sqrt(dx * dx + dy * dy));
-        }
-        return out;
+    readonly property real _navTotal: navRoute.reduce((a, l) => a + l.m, 0)
+    property real _navDriven: 1050
+    // What the demo shows (key N cycles): "live", "stale" (phone link lost),
+    // "idle" (phone connected, no route), "nophone".
+    property string navDemo: "live"
+    function simulateNavState() { navDemo = ({ live: "stale", stale: "idle", idle: "nophone", nophone: "live" })[navDemo] }
+    function _driveRoute(dt) {
+        _navDriven += speed / 3.6 * dt;
+        if (_navDriven >= _navTotal) _navDriven = 0;
     }
-    readonly property string routePath: {
-        // polyline with softly rounded corners
-        const p = routePoints; const r = 60;
-        let s = "M" + p[0][0] + " " + p[0][1];
-        for (let i = 1; i < p.length - 1; i++) {
-            const a = p[i - 1], b = p[i], c = p[i + 1];
-            const l1 = Math.hypot(b[0] - a[0], b[1] - a[1]), l2 = Math.hypot(c[0] - b[0], c[1] - b[1]);
-            const k1 = Math.min(r, l1 / 2) / l1, k2 = Math.min(r, l2 / 2) / l2;
-            s += " L" + (b[0] - (b[0] - a[0]) * k1).toFixed(1) + " " + (b[1] - (b[1] - a[1]) * k1).toFixed(1);
-            s += " Q" + b[0] + " " + b[1] + " " + (b[0] + (c[0] - b[0]) * k2).toFixed(1) + " " + (b[1] + (c[1] - b[1]) * k2).toFixed(1);
-        }
-        return s + " L" + p[p.length - 1][0] + " " + p[p.length - 1][1];
+    readonly property var _noGuidance: ({ active: false, stale: false, source: "", maneuver: "", modifier: "", exit: 0,
+                                          distance: -1, street: "", text: "", remainingM: -1, remainingS: -1, arrival: null })
+    // Phone link: { connected, device }
+    readonly property var _fakePhone: ({ connected: navDemo === "live" || navDemo === "idle", device: "Redmi Note 12 Pro 5G" })
+    // Guidance: { active, stale, source, maneuver, modifier, exit, distance (m), street, text,
+    //             remainingM, remainingS, arrival (Date) }; -1 / null = not known
+    readonly property var _fakeGuidance: {
+        if (navDemo === "idle" || navDemo === "nophone") return _noGuidance;
+        let at = 0, leg = navRoute[navRoute.length - 1];
+        for (const l of navRoute) { at += l.m; if (at > _navDriven) { leg = l; break; } }
+        const remaining = _navTotal - _navDriven, secs = remaining / (40 / 3.6);
+        return { active: true, stale: navDemo === "stale", source: "google_maps", maneuver: leg.maneuver,
+                 modifier: leg.modifier || "", exit: leg.exit || 0, distance: at - _navDriven, street: leg.street,
+                 text: "", remainingM: remaining, remainingS: secs, arrival: new Date(now.getTime() + secs * 1000) };
     }
-    property real navProgress: 0.08
-    property bool navGuidance: true
-    property bool headingUp: true
-    property real mapZoom: 1.0
-
-    readonly property var nextManeuver: {
-        const total = routeLengths[routeLengths.length - 1];
-        const pos = navProgress * total;
-        for (let i = 1; i < routePoints.length - 1; i++) {
-            if (routeLengths[i] > pos) {
-                const a = routePoints[i - 1], b = routePoints[i], c = routePoints[i + 1];
-                const v1x = b[0] - a[0], v1y = b[1] - a[1], v2x = c[0] - b[0], v2y = c[1] - b[1];
-                const cross = v1x * v2y - v1y * v2x;
-                const ang = Math.abs(Math.atan2(cross, v1x * v2x + v1y * v2y)) * 180 / Math.PI;
-                const type = ang < 20 ? "straight" : (cross > 0 ? "right" : "left");
-                return { type: type, street: routeStreets[i], km: (routeLengths[i] - pos) / total * routeKm };
-            }
-        }
-        return { type: "flag", street: destination, km: (total - pos) / total * routeKm };
+    readonly property var navPhone: navLive ? { connected: Nav.phone.connected === true, device: Nav.phone.device || "" } : _fakePhone
+    readonly property var guidance: navLive ? _fromNavd(Nav.guidance) : _fakeGuidance
+    function _fromNavd(g) {
+        if (!g.active) return _noGuidance;
+        return { active: true, stale: g.stale === true, source: g.source, maneuver: g.maneuver, modifier: g.modifier,
+                 exit: g.exit, distance: g.distance_m, street: g.street, text: g.text, remainingM: g.remaining_m,
+                 remainingS: g.remaining_s, arrival: g.arrival > 0 ? new Date(g.arrival * 1000) : null };
     }
-    readonly property string currentStreet: {
-        const total = routeLengths[routeLengths.length - 1];
-        for (let i = 1; i < routeLengths.length; i++)
-            if (routeLengths[i] > navProgress * total) return routeStreets[i - 1];
-        return routeStreets[routeStreets.length - 1];
-    }
-    readonly property real remainingKm: (1 - navProgress) * routeKm
-    readonly property int remainingMin: Math.max(1, Math.round(remainingKm / 40 * 60))
-    readonly property date eta: new Date(now.getTime() + remainingMin * 60000)
 
     // ---- weather -------------------------------------------------------------
     property var forecast: [
@@ -379,10 +364,7 @@ QtObject {
             }
             sim._speed += (sim.targetSpeed - sim._speed) * 0.02;
             if (sim._speed < 0.3 && sim.targetSpeed === 0) sim._speed = 0;
-            if (sim.navGuidance) {
-                sim.navProgress += 0.00006 + sim.speed * 0.0000012;
-                if (sim.navProgress > 1) sim.navProgress = 0;
-            }
+            if (sim.navDemo === "live" && !sim.navLive) sim._driveRoute(0.05);
         }
     }
 }

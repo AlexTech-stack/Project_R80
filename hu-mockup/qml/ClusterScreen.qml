@@ -151,11 +151,12 @@ Item {
         anchors.right: parent.right; anchors.rightMargin: Theme.margin
         anchors.top: parent.top; anchors.topMargin: 18
         spacing: 12
-        visible: Sim.navGuidance
-        Icon {
-            path: Sim.nextManeuver.type === "right" ? Icons.turnRight : Sim.nextManeuver.type === "left" ? Icons.turnLeft : Icons.straight
-            width: 30; height: 30; anchors.verticalCenter: parent.verticalCenter
+        visible: Sim.guidance.active
+        opacity: Sim.guidance.stale ? 0.4 : 1
+        ManeuverIcon {
+            width: 34; height: 34; stroke: 9; anchors.verticalCenter: parent.verticalCenter
+            maneuver: Sim.guidance.maneuver; modifier: Sim.guidance.modifier; exit: 0
         }
-        T { text: Sim.nextManeuver.km.toFixed(1) + " km  " + Sim.nextManeuver.street; font.pixelSize: Theme.fontSmall }
+        T { text: Fmt.distanceText(Sim.guidance.distance) + "  " + (Sim.guidance.street || Sim.guidance.text); font.pixelSize: Theme.fontSmall }
     }
 }

@@ -4,8 +4,8 @@
   "device": "Emulated phone",
   "average_kmh": 40,
   "legs": [
-    { "after_m": 1400, "maneuver": "turn", "modifier": "slight_right", "street": "Ringstraße" },
-    { "after_m": 1300, "maneuver": "turn", "modifier": "right", "street": "Bergstraße" },
+    { "after_m": 1400, "maneuver": "turn", "modifier": "right", "street": "Ringstraße" },
+    { "after_m": 1300, "maneuver": "turn", "modifier": "slight_right", "street": "Bergstraße" },
     { "after_m": 1300, "maneuver": "turn", "modifier": "left", "street": "Parkallee" },
     { "after_m": 1250, "maneuver": "roundabout", "exit": 2, "street": "Uferweg" },
     { "after_m": 1400, "maneuver": "turn", "modifier": "left", "street": "Lindenstraße" },
