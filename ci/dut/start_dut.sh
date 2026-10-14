@@ -15,7 +15,8 @@ python3 "$HU/hu/vehicled.py" &
 # shellcheck disable=SC2086  # MEDIA_ARGS is a list of flags
 python3 "$HU/hu/mediad.py" --music-dir "$XDG_RUNTIME_DIR/r80-hu/music" --demo ${MEDIA_ARGS:-} &
 python3 "$HU/hu/audiod.py" --state "$XDG_RUNTIME_DIR/r80-hu/audio-state.json" &
-python3 "$HU/hu/warnd.py" &
+# shellcheck disable=SC2086  # WARN_ARGS is a list of flags
+python3 "$HU/hu/warnd.py" ${WARN_ARGS:-} &
 wait -n   # either one ending ends the DUT
 echo "DUT: a process exited"
 exit 1

@@ -125,9 +125,10 @@ Media screen to this service and falls back to the mockup's own playlist when
 
 - properties `Max`, `Master`, `Muted`, `StartupCap`, `Volumes` (per source:
   media, navigation, phone, radio), `Gains` (the level each source should play at),
-  `NavPrompt`, `CallState` (idle / ringing / active), `Duck`
+  `NavPrompt`, `CallState` (idle / ringing / active), `Duck`, `Chime`,
+  `WarningChimeGain`; sources are media, navigation, phone, radio and chime
 - methods `SetMaster`, `Step`, `SetMuted`, `ToggleMute`, `SetVolume(source, value)`,
-  `SetNavPrompt(active)`, `SetCallState(state)`
+  `SetNavPrompt(active)`, `SetCallState(state)`, `SetChime(active)`
 
 For each source it computes `gain = ((Master / Max) * (Volume / Max)) ** curve`
 (0 while muted) and the source applies it itself: `mediad` through `SetGain`,
@@ -195,6 +196,17 @@ minutes or hours) or `notice` (some time soon; silent). Warnings are only
 evaluated while the HU is on. Oil pressure has a static limit only, since it
 falls fast on every lift-off.
 
+Chimes: a newly raised `information` plays the information chime (a soft falling
+two-note bell), a `warning` the warning chime (two groups of three high beeps);
+a `notice` is silent, and of several warnings raised together only the most
+urgent one chimes. Both are generated in code at start (no sound files). warnd
+plays them at hu-audiod's levels: the information chime is the `chime` source
+(its own volume under Settings → Audio, silent when muted), the warning chime
+uses `WarningChimeGain`, which ignores mute and never goes below
+`warning_chime_min_gain` (audio.ini). Meanwhile audiod ducks the music
+(`SetChime`). warnd publishes `LastChime`, `LastChimeGain` and `ChimeCount`.
+`run_boat_sil.sh` passes `WARN_ARGS=--sink fakesink`, so tests stay silent.
+
 ```bash
 python3 hu/warnd.py --check            # check warnings.ini and list every rule
 gdbus call --session -d de.r80.Warnings -o /de/r80/Warnings \
@@ -226,6 +238,7 @@ gdbus call --session -d de.r80.Warnings -o /de/r80/Warnings \
 | TC_HU_014 | warnings: debounce, hysteresis, acknowledge; oil pressure gone is a warning only with the engine running |
 | TC_HU_015 | warnings: a fast tyre pressure drop is a warning while the value is still fine; a slow drop is not; no oil drop-rate rule |
 | TC_HU_016 | warnings: missing CAN message -> 'No data', clears when back; no warnings while the HU is off |
+| TC_HU_017 | chimes: information chime at the chime volume, music ducks; muted: information silent, warning chime still audible; notice silent |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).

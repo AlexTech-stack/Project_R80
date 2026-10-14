@@ -6,9 +6,10 @@
     interface  de.r80.Audio1
       properties  Max (i), Master (i), Muted (b), StartupCap (i),
                   Volumes (a{si}: source -> 0..Max), Gains (a{sd}: source -> 0.0..1.0),
-                  NavPrompt (b), CallState (s: idle|ringing|active), Duck (d: 1.0 = none)
+                  NavPrompt (b), CallState (s: idle|ringing|active), Duck (d: 1.0 = none),
+                  Chime (b), WarningChimeGain (d)
       methods     SetMaster(i), Step(i delta), SetMuted(b), ToggleMute(),
-                  SetVolume(s source, i value), SetNavPrompt(b), SetCallState(s)
+                  SetVolume(s source, i value), SetNavPrompt(b), SetCallState(s), SetChime(b)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
 Sources: media, navigation, phone, radio. For each source audiod computes the level
@@ -23,6 +24,10 @@ Rules between sources ([focus] in audio.ini, decision D9):
 - During a call (SetCallState; from "ringing" or only "active", see call_starts_on)
   mediad is paused if it was playing and resumed afterwards, and radio is at gain 0.
 - Mute silences everything except the phone during a call (mute_spares_call).
+- While a chime plays (SetChime, from hu-warnd), media and radio duck as for a prompt.
+- The information chime is a normal source ("chime"); the warning chime (D10: the driver
+  has to act within seconds) plays at WarningChimeGain: the chime volume ignoring mute,
+  but never below warning_chime_min_gain.
 The navigation and phone services do not exist yet; until then tests and the UI's
 simulated call report prompts and calls.
 
@@ -52,7 +57,7 @@ BUS_NAME = "de.r80.Audio"
 OBJ_PATH = "/de/r80/Audio"
 IFACE = "de.r80.Audio1"
 PROPS_IFACE = "org.freedesktop.DBus.Properties"
-SOURCES = ("media", "navigation", "phone", "radio")
+SOURCES = ("media", "navigation", "phone", "radio", "chime")
 VEHICLE = ("de.r80.Vehicle", "/de/r80/Vehicle", "de.r80.Vehicle1")
 MEDIA = ("de.r80.Media", "/de/r80/Media", "de.r80.Media1")
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "audio.ini"
@@ -76,7 +81,7 @@ def load_config(extra: str | None = None) -> dict:
     cp.read([str(f) for f in files if f.is_file()])
     used = {"volume": {"max", "startup_cap", "default_master", "curve", "change_fade_ms"} | {f"default_{s}" for s in SOURCES},
             "focus": {"duck_level", "duck_fade_ms", "call_starts_on", "resume_media_after_call",
-                      "call_mutes_radio", "mute_spares_call"}}
+                      "call_mutes_radio", "mute_spares_call", "warning_chime_min_gain"}}
 
     def get(section, key, conv):
         try:
@@ -111,6 +116,7 @@ def load_config(extra: str | None = None) -> dict:
         "change_fade_ms": num("volume", "change_fade_ms", int, 0, 1000),
         "default_volumes": {s: num("volume", f"default_{s}", int, 0, vmax) for s in SOURCES},
         "duck_level": num("focus", "duck_level", float, 0.0, 1.0),
+        "warning_chime_min_gain": num("focus", "warning_chime_min_gain", float, 0.0, 1.0),
         "duck_fade_ms": num("focus", "duck_fade_ms", int, 0, 5000),
         "call_starts_on": choice("focus", "call_starts_on", ("ring", "answer")),
         "resume_media_after_call": flag("focus", "resume_media_after_call"),
@@ -168,6 +174,11 @@ def gains_for(cfg: dict, master: int, volumes: dict, muted: bool, duck: float, c
     return out
 
 
+def warning_chime_gain(cfg: dict, master: int, volumes: dict) -> float:
+    """The warning chime ignores mute and is never quieter than warning_chime_min_gain."""
+    return round(max(gain(cfg, master, volumes["chime"], False), cfg["warning_chime_min_gain"]), 6)
+
+
 def read_state(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text())
@@ -193,6 +204,7 @@ class Audio(dbus.service.Object):
         self.master, self.volumes = startup_state(cfg, saved)
         self.muted = False
         self.nav_prompt = False
+        self.chime = False              # a chime is playing (hu-warnd)
         self.call_state = "idle"
         self.duck = 1.0                 # current factor on media and radio, fades to its target
         self.duck_timer = None
@@ -223,6 +235,8 @@ class Audio(dbus.service.Object):
         self.set("Volumes", dict(self.volumes))
         self.set("Gains", self.gains())
         self.set("NavPrompt", self.nav_prompt)
+        self.set("Chime", self.chime)
+        self.set("WarningChimeGain", warning_chime_gain(self.cfg, self.master, self.volumes))
         self.set("CallState", self.call_state)
         self.set("Duck", round(self.duck, 6))
         self.push_media()
@@ -291,7 +305,7 @@ class Audio(dbus.service.Object):
 
     # ---- rules ---------------------------------------------------------------
     def start_duck_fade(self):
-        target = self.cfg["duck_level"] if self.nav_prompt else 1.0
+        target = self.cfg["duck_level"] if (self.nav_prompt or self.chime) else 1.0
         steps = max(1, self.cfg["duck_fade_ms"] // 50)
         delta = (target - self.duck) / steps
         if self.duck_timer:
@@ -393,6 +407,14 @@ class Audio(dbus.service.Object):
         active = bool(active)
         if active != self.nav_prompt:
             self.nav_prompt = active
+            self.refresh()
+            self.start_duck_fade()
+
+    @dbus.service.method(IFACE, in_signature="b")
+    def SetChime(self, active):
+        active = bool(active)
+        if active != self.chime:
+            self.chime = active
             self.refresh()
             self.start_duck_fade()
 

@@ -42,6 +42,7 @@ QtObject {
     property int navVolume: 30
     property int phoneVolume: 30
     property int radioVolume: 30
+    property int chimeVolume: 30
     function toggleMute() { muted = !muted }
     property int homeIndex: 0
     property bool units_metric: true

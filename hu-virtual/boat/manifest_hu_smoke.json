@@ -20,6 +20,7 @@
     { "id": "TC_HU_013", "name": "Volume keys ignored while the HU is off", "file": "python3 tests/test_audio_power.py", "timeout_s": 40 },
     { "id": "TC_HU_014", "name": "Warning threshold, debounce, hysteresis, acknowledge", "file": "python3 tests/test_warn_threshold.py", "timeout_s": 60 },
     { "id": "TC_HU_015", "name": "Fast pressure drop is a critical warning", "file": "python3 tests/test_warn_rate.py", "timeout_s": 60 },
-    { "id": "TC_HU_016", "name": "Missing data warning, none while the HU is off", "file": "python3 tests/test_warn_missing.py", "timeout_s": 40 }
+    { "id": "TC_HU_016", "name": "Missing data warning, none while the HU is off", "file": "python3 tests/test_warn_missing.py", "timeout_s": 40 },
+    { "id": "TC_HU_017", "name": "Warning chimes, ducking, warning audible when muted", "file": "python3 tests/test_warn_chime.py", "timeout_s": 60 }
   ]
 }

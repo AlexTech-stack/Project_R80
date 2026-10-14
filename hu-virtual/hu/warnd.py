@@ -10,6 +10,7 @@ hu/warnings.ini (then /etc/r80/warnings.ini, then --config):
       properties  Active (aa{sv}): one dict per active warning, most severe first:
                   id (s), severity (s: notice|information|warning), text (s), value (d),
                   since (d: seconds the warning is active), acknowledged (b)
+                  LastChime (s: information|warning|""), LastChimeGain (d), ChimeCount (u)
       methods     Acknowledge(s id), AcknowledgeAll()
       signal      Raised(s id, s severity, s text)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
@@ -26,6 +27,12 @@ can require the engine to run. Texts get {value}, {value_abs} and {label}.
 Warnings are only evaluated while the HU is on; an acknowledged warning stays in the
 list but does not pop up again until it has cleared.
 
+Chimes: a newly raised "information" plays the information chime, a "warning" the
+warning chime (a notice is silent; several at once play only the most urgent one). Both
+are generated in code at start (no sound files). warnd plays them at the level hu-audiod
+publishes (Gains["chime"], or WarningChimeGain, which ignores mute) and tells audiod
+(SetChime) so the music ducks meanwhile.
+
 The rule logic (Engine) has no D-Bus, so tests can drive it with their own clock.
 """
 from __future__ import annotations
@@ -33,8 +40,12 @@ from __future__ import annotations
 import argparse
 import bisect
 import configparser
+import math
+import os
 import sys
 import time
+import wave
+from array import array
 from pathlib import Path
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "warnings.ini"
@@ -165,6 +176,56 @@ def load_config(extra: str | None = None) -> tuple[dict, list]:
     return general, rules
 
 
+CHIME_RATE = 44100
+
+
+def _tone(notes, rate=CHIME_RATE):
+    """notes: (start s, freq Hz, length s, level 0..1). Bell-like: 5 ms attack, exponential
+    decay, a quiet octave on top; every note ends at zero so nothing clicks."""
+    end = max(s + d for s, _f, d, _l in notes)
+    out = [0.0] * int(end * rate + 1)
+    for start, freq, dur, level in notes:
+        n0, n = int(start * rate), int(dur * rate)
+        attack, release = int(0.005 * rate), int(0.02 * rate)
+        for i in range(n):
+            env = min(1.0, i / attack, (n - i) / release) * math.exp(-3.0 * i / n)
+            ph = 2 * math.pi * freq * i / rate
+            out[n0 + i] += level * env * (0.8 * math.sin(ph) + 0.2 * math.sin(2 * ph))
+    return array("h", (int(max(-1.0, min(1.0, v)) * 32767) for v in out))
+
+
+def make_chimes(folder: Path) -> dict:
+    """Write the two chimes as WAV files; return {"information": path, "warning": path}."""
+    folder.mkdir(parents=True, exist_ok=True)
+    chimes = {
+        # soft, falling two-note bell
+        "information": _tone([(0.0, 880.0, 0.35, 0.35), (0.22, 660.0, 0.55, 0.35)]),
+        # urgent: two groups of three short high beeps
+        "warning": _tone([(g * 0.75 + k * 0.17, 1320.0, 0.12, 0.45) for g in range(2) for k in range(3)]),
+    }
+    paths = {}
+    for kind, samples in chimes.items():
+        if sys.byteorder == "big":
+            samples.byteswap()
+        path = folder / f"chime-{kind}.wav"
+        with wave.open(str(path), "w") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(CHIME_RATE)
+            w.writeframes(samples.tobytes())
+        paths[kind] = path
+    return paths
+
+
+def chime_for(severities) -> str:
+    """The one chime to play for warnings raised together: the most urgent, none for notices."""
+    if "warning" in severities:
+        return "warning"
+    if "information" in severities:
+        return "information"
+    return ""
+
+
 class Engine:
     """The rules, fed with timestamped signal values. No D-Bus, no clock of its own."""
 
@@ -279,11 +340,16 @@ class Engine:
                  "since": round(now - w["raised"], 1), "acknowledged": w["acknowledged"]} for rid, w in items]
 
 
-def run_service(general: dict, rules: list, system: bool):
+def run_service(general: dict, rules: list, system: bool, sink: str | None, chime_dir: Path):
     import dbus
     import dbus.service
+    import gi
     from dbus.mainloop.glib import DBusGMainLoop
-    from gi.repository import GLib
+    gi.require_version("Gst", "1.0")
+    from gi.repository import GLib, Gst
+    Gst.init(None)
+    AUDIO = ("de.r80.Audio", "/de/r80/Audio", "de.r80.Audio1")
+    chime_files = make_chimes(chime_dir)
 
     BUS_NAME, OBJ_PATH, IFACE = "de.r80.Warnings", "/de/r80/Warnings", "de.r80.Warnings1"
     PROPS = "org.freedesktop.DBus.Properties"
@@ -295,19 +361,88 @@ def run_service(general: dict, rules: list, system: bool):
             self.bus = bus
             self.engine = Engine(general, rules)
             self.published = None
+            self.chime = {"last": "", "gain": 0.0, "count": 0, "playing": ""}
+            self.levels = {"information": 0.5, "warning": 1.0}      # until hu-audiod says otherwise
+            self.player = self.make_player()
+            bus.add_signal_receiver(self.on_audio, "PropertiesChanged", PROPS, None, AUDIO[1])
             bus.add_signal_receiver(self.on_vehicle, "PropertiesChanged", PROPS, None, VEHICLE[1])
             bus.add_signal_receiver(self.on_owner, "NameOwnerChanged", "org.freedesktop.DBus",
                                     "org.freedesktop.DBus", "/org/freedesktop/DBus")
             GLib.idle_add(self.read_all)
             GLib.timeout_add(100, self.tick)
 
+        # ---- chimes ----
+        def make_player(self):
+            player = Gst.ElementFactory.make("playbin", "chime")
+            out = Gst.Bin.new("chime-out")
+            self.gain_el = Gst.ElementFactory.make("volume", None)
+            conv, res = Gst.ElementFactory.make("audioconvert", None), Gst.ElementFactory.make("audioresample", None)
+            snk = Gst.ElementFactory.make(sink or "autoaudiosink", None)
+            if sink and snk.find_property("sync") is not None:
+                snk.set_property("sync", True)
+            for e in (self.gain_el, conv, res, snk):
+                out.add(e)
+            self.gain_el.link(conv)
+            conv.link(res)
+            res.link(snk)
+            out.add_pad(Gst.GhostPad.new("sink", self.gain_el.get_static_pad("sink")))
+            player.set_property("audio-sink", out)
+            pbus = player.get_bus()
+            pbus.add_signal_watch()
+            pbus.connect("message::eos", lambda *_: self.chime_done())
+            pbus.connect("message::error", lambda _b, m: (log(f"chime error: {m.parse_error()[0].message}"), self.chime_done()))
+            return player
+
+        def play_chime(self, kind):
+            if not kind:
+                return
+            if self.chime["playing"] and SEVERITIES.index(kind) <= SEVERITIES.index(self.chime["playing"]):
+                return                                   # one at a time; only a more urgent one interrupts
+            gain = self.levels[kind]
+            self.player.set_state(Gst.State.NULL)
+            self.gain_el.set_property("volume", gain)
+            self.player.set_property("uri", chime_files[kind].as_uri())
+            self.chime.update(last=kind, gain=gain, count=self.chime["count"] + 1, playing=kind)
+            self.audio_call("SetChime", "b", (True,))   # duck the music meanwhile
+            self.player.set_state(Gst.State.PLAYING)
+            log(f"chime {kind} at gain {gain:.2f}")
+            self.publish_chime()
+
+        def chime_done(self):
+            self.player.set_state(Gst.State.NULL)
+            self.chime["playing"] = ""
+            self.audio_call("SetChime", "b", (False,))
+
+        def audio_call(self, method, sig, args):
+            self.bus.call_async(AUDIO[0], AUDIO[1], AUDIO[2], method, sig, args,
+                                lambda *_: None, lambda e: None, timeout=1.0)
+
+        def on_audio(self, iface, changed, _inv):
+            if iface != AUDIO[2]:
+                return
+            if "Gains" in changed and "chime" in changed["Gains"]:
+                self.levels["information"] = float(changed["Gains"]["chime"])
+            if "WarningChimeGain" in changed:
+                self.levels["warning"] = float(changed["WarningChimeGain"])
+
+        def chime_props(self):
+            return {"LastChime": dbus.String(self.chime["last"]), "LastChimeGain": dbus.Double(self.chime["gain"]),
+                    "ChimeCount": dbus.UInt32(self.chime["count"])}
+
+        def publish_chime(self):
+            self.PropertiesChanged(IFACE, dbus.Dictionary(self.chime_props(), signature="sv"),
+                                   dbus.Array([], signature="s"))
+
+        # ---- vehicle and rules ----
         def read_all(self):
             self.bus.call_async(VEHICLE[0], VEHICLE[1], PROPS, "GetAll", "s", (VEHICLE[2],),
                                 lambda props: self.on_vehicle(VEHICLE[2], props, []), lambda e: None, timeout=1.0)
+            self.bus.call_async(AUDIO[0], AUDIO[1], PROPS, "GetAll", "s", (AUDIO[2],),
+                                lambda props: self.on_audio(AUDIO[2], props, []), lambda e: None, timeout=1.0)
             return False
 
         def on_owner(self, name, _old, new):
-            if name == VEHICLE[0] and new:
+            if name in (VEHICLE[0], AUDIO[0]) and new:
                 self.read_all()
 
         def on_vehicle(self, iface, changed, _inv):
@@ -331,6 +466,7 @@ def run_service(general: dict, rules: list, system: bool):
                 w = self.engine.active[rid]
                 log(f"raised {rid} ({w['severity']}): {w['text']}")
                 self.Raised(rid, w["severity"], w["text"])
+            self.play_chime(chime_for([self.engine.active[rid]["severity"] for rid in raised]))
             for rid in cleared:
                 log(f"cleared {rid}")
             listing = self.engine.listing(now)
@@ -349,17 +485,20 @@ def run_service(general: dict, rules: list, system: bool):
                 "since": dbus.Double(w["since"]), "acknowledged": dbus.Boolean(w["acknowledged"]),
             }, signature="sv") for w in listing], signature="a{sv}")
 
+        def all_props(self):
+            return dict(self.chime_props(), Active=self.active_variant(self.engine.listing(time.monotonic())))
+
         @dbus.service.method(PROPS, in_signature="ss", out_signature="v")
         def Get(self, iface, name):
-            if name != "Active":
+            props = self.all_props()
+            if name not in props:
                 raise dbus.exceptions.DBusException(f"no property {name}",
                                                     name="org.freedesktop.DBus.Error.UnknownProperty")
-            return self.active_variant(self.engine.listing(time.monotonic()))
+            return props[name]
 
         @dbus.service.method(PROPS, in_signature="s", out_signature="a{sv}")
         def GetAll(self, iface):
-            return dbus.Dictionary({"Active": self.active_variant(self.engine.listing(time.monotonic()))},
-                                   signature="sv")
+            return dbus.Dictionary(self.all_props(), signature="sv")
 
         @dbus.service.signal(PROPS, signature="sa{sv}as")
         def PropertiesChanged(self, iface, changed, invalidated):
@@ -393,6 +532,9 @@ def main():
     ap.add_argument("--config", help="extra config file, read after hu/warnings.ini and /etc/r80/warnings.ini")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     ap.add_argument("--check", action="store_true", help="only check the config and list the rules")
+    ap.add_argument("--sink", default=None, help="GStreamer audio sink for the chimes (e.g. fakesink for tests)")
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
+    ap.add_argument("--chime-dir", default=str(runtime / "r80-chimes"), help="where the generated chimes go")
     a = ap.parse_args()
     try:
         general, rules = load_config(a.config)
@@ -402,7 +544,7 @@ def main():
         for r in rules:
             print(f"{r['id']:34} {r['kind']:6} {r['severity']:8} {', '.join(r['signals'])}")
         return
-    run_service(general, rules, a.system)
+    run_service(general, rules, a.system, a.sink, Path(a.chime_dir))
 
 
 if __name__ == "__main__":

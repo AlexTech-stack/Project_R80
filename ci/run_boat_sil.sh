@@ -111,8 +111,9 @@ run_local_dut() {
   ' _ "$ROOT"
 }
 
-# Tests never play audio out loud; mediad writes to a fake sink unless told otherwise.
+# Tests never play audio out loud; mediad and warnd's chimes write to a fake sink unless told otherwise.
 export MEDIA_ARGS="${MEDIA_ARGS:---sink fakesink}"
+export WARN_ARGS="${WARN_ARGS:---sink fakesink}"
 
 run_container_dut() {
   # BoAt on the host (the "test PC"), the DUT in a container for $DUT_ARCH. They share the host
@@ -139,7 +140,7 @@ container_dut_session() {
   local rt=$1 image=$2 name=$3
   (cd "$ROOT/hu-virtual" && HU_DUT=external ./hu-virtual.sh up) || return 1
   docker run -d --name "$name" --platform "linux/$DUT_ARCH" --network host --user "$(id -u):$(id -g)" \
-    -e HOME=/tmp -e XDG_RUNTIME_DIR="$rt" -e DBUS_SESSION_BUS_ADDRESS -e MEDIA_ARGS \
+    -e HOME=/tmp -e XDG_RUNTIME_DIR="$rt" -e DBUS_SESSION_BUS_ADDRESS -e MEDIA_ARGS -e WARN_ARGS \
     -v "$rt:$rt" -v "$ROOT:$ROOT:ro" "$image" "$ROOT/ci/dut/start_dut.sh" "$ROOT/hu-virtual" >/dev/null
   echo "== waiting for the DUT (de.r80.Vehicle with the MCU link up, de.r80.Media, de.r80.Audio, de.r80.Warnings)"
   python3 - <<'PY' || { docker logs "$name" | tail -20; return 1; }

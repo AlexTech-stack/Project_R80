@@ -56,7 +56,7 @@ white, ice blue) live.
 
 The master volume is shown in the header on every screen, right of the outside
 temperature; clicking it opens the volume popup. Settings → Audio has one volume
-per source (media, navigation, phone, radio) above the tone settings (decision D9).
+per source (media, navigation, phone, radio, chimes) above the tone settings (D9, D10).
 
 ## Layout of the code
 

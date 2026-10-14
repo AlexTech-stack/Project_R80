@@ -39,6 +39,7 @@ QtObject {
         if (v.navigation !== undefined) navVolume = v.navigation
         if (v.phone !== undefined) phoneVolume = v.phone
         if (v.radio !== undefined) radioVolume = v.radio
+        if (v.chime !== undefined) chimeVolume = v.chime
         _audioSync = false
     }
     function _push(f) { if (audioLive && !_audioSync) f() }
@@ -48,6 +49,7 @@ QtObject {
     onNavVolumeChanged: _push(() => Audio.setVolume("navigation", navVolume))
     onPhoneVolumeChanged: _push(() => Audio.setVolume("phone", phoneVolume))
     onRadioVolumeChanged: _push(() => Audio.setVolume("radio", radioVolume))
+    onChimeVolumeChanged: _push(() => Audio.setVolume("chime", chimeVolume))
     // Until there is a phone service, the simulated call tells audiod about calls
     // (D9: media pauses and radio is silent from ringing on).
     function _pushCall() { if (audioLive) Audio.setCallState(callState === "incoming" ? "ringing" : callState) }
@@ -104,6 +106,7 @@ QtObject {
     property int navVolume: 30
     property int phoneVolume: 30
     property int radioVolume: 30
+    property int chimeVolume: 30
     function toggleMute() { muted = !muted }
     property int homeIndex: 0
     property bool units_metric: true
