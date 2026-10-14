@@ -22,18 +22,18 @@ object AppState {
     fun setGuidance(g: Guidance?, raw: String) {
         guidance = g
         lastRaw = raw
-        notifyAll()
+        fire()
     }
 
     fun setLink(s: Link.Status) {
         link = s
-        notifyAll()
+        fire()
     }
 
     fun listen(l: () -> Unit) = synchronized(listeners) { listeners += l }
     fun unlisten(l: () -> Unit) = synchronized(listeners) { listeners -= l }
 
-    private fun notifyAll() {
+    private fun fire() {
         val ls = synchronized(listeners) { listeners.toList() }
         main.post { ls.forEach { it() } }
     }
