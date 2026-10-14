@@ -20,8 +20,9 @@ class IconTableTest {
         return a
     }
 
+    /** Real notification arrows are 72 px and more (density dependent); 16 x 16 cells resolve them. */
     @Test fun sameArrowAtAnotherSizeAndPaddingMatches() {
-        val small = Fingerprint.of(arrow(40, 40, 3, 2), 40, 40)!!
+        val small = Fingerprint.of(arrow(80, 80, 10, 4), 80, 80)!!
         val big = Fingerprint.of(arrow(120, 120, 20, 6), 120, 120)!!
         val mirrored = Fingerprint.of(arrow(120, 120, 20, 6, mirror = true), 120, 120)!!
         val same = Fingerprint.distance(small, big)
@@ -36,7 +37,7 @@ class IconTableTest {
     }
 
     @Test fun tableFromJson() {
-        val fp = Fingerprint.of(arrow(40, 40, 3, 2), 40, 40)!!
+        val fp = Fingerprint.of(arrow(80, 80, 10, 4), 80, 80)!!
         val hex = Fingerprint.toHex(fp)
         assertEquals(fp.toList(), Fingerprint.fromHex(hex)!!.toList())
         val t = IconTable.parse("""{"icons": [
