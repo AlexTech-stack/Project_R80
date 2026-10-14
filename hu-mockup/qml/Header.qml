@@ -6,6 +6,7 @@ Item {
     property string title: ""
     property bool showBack: title !== ""
     signal back()
+    signal volumeClicked()
     height: Theme.headerHeight
 
     Row {
@@ -56,6 +57,7 @@ Item {
             font.pixelSize: Theme.fontSmall + 2
             anchors.verticalCenter: parent.verticalCenter
         }
+        VolumeBadge { anchors.verticalCenter: parent.verticalCenter; onClicked: root.volumeClicked() }
         Icon { path: Icons.bluetooth; width: 24; height: 24; color: Theme.accentMid; anchors.verticalCenter: parent.verticalCenter }
         T { text: Sim.timeText; font.pixelSize: Theme.fontNormal + 2; anchors.verticalCenter: parent.verticalCenter }
         Icon { path: Icons.signal; filled: true; stroke: 0.6; width: 26; height: 26; anchors.verticalCenter: parent.verticalCenter }

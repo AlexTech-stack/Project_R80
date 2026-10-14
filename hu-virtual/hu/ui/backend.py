@@ -279,3 +279,76 @@ class Media(QObject):
     @Slot(str)
     def setSource(self, source):
         self._call("SetSource", "s", (str(source),))
+
+
+AUDIO_SERVICE, AUDIO_PATH, AUDIO_IFACE = "de.r80.Audio", "/de/r80/Audio", "de.r80.Audio1"
+
+
+class Audio(QObject):
+    """QML singleton mirroring hu-audiod (de.r80.Audio1): master volume, mute and the
+    per-source volumes. audiod owns them; the UI only shows them and asks for changes.
+    `available` tells the overlay Sim.qml whether to fall back to its own volume."""
+    changed = Signal()
+    availableChanged = Signal()
+
+    def __init__(self, system_bus=False, parent=None):
+        super().__init__(parent)
+        self._available = False
+        self._v = {"master": 0, "muted": False, "max": 30, "volumes": {}}
+        DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
+        self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, AUDIO_PATH)
+        self._poll = QTimer(self, interval=3000, timeout=self.refresh)
+        self._poll.start()
+        QTimer.singleShot(0, self.refresh)
+
+    def refresh(self):
+        self.bus.call_async(AUDIO_SERVICE, AUDIO_PATH, PROPS, "GetAll", "s", (AUDIO_IFACE,),
+                            self._apply, self._on_gone, timeout=1.0)
+
+    def _on_gone(self, _err):
+        if self._available:
+            self._available = False
+            self.availableChanged.emit()
+            self.changed.emit()
+
+    def _on_props(self, iface, changed, _invalidated):
+        if iface == AUDIO_IFACE:
+            self._apply(changed)
+
+    def _apply(self, changed: dict):
+        changed = {str(k): _py(v) for k, v in changed.items()}
+        if not self._available:
+            self._available = True
+            self.availableChanged.emit()
+        for key, prop in (("Master", "master"), ("Muted", "muted"), ("Max", "max"), ("Volumes", "volumes")):
+            if key in changed:
+                self._v[prop] = changed[key]
+        self.changed.emit()
+
+    def _call(self, method, signature="", args=()):
+        self.bus.call_async(AUDIO_SERVICE, AUDIO_PATH, AUDIO_IFACE, method,
+                            signature, args, lambda *_: None, lambda *_: None, timeout=1.0)
+
+    available = Property(bool, lambda self: self._available, notify=availableChanged)
+    master = Property(int, lambda self: int(self._v["master"]), notify=changed)
+    muted = Property(bool, lambda self: bool(self._v["muted"]), notify=changed)
+    max = Property(int, lambda self: int(self._v["max"]), notify=changed)
+    volumes = Property("QVariantMap", lambda self: dict(self._v["volumes"]), notify=changed)
+
+    @Slot(int)
+    def setMaster(self, value):
+        self._call("SetMaster", "i", (int(value),))
+
+    @Slot(bool)
+    def setMuted(self, muted):
+        self._call("SetMuted", "b", (bool(muted),))
+
+    @Slot(str, int)
+    def setVolume(self, source, value):
+        self._call("SetVolume", "si", (str(source), int(value)))
+
+    @Slot(str)
+    def setCallState(self, state):
+        """Stand-in for the phone service: the UI's simulated call (idle|ringing|active)."""
+        self._call("SetCallState", "s", (str(state),))

@@ -4,6 +4,7 @@ import QtQuick
 // Display changes (brightness, accent colour) apply live to the whole UI.
 Item {
     id: root
+    objectName: "settingsScreen"     // run.py --screenshots opens the Audio page through it
     property int cat: 1
     property int item: 0
     property bool inPanel: false
@@ -26,7 +27,7 @@ Item {
     property bool nightDim: true
     property int language: 0
 
-    readonly property var itemCounts: [3, 3, 5, 3, 1]
+    readonly property var itemCounts: [3, 3, 8, 3, 1]
     onCatChanged: item = 0
 
     function knob(d) {
@@ -50,10 +51,14 @@ Item {
             else if (item === 1) Theme.accentIndex = (Theme.accentIndex + d + Theme.accents.length) % Theme.accents.length;
             else nightDim = !nightDim;
         } else if (cat === 2) {
-            if (item === 0) Sim.volume = Math.min(30, Math.max(0, Sim.volume + d));
-            else if (item === 1) bass = Math.min(6, Math.max(-6, bass + d));
-            else if (item === 2) treble = Math.min(6, Math.max(-6, treble + d));
-            else if (item === 3) balance = Math.min(1, Math.max(-1, balance + d * 0.2));
+            const vol = (v) => Math.min(Sim.volumeMax, Math.max(0, v + d));
+            if (item === 0) Sim.mediaVolume = vol(Sim.mediaVolume);
+            else if (item === 1) Sim.navVolume = vol(Sim.navVolume);
+            else if (item === 2) Sim.phoneVolume = vol(Sim.phoneVolume);
+            else if (item === 3) Sim.radioVolume = vol(Sim.radioVolume);
+            else if (item === 4) bass = Math.min(6, Math.max(-6, bass + d));
+            else if (item === 5) treble = Math.min(6, Math.max(-6, treble + d));
+            else if (item === 6) balance = Math.min(1, Math.max(-1, balance + d * 0.2));
             else loudness = !loudness;
         } else if (cat === 3) {
             if (item === 0) bt = !bt; else if (item === 1) wifi = !wifi; else carplay = !carplay;
@@ -147,23 +152,31 @@ Item {
             T { x: 18; text: Theme.accents[Theme.accentIndex].name; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
         }
 
-        // Audio
+        // Audio: one volume per source (D9; the master volume is in the volume popup), then tone
         Column {
             visible: root.cat === 2
-            spacing: 6
-            SettingRow { label: "Volume  " + Sim.volume; idx: 0
-                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: 0; to: 30; value: Sim.volume
-                             focused: root.inPanel && root.item === 0; onMoved: (v) => Sim.volume = Math.round(v) } }
-            SettingRow { label: "Bass  " + (root.bass > 0 ? "+" : "") + root.bass; idx: 1
+            spacing: 4
+            Repeater {
+                model: [{ label: "Media", key: "mediaVolume" }, { label: "Navigation", key: "navVolume" },
+                        { label: "Phone", key: "phoneVolume" }, { label: "Radio", key: "radioVolume" }]
+                SettingRow {
+                    label: modelData.label + "  " + Sim[modelData.key]; idx: index; height: 66
+                    LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: 0; to: Sim.volumeMax
+                                 value: Sim[modelData.key]
+                                 focused: root.inPanel && root.item === index
+                                 onMoved: (v) => Sim[modelData.key] = Math.round(v) }
+                }
+            }
+            SettingRow { label: "Bass  " + (root.bass > 0 ? "+" : "") + root.bass; idx: 4; height: 66
                 LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -6; to: 6; value: root.bass; centered: true
-                             focused: root.inPanel && root.item === 1; onMoved: (v) => root.bass = Math.round(v) } }
-            SettingRow { label: "Treble  " + (root.treble > 0 ? "+" : "") + root.treble; idx: 2
+                             focused: root.inPanel && root.item === 4; onMoved: (v) => root.bass = Math.round(v) } }
+            SettingRow { label: "Treble  " + (root.treble > 0 ? "+" : "") + root.treble; idx: 5; height: 66
                 LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -6; to: 6; value: root.treble; centered: true
-                             focused: root.inPanel && root.item === 2; onMoved: (v) => root.treble = Math.round(v) } }
-            SettingRow { label: "Balance"; idx: 3
+                             focused: root.inPanel && root.item === 5; onMoved: (v) => root.treble = Math.round(v) } }
+            SettingRow { label: "Balance"; idx: 6; height: 66
                 LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -1; to: 1; value: root.balance; centered: true
-                             focused: root.inPanel && root.item === 3; onMoved: (v) => root.balance = v } }
-            SettingRow { label: "Loudness"; idx: 4
+                             focused: root.inPanel && root.item === 6; onMoved: (v) => root.balance = v } }
+            SettingRow { label: "Loudness"; idx: 7; height: 66
                 Toggle { anchors.verticalCenter: parent.verticalCenter; checked: root.loudness; onToggled: root.loudness = !root.loudness } }
         }
 

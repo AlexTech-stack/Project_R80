@@ -28,9 +28,11 @@ Window {
     })
     readonly property var order: ["navigation", "media", "radio", "phone", "vehicle", "cluster", "clock", "settings"]
 
-    // set from run.py --screenshots to show the incoming-call overlay
+    // set from run.py --screenshots to show the incoming-call overlay / the volume popup
     property bool demoCall: false
     onDemoCallChanged: if (demoCall) Sim.simulateIncomingCall()
+    property bool demoVolume: false
+    onDemoVolumeChanged: if (demoVolume) { Sim.hangUp(); volumePopup.show() } else volumePopup.close()
 
     function go(name) { if (screens[name]) current = name }
 
@@ -48,7 +50,7 @@ Window {
         clip: true
         focus: true
 
-        function target() { return Sim.callState !== "idle" ? callOverlay : loader.item }
+        function target() { return Sim.callState !== "idle" ? callOverlay : volumePopup.open ? volumePopup : loader.item }
         function knob(d) { const t = target(); if (t && t.knob) t.knob(d) }
         function side(d) { const t = target(); if (t && t.side) t.side(d); else knob(d) }
         function press() { const t = target(); if (t && t.press) t.press() }
@@ -61,7 +63,9 @@ Window {
             case Qt.Key_Right: side(1); break;
             case Qt.Key_Return: case Qt.Key_Enter: case Qt.Key_Space: press(); break;
             case Qt.Key_Escape: case Qt.Key_Backspace: case Qt.Key_H:
-                if (Sim.callState === "incoming") Sim.hangUp(); else win.go("home"); break;
+                if (Sim.callState === "incoming") Sim.hangUp();
+                else if (volumePopup.open) volumePopup.close();
+                else win.go("home"); break;
             case Qt.Key_C: Sim.simulateIncomingCall(); break;
             case Qt.Key_F11: win.visibility = win.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen; break;
             default:
@@ -80,6 +84,7 @@ Window {
             anchors.right: parent.right
             title: win.screens[win.current].title
             onBack: win.go("home")
+            onVolumeClicked: volumePopup.show()
         }
 
         MouseArea {
@@ -103,6 +108,9 @@ Window {
                 NumberAnimation { id: fadeIn; target: loader.item; property: "opacity"; from: 0; to: 1; duration: 220; easing.type: Easing.OutCubic }
             }
         }
+
+        // master volume popup, opened from the volume in the header (D9)
+        VolumePopup { id: volumePopup }
 
         CallOverlay { id: callOverlay; anchors.fill: parent }
 

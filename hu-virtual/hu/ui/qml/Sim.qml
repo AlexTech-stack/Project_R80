@@ -5,8 +5,9 @@ import R80.Backend 1.0
 // hu-virtual overlay of the mockup's Sim.qml. Same property names as the
 // mockup; the vehicle values come from hu-vehicled over D-Bus (the Vehicle
 // singleton) whenever the MCU link is up, and the media values from hu-mediad
-// (the Media singleton), each falling back to the mockup's fake data when the
-// matching service is not there. Radio / phone / nav are still simulated.
+// (the Media singleton) and volume / mute from hu-audiod (the Audio singleton),
+// each falling back to the mockup's fake data when the matching service is not
+// there. Radio / phone / nav are still simulated.
 QtObject {
     id: sim
 
@@ -14,12 +15,48 @@ QtObject {
     property Connections vehicleConn: Connections {
         target: Vehicle
         function onValuesChanged() { sim._syncTrip() }
-        function onVolumeStep(d) { sim.volume = Math.min(30, Math.max(0, sim.volume + d)) }
-        function onMuteToggled() { if (sim.volume > 0) { sim._unmuteVolume = sim.volume; sim.volume = 0 } else sim.volume = sim._unmuteVolume }
+        // With hu-audiod on the bus it handles the MCU's volume keys itself.
+        function onVolumeStep(d) { if (!sim.audioLive) sim.volume = Math.min(sim.volumeMax, Math.max(0, sim.volume + d)) }
+        function onMuteToggled() { if (!sim.audioLive) sim.muted = !sim.muted }
         function onDimChanged() { Theme.brightness = Math.max(0.2, Vehicle.dimLevel / 100) }
     }
 
     signal navigate(string screen)
+
+    // ---- audio (hu-audiod) -------------------------------------------------
+    // Master volume, mute and the per-source volumes mirror audiod; changing one asks
+    // audiod, which owns them (D9). Without audiod they are plain local values.
+    readonly property bool audioLive: Audio.available
+    property bool _audioSync: false
+    function _pullAudio() {
+        if (!audioLive) return
+        _audioSync = true
+        volumeMax = Audio.max
+        volume = Audio.master
+        muted = Audio.muted
+        const v = Audio.volumes
+        if (v.media !== undefined) mediaVolume = v.media
+        if (v.navigation !== undefined) navVolume = v.navigation
+        if (v.phone !== undefined) phoneVolume = v.phone
+        if (v.radio !== undefined) radioVolume = v.radio
+        _audioSync = false
+    }
+    function _push(f) { if (audioLive && !_audioSync) f() }
+    onVolumeChanged: _push(() => Audio.setMaster(volume))
+    onMutedChanged: _push(() => Audio.setMuted(muted))
+    onMediaVolumeChanged: _push(() => Audio.setVolume("media", mediaVolume))
+    onNavVolumeChanged: _push(() => Audio.setVolume("navigation", navVolume))
+    onPhoneVolumeChanged: _push(() => Audio.setVolume("phone", phoneVolume))
+    onRadioVolumeChanged: _push(() => Audio.setVolume("radio", radioVolume))
+    // Until there is a phone service, the simulated call tells audiod about calls
+    // (D9: media pauses and radio is silent from ringing on).
+    function _pushCall() { if (audioLive) Audio.setCallState(callState === "incoming" ? "ringing" : callState) }
+    onCallStateChanged: _pushCall()
+    property Connections audioConn: Connections {
+        target: Audio
+        function onChanged() { sim._pullAudio() }
+        function onAvailableChanged() { sim._pullAudio(); sim._pushCall() }
+    }
 
     // ---- time ------------------------------------------------------------
     property date now: new Date()
@@ -60,8 +97,14 @@ QtObject {
     readonly property int serviceKm: live ? Vehicle.serviceKm : 6400
     readonly property int serviceDays: live ? Vehicle.serviceDays : 112
     property int altitude: 412
-    property int volume: 14
-    property int _unmuteVolume: 14
+    property int volume: 14                // master volume, 0 .. volumeMax
+    property int volumeMax: 30
+    property bool muted: false
+    property int mediaVolume: 30
+    property int navVolume: 30
+    property int phoneVolume: 30
+    property int radioVolume: 30
+    function toggleMute() { muted = !muted }
     property int homeIndex: 0
     property bool units_metric: true
 

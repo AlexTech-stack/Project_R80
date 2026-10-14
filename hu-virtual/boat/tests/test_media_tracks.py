@@ -2,7 +2,9 @@
 """TC_HU_008: media track navigation: SetTrack, Next, Previous (restart after 3 s,
 otherwise the track before), wrap-around with repeat, stop at the end without repeat,
 SetPosition, and the duration learned for a played track."""
-from common import check, finish, media_reset, wait_media
+import time
+
+from common import check, finish, media_props, media_reset, wait_media
 
 m = media_reset()
 ok, p, _ = wait_media(lambda p: p["TrackIndex"] == 0 and p["PlaybackStatus"] == "playing", timeout=5.0)
@@ -42,6 +44,9 @@ wait_media(lambda p: p["TrackIndex"] == last and p["PlaybackStatus"] == "playing
 m.Next()
 ok, p, _ = wait_media(lambda p: p["PlaybackStatus"] == "stopped", timeout=3.0)
 check(ok, f"Next on the last track without repeat -> stopped (got {p.get('PlaybackStatus')})")
+time.sleep(1.0)
+p = media_props()
+check(p["PlaybackStatus"] == "stopped", f"... and it stays stopped 1 s later (got {p['PlaybackStatus']})")
 check(not p.get("CanGoNext", True), "CanGoNext is false on the last track without repeat")
 
 m.SetRepeatAll(True)
