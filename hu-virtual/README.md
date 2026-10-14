@@ -207,6 +207,11 @@ uses `WarningChimeGain`, which ignores mute and never goes below
 (`SetChime`). warnd publishes `LastChime`, `LastChimeGain` and `ChimeCount`.
 `run_boat_sil.sh` passes `WARN_ARGS=--sink fakesink`, so tests stay silent.
 
+In the UI (`hu/ui/backend.py` → `Sim.warnings`, `Sim.acknowledgeWarning`), the
+most urgent open warning or information is a banner below the header until it
+is acknowledged (OK or knob press → `Acknowledge`); a notice shows for 5 s; the
+header has a warning count; Vehicle → Warnings lists all of them.
+
 ```bash
 python3 hu/warnd.py --check            # check warnings.ini and list every rule
 gdbus call --session -d de.r80.Warnings -o /de/r80/Warnings \

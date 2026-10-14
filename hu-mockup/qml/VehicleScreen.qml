@@ -1,10 +1,12 @@
 import QtQuick
 
-// Vehicle data: status, trip computer, tyres, service.
+// Vehicle data: status, trip computer, tyres, service, active warnings (D10).
 Item {
     id: root
+    objectName: "vehicleScreen"     // run.py --screenshots opens the Warnings tab through it
     property int tab: 0
-    readonly property var tabs: ["Status", "Trip", "Tyres", "Service"]
+    readonly property var tabs: ["Status", "Trip", "Tyres", "Service", "Warnings"]
+    readonly property int warningsTab: 4
     function knob(d) { tab = (tab + d + tabs.length) % tabs.length }
     function press() {}
 
@@ -144,6 +146,51 @@ Item {
             Column {
                 T { text: "Fault memory"; color: Theme.accentMid }
                 T { text: "No entries"; font.pixelSize: 44 }
+            }
+        }
+    }
+
+    // --- Warnings (D10): everything hu-warnd reports, most urgent first
+    Item {
+        anchors.fill: parent
+        visible: root.tab === root.warningsTab
+        T {
+            x: Theme.margin; y: 110
+            visible: Sim.warnings.length === 0
+            text: "No warnings"
+            color: Theme.accentMid
+        }
+        Column {
+            x: Theme.margin; y: 84
+            width: parent.width - 2 * Theme.margin
+            Repeater {
+                model: Sim.warnings
+                Item {
+                    width: parent.width; height: 74
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 34; height: 34
+                        path: modelData.severity === "warning" ? Icons.warning : Icons.info
+                        color: modelData.severity === "notice" ? Theme.accentMid : Theme.accent
+                    }
+                    T {
+                        x: 58; width: parent.width - 58 - 360; anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.text; elide: Text.ElideRight
+                        color: modelData.severity === "notice" ? Theme.accentMid : Theme.accent
+                    }
+                    T {
+                        anchors.right: parent.right; anchors.rightMargin: 150; anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.severity === "warning" ? "Warning" : modelData.severity === "information" ? "Information" : "Notice"
+                        font.pixelSize: Theme.fontSmall; color: Theme.accentMid
+                    }
+                    T {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.acknowledged ? "acknowledged" : modelData.severity === "notice" ? "" : "open"
+                        font.pixelSize: Theme.fontSmall
+                        color: modelData.acknowledged ? Theme.accentDim : Theme.accent
+                    }
+                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.accentFaint }
+                }
             }
         }
     }

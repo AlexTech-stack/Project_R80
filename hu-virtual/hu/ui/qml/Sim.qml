@@ -108,6 +108,29 @@ QtObject {
     property int radioVolume: 30
     property int chimeVolume: 30
     function toggleMute() { muted = !muted }
+
+    // ---- warnings (hu-warnd, D10) ------------------------------------------
+    // Most urgent first: {id, severity: warning | information | notice, text, acknowledged, since}
+    readonly property bool warnLive: Warnings.available
+    property var _demoWarnings: []
+    readonly property var warnings: warnLive ? Warnings.active : _demoWarnings
+    function acknowledgeWarning(id) {
+        if (warnLive) Warnings.acknowledge(id)
+        else _demoWarnings = _demoWarnings.map(w => w.id === id ? Object.assign({}, w, { acknowledged: true }) : w)
+    }
+    function acknowledgeAllWarnings() {
+        if (warnLive) Warnings.acknowledgeAll()
+        else _demoWarnings = _demoWarnings.map(w => Object.assign({}, w, { acknowledged: true }))
+    }
+    function simulateWarnings() {           // only without hu-warnd: the mockup's demo set
+        if (warnLive) return
+        _demoWarnings = [
+            { id: "tyre_dropping.TyrePressureFL", severity: "warning", acknowledged: false, since: 3,
+              text: "Tyre pressure dropping fast, front left (0.15 bar/s)" },
+            { id: "fuel_low", severity: "information", acknowledged: false, since: 40, text: "Fuel low (8 %)" },
+            { id: "service_distance", severity: "notice", acknowledged: false, since: 300, text: "Service due in 800 km" }
+        ]
+    }
     property int homeIndex: 0
     property bool units_metric: true
 

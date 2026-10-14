@@ -352,3 +352,63 @@ class Audio(QObject):
     def setCallState(self, state):
         """Stand-in for the phone service: the UI's simulated call (idle|ringing|active)."""
         self._call("SetCallState", "s", (str(state),))
+
+
+WARN_SERVICE, WARN_PATH, WARN_IFACE = "de.r80.Warnings", "/de/r80/Warnings", "de.r80.Warnings1"
+
+
+class Warnings(QObject):
+    """QML singleton mirroring hu-warnd (de.r80.Warnings1): the active vehicle warnings,
+    most urgent first, as dicts {id, severity, text, acknowledged, since}. `available`
+    tells the overlay Sim.qml whether to fall back to its own demo warnings."""
+    changed = Signal()
+    availableChanged = Signal()
+
+    def __init__(self, system_bus=False, parent=None):
+        super().__init__(parent)
+        self._available = False
+        self._active = []
+        DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
+        self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, WARN_PATH)
+        self._poll = QTimer(self, interval=3000, timeout=self.refresh)
+        self._poll.start()
+        QTimer.singleShot(0, self.refresh)
+
+    def refresh(self):
+        self.bus.call_async(WARN_SERVICE, WARN_PATH, PROPS, "GetAll", "s", (WARN_IFACE,),
+                            self._apply, self._on_gone, timeout=1.0)
+
+    def _on_gone(self, _err):
+        if self._available:
+            self._available = False
+            self._active = []
+            self.availableChanged.emit()
+            self.changed.emit()
+
+    def _on_props(self, iface, changed, _invalidated):
+        if iface == WARN_IFACE:
+            self._apply(changed)
+
+    def _apply(self, changed: dict):
+        if not self._available:
+            self._available = True
+            self.availableChanged.emit()
+        if "Active" in changed:
+            self._active = [{str(k): _py(v) for k, v in w.items()} for w in changed["Active"]]
+            self.changed.emit()
+
+    def _call(self, method, signature="", args=()):
+        self.bus.call_async(WARN_SERVICE, WARN_PATH, WARN_IFACE, method,
+                            signature, args, lambda *_: None, lambda *_: None, timeout=1.0)
+
+    available = Property(bool, lambda self: self._available, notify=availableChanged)
+    active = Property("QVariantList", lambda self: list(self._active), notify=changed)
+
+    @Slot(str)
+    def acknowledge(self, rid):
+        self._call("Acknowledge", "s", (str(rid),))
+
+    @Slot()
+    def acknowledgeAll(self):
+        self._call("AcknowledgeAll")
