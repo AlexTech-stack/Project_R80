@@ -1,6 +1,7 @@
 # R80 CI. Each job only calls a script in ci/, so every check also runs locally:
 #   ci/check_static.sh
 #   ci/run_boat_sil.sh [--install]
+#   ci/build_android.sh
 #
 # Runs on pushes to every branch (R80 does not use pull requests, see AGENTS.md
 # section 4) and by hand from the Actions tab.
@@ -42,6 +43,31 @@ jobs:
         with:
           name: screenshots
           path: build/ci/screenshots/
+          if-no-files-found: ignore
+          retention-days: 14
+
+
+  android:
+    # The R80 Companion app (companion-android/, D11): unit tests and a debug APK.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.8.1"
+      - name: Build and unit-test the app
+        run: ci/build_android.sh
+      - name: Upload APK and test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: r80-companion
+          path: build/ci/android/
           if-no-files-found: ignore
           retention-days: 14
 

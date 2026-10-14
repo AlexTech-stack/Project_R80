@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""TC_HU_020: the companion link protocol (docs/companion-protocol.md, hu/companion_link.py).
+"""TC_HU_020: the companion link protocol (docs/companion-protocol.md, hu/companion_link.py)
+and the examples shared with the Android app (docs/companion-protocol-examples.jsonl).
 Pure protocol test, no services: every message type survives encode -> decode, the
 decoder copes with how a byte stream arrives (split lines, several per read, CRLF), and
 bad input is dropped and counted without losing the messages around it."""
@@ -59,6 +60,12 @@ d = cl.Decoder()
 long_line = b'{"type":"bye","reason":"' + b"x" * cl.MAX_LINE + b'"}\n'
 out = d.feed(long_line[:3000]) + d.feed(long_line[3000:] + hb)
 check(out == [{"type": "heartbeat"}] and d.errors == 1, f"a line over {cl.MAX_LINE} bytes is dropped, the next one kept")
+
+examples = (ROOT.parent / "docs" / "companion-protocol-examples.jsonl").read_bytes()
+d = cl.Decoder()
+out = d.feed(examples)
+check(len(out) == examples.count(b"\n") and d.errors == 0 and d.unknown == 0,
+      f"the {len(out)} shared examples (docs/companion-protocol-examples.jsonl, also used by the Android app's tests) are valid")
 
 g = json.loads(cl.encode(cl.guidance("google_maps", "turn", "left", street="S" * 500)))
 check(len(g["street"]) == cl.MAX_TEXT and "exit" not in g["maneuver"] and "text" not in g,

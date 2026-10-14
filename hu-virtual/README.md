@@ -249,7 +249,9 @@ nothing for `link_timeout_s` is dropped. The last guidance then stays, marked
 `stale`, for `keep_after_loss_s`, so a quick reconnect continues seamlessly
 (`hu/nav.ini`). Here the link is a local socket
 (`$XDG_RUNTIME_DIR/r80-hu/companion.sock`). Bluetooth RFCOMM on the target comes
-later and only changes how the bytes arrive.
+later and only changes how the bytes arrive. For the real app on a phone in the
+same Wi-Fi, `NAV_ARGS="--tcp 47800"` also opens a TCP port (development only: no
+authentication; see [`../companion-android/README.md`](../companion-android/README.md)).
 
 `phone_emu/phone_emu.py` stands in for the R80 Companion app. As a program
 (`./hu-virtual.sh phone`) it plays `phone_emu/route_demo.json`: the distance to

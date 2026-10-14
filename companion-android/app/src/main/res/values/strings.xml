@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">R80 Companion</string>
+    <string name="channel_link">Link to the headunit</string>
+    <string name="link_running">Sending navigation to the headunit</string>
+    <string name="access_title">Notification access</string>
+    <string name="access_granted">Granted: Google Maps guidance is read.</string>
+    <string name="access_missing">Not granted. Without it the app cannot read Google Maps. If the switch is greyed out: App info → ⋮ → Allow restricted settings (needed for apps not installed from a store).</string>
+    <string name="grant">Open notification access</string>
+    <string name="hu_title">Headunit</string>
+    <string name="address_hint">PC running navd --tcp, host:port</string>
+    <string name="bad_address">Address must be host:port, e.g. 192.168.1.10:47800</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="link_status">Link: %1$s %2$s</string>
+    <string name="guidance_title">Guidance sent</string>
+    <string name="no_guidance">No navigation running in Google Maps.</string>
+    <string name="capture_title">Capture (for development)</string>
+    <string name="capture">Record Google Maps notifications</string>
+    <string name="capture_info">%1$d notifications recorded. They contain the streets of the drive and stay on the phone until exported.</string>
+    <string name="export">Export to Downloads</string>
+    <string name="clear">Delete recording</string>
+    <string name="exported">Saved Downloads/%1$s</string>
+</resources>

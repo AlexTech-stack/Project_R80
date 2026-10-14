@@ -19,6 +19,8 @@ runs the HU's side of that link and publishes what to show:
 One phone at a time: a new connection replaces the old one (a phone that reconnects
 before the old link timed out). The timing is in nav.ini. The transport here is a local
 stream socket (--socket; the phone emulator in the virtual environment connects to it);
+for development with a real phone over Wi-Fi, --tcp PORT also listens on TCP (no
+authentication or encryption: only on a trusted network, never on the target);
 Bluetooth RFCOMM on the target comes later and only replaces how bytes arrive.
 The session logic (Link) has no sockets and no clock, so tests can drive it with their own time.
 """
@@ -174,7 +176,7 @@ class Link:
                 "remaining_s": num("remaining_s"), "arrival": self.arrival}
 
 
-def run_service(cfg: dict, sock_path: Path, system: bool):
+def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None = None):
     import dbus
     import dbus.service
     from dbus.mainloop.glib import DBusGMainLoop
@@ -206,12 +208,20 @@ def run_service(cfg: dict, sock_path: Path, system: bool):
             self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.server.bind(str(sock_path))
             self.server.listen(2)
-            GLib.io_add_watch(self.server.fileno(), GLib.IO_IN, self.on_accept)
+            GLib.io_add_watch(self.server.fileno(), GLib.IO_IN, self.on_accept, self.server)
+            if tcp_port:
+                tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                tcp.bind(("0.0.0.0", tcp_port))
+                tcp.listen(2)
+                self.tcp = tcp
+                GLib.io_add_watch(tcp.fileno(), GLib.IO_IN, self.on_accept, tcp)
+                log(f"phone link also on TCP port {tcp_port} (development only: no authentication)")
             GLib.timeout_add(200, self.on_tick)
 
         # ---- transport ------------------------------------------------------
-        def on_accept(self, *_):
-            conn, _addr = self.server.accept()
+        def on_accept(self, _fd, _cond, server):
+            conn, _addr = server.accept()
             if self.conn:
                 log("a new phone connection replaces the old one")
                 self.drop()
@@ -326,13 +336,14 @@ def main():
     ap.add_argument("--config", help="extra config file, read after hu/nav.ini and /etc/r80/nav.ini")
     run = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu"
     ap.add_argument("--socket", default=str(run / "companion.sock"), help="local socket the phone (emulator) connects to")
+    ap.add_argument("--tcp", type=int, metavar="PORT", help="also accept the phone on this TCP port (development, trusted network only)")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     a = ap.parse_args()
     try:
         cfg = load_config(a.config)
     except ConfigError as e:
         sys.exit(f"[navd] bad config: {e}")
-    run_service(cfg, Path(a.socket), a.system)
+    run_service(cfg, Path(a.socket), a.system, a.tcp)
 
 
 if __name__ == "__main__":
