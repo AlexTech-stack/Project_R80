@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start / stop the virtual R80 headunit environment.
 #
-#   ./hu-virtual.sh up          buses, BoAt gateway, MCU emulator, hu-vehicled, hu-mediad, hu-audiod
+#   ./hu-virtual.sh up          buses, BoAt gateway, MCU emulator, hu-vehicled, hu-mediad, hu-audiod, hu-warnd
 #   ./hu-virtual.sh drive       ... plus the BoAt restbus playing the drive cycle
 #   ./hu-virtual.sh ui          start the UI (window) on top of a running env
 #   ./hu-virtual.sh panel       tester panel: the restbus with a GUI to change signals and press HU keys
@@ -10,11 +10,12 @@
 #
 # Env overrides: BOAT_ROOT (~/BoAt), BOAT_PORT (50061), R80_MOCKUP (mockup dir),
 #                HU_DUT=external (up starts only buses + gateway; the DUT, i.e. MCU emulator,
-#                vehicled, mediad and audiod, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
+#                vehicled, mediad, audiod and warnd, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
 #                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort),
 #                MUSIC_DIR (media library; unset = demo tones in $RUN/music),
 #                MEDIA_ARGS (extra hu/mediad.py arguments),
-#                AUDIO_ARGS (extra hu/audiod.py arguments; volumes are saved in $RUN/audio-state.json).
+#                AUDIO_ARGS (extra hu/audiod.py arguments; volumes are saved in $RUN/audio-state.json),
+#                WARN_ARGS (extra hu/warnd.py arguments, e.g. --config my-warnings.ini).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,7 +70,7 @@ up() {
   [[ -x "$GATEWAY" ]] || { echo "BoAt gateway not built at $GATEWAY"; exit 1; }
   start gateway env BOAT_CAN_INTERFACES="$(IFS=,; echo "${BUSES[*]}")" BOAT_GRPC_PORT="$BOAT_PORT" "$GATEWAY"
   wait_gateway
-  if [[ "${HU_DUT:-}" == external ]]; then echo "  DUT is external: not starting mcu, vehicled, mediad and audiod"; return; fi
+  if [[ "${HU_DUT:-}" == external ]]; then echo "  DUT is external: not starting mcu, vehicled, mediad, audiod and warnd"; return; fi
   start mcu python3 "$HERE/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 "${MCU_CAN2:-vcan_motor}" --can2-bus "${MCU_CAN2_BUS:-motor}"
   sleep 0.5
   start vehicled python3 "$HERE/hu/vehicled.py"
@@ -79,6 +80,8 @@ up() {
   start mediad python3 "$HERE/hu/mediad.py" --music-dir "${MUSIC_DIR:-$RUN/music}" $extras
   # shellcheck disable=SC2086  # AUDIO_ARGS is a list of flags
   start audiod python3 "$HERE/hu/audiod.py" --state "$RUN/audio-state.json" ${AUDIO_ARGS:-}
+  # shellcheck disable=SC2086  # WARN_ARGS is a list of flags
+  start warnd python3 "$HERE/hu/warnd.py" ${WARN_ARGS:-}
 }
 
 case "${1:-status}" in
@@ -92,9 +95,9 @@ case "${1:-status}" in
     cd "$HERE"
     BOAT_HOST="localhost:$BOAT_PORT" boat test run boat/manifest_hu_smoke.json --report-dir "$RUN/reports" "${@:2}"
     ;;
-  down) for n in ui panel restbus audiod mediad vehicled mcu gateway; do stop "$n"; done ;;
+  down) for n in ui panel restbus warnd audiod mediad vehicled mcu gateway; do stop "$n"; done ;;
   status)
-    for n in gateway mcu vehicled mediad audiod restbus panel ui; do
+    for n in gateway mcu vehicled mediad audiod warnd restbus panel ui; do
       if [[ -f "$RUN/$n.pid" ]] && kill -0 "$(cat "$RUN/$n.pid")" 2>/dev/null; then s=running; else s=stopped; fi
       printf "  %-9s %s\n" "$n" "$s"
     done

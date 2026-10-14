@@ -3,7 +3,7 @@
 #
 #   ci/run_boat_sil.sh              use the BoAt you have (BOAT_ROOT, default ~/BoAt; `boat` on PATH)
 #   ci/run_boat_sil.sh --dut-arch=arm64|amd64
-#                                   run the DUT (mcu_emu, vehicled, mediad, audiod) in a Debian Trixie
+#                                   run the DUT (mcu_emu, vehicled, mediad, audiod, warnd) in a Debian Trixie
 #                                   container (ci/dut/) for that CPU instead of on the host; BoAt stays
 #                                   on the host. Needs docker; arm64 on an x86 host also QEMU binfmt
 #                                   (CI: qemu-user-static).
@@ -141,7 +141,7 @@ container_dut_session() {
   docker run -d --name "$name" --platform "linux/$DUT_ARCH" --network host --user "$(id -u):$(id -g)" \
     -e HOME=/tmp -e XDG_RUNTIME_DIR="$rt" -e DBUS_SESSION_BUS_ADDRESS -e MEDIA_ARGS \
     -v "$rt:$rt" -v "$ROOT:$ROOT:ro" "$image" "$ROOT/ci/dut/start_dut.sh" "$ROOT/hu-virtual" >/dev/null
-  echo "== waiting for the DUT (de.r80.Vehicle with the MCU link up, de.r80.Media, de.r80.Audio)"
+  echo "== waiting for the DUT (de.r80.Vehicle with the MCU link up, de.r80.Media, de.r80.Audio, de.r80.Warnings)"
   python3 - <<'PY' || { docker logs "$name" | tail -20; return 1; }
 import time, dbus
 deadline = time.monotonic() + 120  # QEMU makes the first start slow
@@ -149,7 +149,7 @@ while time.monotonic() < deadline:
     try:
         props = dbus.SessionBus().get_object("de.r80.Vehicle", "/de/r80/Vehicle").GetAll(
             "de.r80.Vehicle1", dbus_interface="org.freedesktop.DBus.Properties")
-        if props.get("LinkUp") and all(dbus.SessionBus().name_has_owner(n) for n in ("de.r80.Media", "de.r80.Audio")):
+        if props.get("LinkUp") and all(dbus.SessionBus().name_has_owner(n) for n in ("de.r80.Media", "de.r80.Audio", "de.r80.Warnings")):
             print(f"   DUT up after {120 - (deadline - time.monotonic()):.0f} s")
             raise SystemExit(0)
     except dbus.DBusException:

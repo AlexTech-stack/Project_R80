@@ -182,3 +182,39 @@ def audio_config():
     sys.path.insert(0, str(ROOT / "hu"))
     import audiod
     return audiod, audiod.load_config()
+
+
+# ---- warnings (hu/warnd.py) -----------------------------------------------
+WARN_SERVICE, WARN_PATH, WARN_IFACE = "de.r80.Warnings", "/de/r80/Warnings", "de.r80.Warnings1"
+
+
+def warnings():
+    """The de.r80.Warnings1 interface (Acknowledge, AcknowledgeAll)."""
+    return dbus.Interface(dbus.SessionBus().get_object(WARN_SERVICE, WARN_PATH), WARN_IFACE)
+
+
+def active_warnings() -> dict:
+    """id -> warning dict of the active warnings."""
+    obj = dbus.SessionBus().get_object(WARN_SERVICE, WARN_PATH)
+    raw = obj.Get(WARN_IFACE, "Active", dbus_interface="org.freedesktop.DBus.Properties")
+    return {str(w["id"]): _plain(w) for w in raw}
+
+
+def wait_warnings(cond, timeout=3.0, step=0.1):
+    """Poll cond(active warnings by id) until true; returns (ok, last dict, seconds waited)."""
+    t0 = time.monotonic()
+    act = {}
+    while time.monotonic() - t0 < timeout:
+        act = active_warnings()
+        if cond(act):
+            return True, act, time.monotonic() - t0
+        time.sleep(step)
+    return False, act, time.monotonic() - t0
+
+
+def warn_rules():
+    """warnd's own config loader: rule id -> rule, so tests never repeat its numbers."""
+    sys.path.insert(0, str(ROOT / "hu"))
+    import warnd
+    general, rules = warnd.load_config()
+    return general, {r["id"]: r for r in rules}
