@@ -11,7 +11,9 @@ virtual CAN buses and the vehicle MCU replaced by an emulator process.
  │ boat test run        │  (CAN 2, listen│ dimming, CAN  │              │ de.r80.Vehicle│         │  overlay)  │
  └──────────────────────┘   only)        └───────────────┘              └──────────────┘          └────────────┘
           ▲  mcuctl.py (knob, buttons, dim override) ────┘
-```
+ 
+ hu/mediad.py (GStreamer) ── D-Bus de.r80.Media ─────────────────────────────────►│ Media screen │
+ ```
 
 | Part | Real car / bench | Virtual |
 |---|---|---|
@@ -21,6 +23,7 @@ virtual CAN buses and the vehicle MCU replaced by an emulator process.
 | MCU ↔ Linux | UART, e.g. `/dev/ttyAMA0` | pty, symlinked at `$XDG_RUNTIME_DIR/r80-mcu-uart` |
 | Knob / buttons | MCU pins | `mcu_emu/mcuctl.py` over a control socket |
 | Linux vehicle service | `hu/vehicled.py --system --uart /dev/ttyAMA0` | `hu/vehicled.py` (session bus) |
+| Linux media service | `hu/mediad.py --system --music-dir /media/usb` (GStreamer) | `hu/mediad.py` (session bus, demo tones unless `MUSIC_DIR` is set) |
 | UI | Qt 6 / QML | `../hu-mockup`, with `hu/ui/qml/Sim.qml` swapped in |
 
 Everything under `hu/` is target software and has no BoAt dependency; it runs
@@ -29,12 +32,12 @@ unchanged on the Pi. `mcu_emu/` and `boat/` exist only for the PC.
 ## Run it
 
 Needs: [BoAt](https://github.com/AlexTech-stack/BoAt) built at `~/BoAt` (or `BOAT_ROOT=`), Python 3 with PySide6,
-dbus-python and PyGObject, and `sudo` once to create the vcan buses. No
-cantools or python-can.
+dbus-python, PyGObject and the GStreamer 1.0 bindings (`python3-gi` + `gst-plugins-base`/`-good`),
+and `sudo` once to create the vcan buses. No cantools or python-can.
 
 ```bash
 cd hu-virtual
-./hu-virtual.sh drive      # buses, gateway, MCU emulator, vehicled, restbus drive cycle
+./hu-virtual.sh drive      # buses, gateway, MCU emulator, vehicled, mediad, restbus drive cycle
 ./hu-virtual.sh ui         # the UI window on top (UI_ARGS="--fullscreen" etc.)
 ./hu-virtual.sh status
 ./hu-virtual.sh down
@@ -83,6 +86,37 @@ MCU_CAN2=vcan_comfort MCU_CAN2_BUS=comfort ./hu-virtual.sh up   # CAN 2 on Comfo
 The UI falls back to the mockup's own fake data whenever hu-vehicled or the
 MCU link is not there, so `run_hu.py` also works on its own.
 
+## Media (hu-mediad)
+
+`hu/mediad.py` is the Linux media service: it scans a folder for audio files
+(the USB / SD-card source) and plays them with GStreamer `playbin`, publishing
+on D-Bus `de.r80.Media` at `/de/r80/Media` (interface `de.r80.Media1`):
+
+- properties `PlaybackStatus`, `Source`, `Sources`, `TrackIndex`, `TrackCount`,
+  `Position` (µs), `Metadata`, `Playlist`, `Shuffle`, `RepeatAll`, `CanGoNext`,
+  `CanGoPrevious`
+- methods `Play`, `Pause`, `PlayPause`, `Next`, `Previous`, `SetTrack`, `Seek`,
+  `SetPosition`, `SetPlaying`, `SetShuffle`, `SetRepeatAll`, `SetSource`
+- signals `Seeked` and `PropertiesChanged`
+
+`./hu-virtual.sh up` starts it on a demo folder of short WAV tones. Point it at
+your own library with `MUSIC_DIR` (then no tones are written), or pass extra
+flags with `MEDIA_ARGS`:
+
+```bash
+MUSIC_DIR=~/Music ./hu-virtual.sh up
+MEDIA_ARGS="--music-dir /media/usb --sink fakesink" ./hu-virtual.sh up
+gdbus call --session -d de.r80.Media -o /de/r80/Media -m de.r80.Media1.Next
+gdbus call --session -d de.r80.Media -o /de/r80/Media \
+  -m org.freedesktop.DBus.Properties.Get de.r80.Media1 Metadata
+```
+
+Title / artist come from the file name (`Artist - Title.ext`), the album from
+the folder, and the duration is learned once GStreamer prerolls the track.
+Bluetooth A2DP and MPRIS are not wired up yet. `hu/ui/qml/Sim.qml` binds the
+Media screen to this service and falls back to the mockup's own playlist when
+`hu-mediad` is not on the bus, so `run_hu.py` still works alone.
+
 ## Tests (BoAt)
 
 ```bash
@@ -98,6 +132,8 @@ MCU link is not there, so `run_hu.py` also works on its own.
 | TC_HU_004 | day/night from LightState, MCU dim override |
 | TC_HU_005 | knob and button events reach D-Bus in order |
 | TC_HU_006 | HU can send on Infotainment, never on Motor or Comfort (checked on the wire by BoAt) |
+| TC_HU_007 | media play / pause: `PlaybackStatus` follows the player, position runs or stands still, metadata matches |
+| TC_HU_008 | media tracks: SetTrack, Next/Previous (restart after 3 s), wrap-around, stop at the end without repeat, seek |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
@@ -113,11 +149,16 @@ BoAt's `report.junit.xml` is empty for script tests (AlexTech-stack/BoAt#50).
 BoAt runs on the x86_64 test PC only; on the bench the Raspberry Pi is the DUT and
 runs `mcu_emu/` and `hu/` (see `../docs/bench-pi.md`), so `--install` refuses other machines.
 
-`../ci/run_boat_sil.sh --dut-arm64` keeps that split on one x86 machine: BoAt on the
-host (`HU_DUT=external ./hu-virtual.sh up` starts only the buses and the gateway), the
-DUT in an aarch64 Debian 13 container under QEMU (`../ci/dut/`). Both share the host's
-vcan buses, `$XDG_RUNTIME_DIR` and a private session bus, so the tests run unchanged.
-CI runs this as the job `boat-sil-arm64-dut`.
+`../ci/run_boat_sil.sh --dut-arch=arm64` keeps that split on one x86 machine: BoAt on
+the host (`HU_DUT=external ./hu-virtual.sh up` starts only the buses and the gateway),
+the DUT (`mcu_emu/`, `vehicled`, `mediad`) in an aarch64 Debian 13 container under QEMU
+(`../ci/dut/`). `--dut-arch=amd64` does the same with an x86 container, in case the final
+hardware is x86. Both share the host's vcan buses, `$XDG_RUNTIME_DIR` and a private
+session bus, so the tests run unchanged. CI runs both as the job `boat-sil-dut`.
+`run_boat_sil.sh` passes `MEDIA_ARGS=--sink fakesink`, so test runs stay silent.
+It refuses to run (exit 2) while an environment is already up here (live services
+in `$XDG_RUNTIME_DIR/r80-hu` or anything on the gateway port), so it never tests
+against, or shuts down, a session someone is using.
 
 ## Files
 
@@ -128,8 +169,9 @@ build/                   git-ignored; the BoAt PDU database made from ../hu-can/
 hu/mcu_link.py           MCU <-> Linux UART protocol (framing, message types)
 hu/dbc.py                small DBC decoder/encoder, no dependencies
 hu/vehicled.py           Linux vehicle service: UART -> DBC -> D-Bus de.r80.Vehicle
+hu/mediad.py             Linux media service: GStreamer playbin -> D-Bus de.r80.Media
 hu/ui/run_hu.py          UI launcher: mockup + Sim.qml overlay + MCU key input + power blanking
-hu/ui/backend.py         QML singleton `Vehicle` (R80.Backend 1.0) mirroring D-Bus
+hu/ui/backend.py         QML singletons `Vehicle` and `Media` (R80.Backend 1.0) mirroring D-Bus
 hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`
 mcu_emu/mcu_emu.py       MCU emulator
 mcu_emu/mcuctl.py        control client (also used by the tests)
@@ -154,6 +196,9 @@ docs/                    screenshots: the UI on live CAN data, the tester panel
   answer SHUTDOWN_READY. Night = LowBeam or HighBeam, night level 40 %.
 - D-Bus property names are the DBC signal names; `backend.py` maps them to the
   mockup's names (`VehicleSpeed` → `speed`, `FuelLevel` % → `fuelLevel` 0..1, …).
+- **Media is local files only for now.** `hu/mediad.py` plays a folder with
+  GStreamer; Bluetooth A2DP, MPRIS, tag parsing and cover art are not implemented
+  yet. Metadata comes from the file name and folder.
 
 ## BoAt notes
 

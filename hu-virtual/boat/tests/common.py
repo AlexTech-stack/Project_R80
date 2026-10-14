@@ -91,3 +91,55 @@ class InputListener:
 
     def close(self):
         self._loop.quit()
+
+
+# ---- media (hu/mediad.py) -------------------------------------------------
+MEDIA_SERVICE, MEDIA_PATH, MEDIA_IFACE = "de.r80.Media", "/de/r80/Media", "de.r80.Media1"
+
+
+def media():
+    """The de.r80.Media1 interface (Play, Pause, Next, SetTrack, ...)."""
+    return dbus.Interface(dbus.SessionBus().get_object(MEDIA_SERVICE, MEDIA_PATH), MEDIA_IFACE)
+
+
+def media_props() -> dict:
+    obj = dbus.SessionBus().get_object(MEDIA_SERVICE, MEDIA_PATH)
+    raw = obj.GetAll(MEDIA_IFACE, dbus_interface="org.freedesktop.DBus.Properties")
+    return {str(k): _plain(v) for k, v in raw.items()}
+
+
+def _plain(v):
+    if isinstance(v, dbus.Boolean):
+        return bool(v)
+    if isinstance(v, dbus.String):
+        return str(v)
+    if isinstance(v, (dbus.Int16, dbus.Int32, dbus.Int64, dbus.UInt16, dbus.UInt32, dbus.UInt64, dbus.Byte)):
+        return int(v)
+    if isinstance(v, dbus.Double):
+        return float(v)
+    if isinstance(v, dbus.Dictionary):
+        return {str(k): _plain(x) for k, x in v.items()}
+    if isinstance(v, dbus.Array):
+        return [_plain(x) for x in v]
+    return v
+
+
+def wait_media(cond, timeout=3.0, step=0.05):
+    """Poll cond(media props) until true; returns (ok, last props, seconds waited)."""
+    t0 = time.monotonic()
+    props = {}
+    while time.monotonic() - t0 < timeout:
+        props = media_props()
+        if cond(props):
+            return True, props, time.monotonic() - t0
+        time.sleep(step)
+    return False, props, time.monotonic() - t0
+
+
+def media_reset():
+    """Known start: no shuffle, repeat on, track 0 playing from the start."""
+    m = media()
+    m.SetShuffle(False)
+    m.SetRepeatAll(True)
+    m.SetTrack(0)
+    return m

@@ -57,7 +57,8 @@ jobs:
       - name: Install vcan, D-Bus and Python packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y dbus python3-dbus python3-gi python3-venv
+          sudo apt-get install -y dbus python3-dbus python3-gi python3-venv \
+            gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
           sudo apt-get install -y "linux-modules-extra-$(uname -r)" || true
           sudo modprobe vcan
       - name: BoAt smoke tests
@@ -78,11 +79,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  boat-sil-arm64-dut:
-    # The same BoAt smoke tests with the DUT (mcu_emu + vehicled) on aarch64 Debian
-    # Trixie in a QEMU-emulated container, like the Pi bench. BoAt stays on the x86
-    # host: it runs on the test PC only, the Pi is the DUT.
+  boat-sil-dut:
+    # The same BoAt smoke tests with the DUT (mcu_emu + vehicled + mediad) in a Debian
+    # Trixie container per CPU: arm64 like the Pi bench (QEMU-emulated), amd64 in case
+    # the final hardware is x86. BoAt stays on the x86 host: it runs on the test PC only.
     needs: static
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, amd64]
+    name: boat-sil-dut (${{ matrix.arch }})
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -93,20 +99,20 @@ jobs:
           sudo apt-get install -y dbus python3-dbus python3-gi python3-venv qemu-user-static
           sudo apt-get install -y "linux-modules-extra-$(uname -r)" || true
           sudo modprobe vcan
-      - name: Check that arm64 containers run
-        run: docker run --rm --platform linux/arm64 debian:trixie uname -m
-      - name: BoAt smoke tests, aarch64 DUT
-        run: ci/run_boat_sil.sh --install --dut-arm64
+      - name: Check that ${{ matrix.arch }} containers run
+        run: docker run --rm --platform linux/${{ matrix.arch }} debian:trixie uname -m
+      - name: BoAt smoke tests, ${{ matrix.arch }} DUT
+        run: ci/run_boat_sil.sh --install --dut-arch=${{ matrix.arch }}
       - name: Summary
         if: always()
         run: |
           python3 ci/boat_report.py build/ci-boat/reports \
-            --title "aarch64 DUT, $(cat build/ci-boat/boat/tested.txt 2>/dev/null || echo 'BoAt (install failed)')" >> "$GITHUB_STEP_SUMMARY"
+            --title "${{ matrix.arch }} DUT, $(cat build/ci-boat/boat/tested.txt 2>/dev/null || echo 'BoAt (install failed)')" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload BoAt reports and logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: boat-reports-arm64-dut
+          name: boat-reports-dut-${{ matrix.arch }}
           path: |
             build/ci-boat/reports/
             build/ci-boat/logs/

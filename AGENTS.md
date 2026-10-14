@@ -111,9 +111,10 @@ SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 
 CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
 (`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
-A second job runs them with the DUT (`mcu_emu/` + `hu/vehicled.py`) on aarch64 Debian 13
-in a QEMU-emulated container, while BoAt stays on the x86 host
-(`ci/run_boat_sil.sh --install --dut-arm64`; needs docker and qemu-user-static).
+A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`) in a
+Debian 13 container per CPU, arm64 (QEMU-emulated, like the Pi) and amd64, while BoAt
+stays on the x86 host (`ci/run_boat_sil.sh --install --dut-arch=arm64`; needs docker,
+and qemu-user-static for arm64).
 The `boat-canary` workflow runs the same tests nightly against BoAt `master` and BoAt's
 latest release. It does not block anything. When it fails and the cause is in BoAt,
 follow section 7.

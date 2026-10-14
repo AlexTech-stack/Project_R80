@@ -4,8 +4,9 @@ import R80.Backend 1.0
 
 // hu-virtual overlay of the mockup's Sim.qml. Same property names as the
 // mockup; the vehicle values come from hu-vehicled over D-Bus (the Vehicle
-// singleton) whenever the MCU link is up, and fall back to the mockup's fake
-// data otherwise. Media / radio / phone / nav are still simulated.
+// singleton) whenever the MCU link is up, and the media values from hu-mediad
+// (the Media singleton), each falling back to the mockup's fake data when the
+// matching service is not there. Radio / phone / nav are still simulated.
 QtObject {
     id: sim
 
@@ -65,7 +66,9 @@ QtObject {
     property bool units_metric: true
 
     // ---- media -----------------------------------------------------------
-    property var tracks: [
+    // hu-mediad (de.r80.Media1, singleton Media) drives these when it runs;
+    // otherwise the mockup's own playlist below keeps the screen alive.
+    property var _tracks: [
         { title: "The Passenger",    artist: "Iggy Pop",          album: "Lust for Life",      duration: 296 },
         { title: "Night Drive",      artist: "Neon Autobahn",     album: "Kilometer Null",     duration: 241 },
         { title: "Red Horizon",      artist: "The Quattro Lines", album: "V8 Sessions",        duration: 318 },
@@ -73,17 +76,51 @@ QtObject {
         { title: "Coastline",        artist: "Marta Kovac",       album: "Blue Roads",         duration: 263 },
         { title: "Low Frequencies",  artist: "Nord Signal",       album: "Carrier Wave",       duration: 227 }
     ]
+    readonly property bool mediaLive: Media.available && Media.trackCount > 0
+    property bool _mediaSync: false
+
     property int trackIndex: 0
     property int trackPos: 137
     property bool playing: true
     property bool shuffle: false
     property bool repeatAll: true
     property string mediaSource: "USB"
-    readonly property var track: tracks[trackIndex]
-    function nextTrack() { trackIndex = (trackIndex + 1) % tracks.length; trackPos = 0 }
+
+    readonly property var tracks: mediaLive ? Media.tracks : _tracks
+    readonly property var track: tracks.length ? tracks[Math.min(trackIndex, tracks.length - 1)] : null
+
+    function _pullMedia() {
+        if (!mediaLive) return
+        _mediaSync = true
+        playing = Media.playing
+        trackIndex = Media.trackIndex
+        trackPos = Media.trackPos
+        shuffle = Media.shuffle
+        repeatAll = Media.repeatAll
+        mediaSource = Media.mediaSource
+        _mediaSync = false
+    }
+    onPlayingChanged: if (mediaLive && !_mediaSync) Media.setPlaying(playing)
+    onTrackIndexChanged: if (mediaLive && !_mediaSync) Media.setTrack(trackIndex)
+    onTrackPosChanged: if (mediaLive && !_mediaSync) Media.setPosition(trackPos)
+    onShuffleChanged: if (mediaLive && !_mediaSync) Media.setShuffle(shuffle)
+    onRepeatAllChanged: if (mediaLive && !_mediaSync) Media.setRepeatAll(repeatAll)
+    onMediaSourceChanged: if (mediaLive && !_mediaSync) Media.setSource(mediaSource)
+
+    property Connections mediaConn: Connections {
+        target: Media
+        function onChanged() { sim._pullMedia() }
+        function onAvailableChanged() { sim._pullMedia() }
+    }
+
+    function nextTrack() {
+        if (mediaLive) { Media.next(); return }
+        trackIndex = (trackIndex + 1) % _tracks.length; trackPos = 0
+    }
     function prevTrack() {
+        if (mediaLive) { Media.prev(); return }
         if (trackPos > 3) { trackPos = 0; return }
-        trackIndex = (trackIndex - 1 + tracks.length) % tracks.length; trackPos = 0
+        trackIndex = (trackIndex - 1 + _tracks.length) % _tracks.length; trackPos = 0
     }
     function fmtTime(s) { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2) }
 
@@ -229,7 +266,7 @@ QtObject {
         interval: 1000; running: true; repeat: true
         onTriggered: {
             sim.now = new Date();
-            if (sim.playing) {
+            if (sim.playing && !sim.mediaLive) {
                 sim.trackPos += 1;
                 if (sim.trackPos >= sim.track.duration) sim.nextTrack();
             }
