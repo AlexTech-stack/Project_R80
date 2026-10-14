@@ -31,7 +31,8 @@ SIM_VIRTUAL = ROOT / "hu-virtual/hu/ui/qml/Sim.qml"
 HEX_COLOUR = re.compile(r"[\"']#[0-9a-fA-F]{3,8}[\"']")
 # A quoted word on the right of a colour property (color, fillColor, border.color, ...).
 COLOUR_PROP = re.compile(r"\b\w*[cC]olou?r\s*:(.*)")
-QUOTED_WORD = re.compile(r"[\"']([A-Za-z]+)[\"']")
+# Only a quoted word used as the value (after ":" or "?"), not one compared with "===".
+QUOTED_WORD = re.compile(r"(?:^|[:?])\s*[\"']([A-Za-z]+)[\"']")
 LITERAL_RGBA = re.compile(r"Qt\.(rgba|hsla|hsva)\(\s*[\d.]")
 
 errors: list[str] = []
