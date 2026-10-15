@@ -34,6 +34,7 @@ OUT="${R80_CI_OUT:-$ROOT/build/ci-boat}"
 BOAT_VERSION="${BOAT_VERSION:-$(tr -d '[:space:]' < "$ROOT/ci/boat.version")}"
 BOAT_REPO="${BOAT_REPO:-AlexTech-stack/BoAt}"
 RUN="${XDG_RUNTIME_DIR:-/tmp}/r80-hu"   # hu-virtual.sh keeps its pids, logs and reports here
+export R80_NO_TUNNEL=1                  # never tunnel the test buses to a Pi bench (PI_IP in ~/.config/r80/hu-virtual.env)
 
 install_boat() {
   local dir="$OUT/boat" ver="${BOAT_VERSION#v}" arch sha="" note="" from

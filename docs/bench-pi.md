@@ -176,10 +176,16 @@ Headphones, then test with `speaker-test -t sine -c 1` or
 Keep the normal PC environment running (`./hu-virtual.sh drive` brings up the
 gateway and the three vcans, plus the restbus). Then start the tunnel:
 
+Put the Pi's address into `~/.config/r80/hu-virtual.env` once; from then on
+`hu-virtual.sh up` / `drive` also start the tunnel (`tunnel` in `status`), and
+`down` stops it. `./hu-virtual.sh test` and `ci/run_boat_sil.sh` keep it off, so
+the Pi's headunit cannot answer on the test buses.
+
 ```bash
+mkdir -p ~/.config/r80 && echo "PI_IP=<raspberry-ip>" >> ~/.config/r80/hu-virtual.env
 cd ~/Project_R80/hu-virtual
-./hu-virtual.sh drive                                  # your usual PC env
-PI_IP=<raspberry-ip> ~/Project_R80/r80_pi_testbench/pc-cannelloni.sh
+./hu-virtual.sh drive                                  # your usual PC env, plus the tunnel
+./hu-virtual.sh tunnel                                 # or only the tunnel, on a running env
 candump -a vcan_info                                   # frames the Pi should see
 ```
 
@@ -250,6 +256,15 @@ systemd-run --user --unit=r80-hu-window --collect -E QT_QPA_PLATFORM=wayland -E 
 systemctl --user stop r80-hu-window      # stop it again; logs in /tmp/r80-*.log
 ```
 
+To start it with the desktop at every boot (the Pi logs in automatically), install
+it once as a user service with an autostart entry, and enable the tunnel:
+
+```bash
+~/Project_R80/r80_pi_testbench/install-units.sh --desktop
+sudo systemctl enable --now r80-can.service
+systemctl --user status r80-hu-desktop                 # restarts the HU if it crashes
+```
+
 Expected: live Vehicle/Drive screens (from the tunnel), real media playback, and
 Navigation saying "No phone connected" until the phone is paired and connected
 (section 10). navd prints "companion service registered with BlueZ" at start.
@@ -262,25 +277,23 @@ Pair once; afterwards the app connects by itself whenever it is started.
 1. Install the app on the phone and set it up as in
    [`../companion-android/README.md`](../companion-android/README.md) (APK from the
    CI job `android`, notification access, permissions).
-2. Make the Pi visible and accept the pairing (on the Pi):
+2. Make the Pi visible and accept pairings without a prompt. `bluetoothctl`'s own
+   agent cannot register while the desktop runs one, so use `bt-agent`:
    ```bash
-   bluetoothctl
-   # in bluetoothctl:
-   power on
-   agent on
-   default-agent
-   pairable on
-   discoverable on
+   sudo apt install -y bluez-tools
+   bt-agent -c NoInputNoOutput &                 # accepts pairings; stop it afterwards
+   bluetoothctl discoverable-timeout 600
+   bluetoothctl discoverable on
    ```
-3. On the phone: Settings → Bluetooth → pair with the Pi (its hostname). Confirm
-   the code on both sides (`yes` in bluetoothctl).
-4. Trust the phone so it may reconnect without asking, then hide the Pi again:
+3. On the phone: Settings → Bluetooth → under available devices "Refresh", tap
+   the Pi (its hostname), confirm "Pair".
+4. On the Pi: trust the phone (reconnects without asking), hide the Pi again,
+   stop the agent:
    ```bash
-   # in bluetoothctl:
-   devices                 # the phone's address
-   trust <phone address>
-   discoverable off
-   quit
+   bluetoothctl devices Paired                   # the phone's address
+   bluetoothctl trust <phone address>
+   bluetoothctl discoverable off
+   kill %1                                       # bt-agent
    ```
 5. In the app: Bluetooth → choose the Pi → Connect. Start a route in Google Maps.
    The HU's Navigation screen shows the guidance; `Phone.via` says "Bluetooth":
@@ -292,7 +305,14 @@ Pair once; afterwards the app connects by itself whenever it is started.
 navd only accepts paired phones (BlueZ checks that before navd sees the
 connection). Pair while the desktop is still on, before the kiosk takes over.
 
-## 11. eglfs kiosk
+Xiaomi / HyperOS phones: allow the app "Autostart" and set its battery saver to
+"No restrictions" (App info), or Android may not start its notification listener
+(the app then shows "No navigation running" although Maps navigates).
+
+## 11. eglfs kiosk (with a monitor)
+
+Only with a monitor on the Pi: eglfs takes the display from the desktop, so VNC
+shows nothing any more. Without a monitor use the desktop mode of section 9.
 
 Disable the desktop and grant device access:
 
