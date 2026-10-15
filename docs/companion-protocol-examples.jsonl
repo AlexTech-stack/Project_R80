@@ -1,0 +1,8 @@
+{"type":"hello","proto":1,"app":"r80-companion","version":"0.1.0","device":"Redmi Note 12 Pro 5G","caps":["guidance"]}
+{"type":"hello","proto":1,"app":"r80-hu","version":"0.1","caps":[],"heartbeat_s":2.0}
+{"type":"heartbeat"}
+{"type":"guidance","active":true,"source":"google_maps","maneuver":{"type":"turn","modifier":"right"},"distance_m":350,"street":"Hauptstraße","remaining_m":8300,"remaining_s":720}
+{"type":"guidance","active":true,"source":"google_maps","maneuver":{"type":"roundabout","exit":2},"distance_m":120,"street":"B27","remaining_m":7900,"remaining_s":680}
+{"type":"guidance","active":true,"source":"google_maps","maneuver":{"type":"unknown"},"distance_m":70,"street":"Ringstraße","text":"Ringstraße"}
+{"type":"guidance","active":false}
+{"type":"bye","reason":"user"}

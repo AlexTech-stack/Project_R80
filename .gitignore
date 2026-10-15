@@ -27,6 +27,7 @@ CMakeLists.txt.user*
 *.osm
 *.osm.pbf
 *.mbtiles
+*.pmtiles
 
 # Editors / OS
 .vscode/

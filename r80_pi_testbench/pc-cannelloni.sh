@@ -12,6 +12,7 @@ set -euo pipefail
 BASE_PORT="${BASE_PORT:-20000}"
 IFACES=(${IFACES:-vcan_info vcan_motor vcan_comfort})
 
+trap 'kill $(jobs -p) 2>/dev/null' EXIT    # stopping this script stops its cannelloni processes
 for i in "${!IFACES[@]}"; do
   iface="${IFACES[$i]}"
   port=$((BASE_PORT + i))

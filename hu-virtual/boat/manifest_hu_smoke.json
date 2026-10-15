@@ -23,6 +23,10 @@
     { "id": "TC_HU_016", "name": "Missing data warning, none while the HU is off", "file": "python3 tests/test_warn_missing.py", "timeout_s": 40 },
     { "id": "TC_HU_017", "name": "Warning chimes, ducking, warning audible when muted", "file": "python3 tests/test_warn_chime.py", "timeout_s": 60 },
     { "id": "TC_HU_018", "name": "Trip computer from odometer and speed", "file": "python3 tests/test_trip_live.py", "timeout_s": 60 },
-    { "id": "TC_HU_019", "name": "Trip state file and auto-reset after 2 h off", "file": "python3 tests/test_trip_state.py", "timeout_s": 30 }
+    { "id": "TC_HU_019", "name": "Trip state file and auto-reset after 2 h off", "file": "python3 tests/test_trip_state.py", "timeout_s": 30 },
+    { "id": "TC_HU_020", "name": "Companion link protocol", "file": "python3 tests/test_companion_link.py", "timeout_s": 20 },
+    { "id": "TC_HU_021", "name": "Navigation guidance from the phone", "file": "python3 tests/test_nav_guidance.py", "timeout_s": 40 },
+    { "id": "TC_HU_022", "name": "Navigation: phone link loss and reconnect", "file": "python3 tests/test_nav_link_loss.py", "timeout_s": 60 },
+    { "id": "TC_HU_023", "name": "Navigation: the phone over Bluetooth (BlueZ stand-in)", "file": "python3 tests/test_nav_bluetooth.py", "timeout_s": 40 }
   ]
 }

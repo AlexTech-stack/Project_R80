@@ -1,3 +1,4 @@
 singleton Theme 1.0 Theme.qml
 singleton Icons 1.0 Icons.qml
 singleton Sim 1.0 Sim.qml
+singleton Fmt 1.0 Fmt.qml

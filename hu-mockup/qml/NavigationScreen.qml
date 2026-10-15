@@ -1,142 +1,23 @@
 import QtQuick
-import QtQuick.Shapes
 
-// Moving line-art map with a simulated route, plus a guidance panel.
+// Turn-by-turn guidance from the phone (D11): the phone's navigation app routes,
+// the R80 Companion app sends its guidance, the HU shows it here in its own style.
 Item {
     id: root
 
-    function knob(d) { Sim.mapZoom = Math.min(2.2, Math.max(0.5, Sim.mapZoom * (d < 0 ? 1.15 : 1 / 1.15))) }
-    function press() { Sim.headingUp = !Sim.headingUp }
+    readonly property var g: Sim.guidance
+    readonly property var phone: Sim.navPhone
+    readonly property var dist: Fmt.distance(g.distance)
+    readonly property string sourceName: ({ google_maps: "Google Maps", osmand: "OsmAnd" })[g.source] || g.source
 
-    // ---- map ------------------------------------------------------------
+    // ---- guidance panel ---------------------------------------------------
     Item {
-        id: mapView
+        id: panel
         x: Theme.margin
         y: 18
         width: 820
         height: parent.height - 36
-        clip: true
 
-        // own position on screen
-        readonly property real vx: width / 2
-        readonly property real vy: height * 0.68
-
-        PathInterpolator {
-            id: pos
-            path: Path { PathSvg { path: Sim.routePath } }
-            progress: Sim.navProgress
-        }
-
-        Item {
-            id: map
-            width: 2000; height: 2000
-            transform: [
-                Translate { x: -pos.x; y: -pos.y },
-                Rotation { angle: Sim.headingUp ? -pos.angle - 90 : 0 },
-                Scale { xScale: Sim.mapZoom; yScale: Sim.mapZoom },
-                Translate { x: mapView.vx; y: mapView.vy }
-            ]
-
-            // procedurally generated streets (seeded, so always the same town)
-            readonly property var roads: {
-                let seed = 7;
-                function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
-                const minor = [], major = [];
-                for (let i = 0; i < 16; i++) {           // north-south streets
-                    let x = 40 + i * 130 + rnd() * 40, s = "M" + x.toFixed(0) + " -100";
-                    for (let y = 0; y <= 2100; y += 150) { x += (rnd() - 0.5) * 50; s += " L" + x.toFixed(0) + " " + y; }
-                    (i % 5 === 2 ? major : minor).push(s);
-                }
-                for (let j = 0; j < 16; j++) {           // east-west streets
-                    let y = 30 + j * 130 + rnd() * 40, s = "M-100 " + y.toFixed(0);
-                    for (let x = 0; x <= 2100; x += 150) { y += (rnd() - 0.5) * 50; s += " L" + x + " " + y.toFixed(0); }
-                    (j % 6 === 3 ? major : minor).push(s);
-                }
-                for (let k = 0; k < 10; k++) {           // short lanes
-                    const x = rnd() * 2000, y = rnd() * 2000, a = rnd() * Math.PI;
-                    minor.push("M" + x.toFixed(0) + " " + y.toFixed(0) + " Q" + (x + 90 * Math.cos(a + 0.6)).toFixed(0) + " " + (y + 90 * Math.sin(a + 0.6)).toFixed(0)
-                               + " " + (x + 180 * Math.cos(a)).toFixed(0) + " " + (y + 180 * Math.sin(a)).toFixed(0));
-                }
-                return { minor: minor.join(" "), major: major.join(" ") };
-            }
-
-            Shape {
-                anchors.fill: parent
-                preferredRendererType: Shape.CurveRenderer
-                // river
-                ShapePath {
-                    strokeColor: "transparent"
-                    fillColor: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.07)
-                    PathSvg { path: "M-100 250 C300 380 500 150 900 330 C1300 510 1500 300 2100 420 L2100 520 C1500 400 1300 610 900 440 C500 260 300 490 -100 360 Z" }
-                }
-                // park
-                ShapePath {
-                    strokeColor: Theme.accentDim; strokeWidth: 1.5
-                    strokeStyle: ShapePath.DashLine; dashPattern: [3, 4]
-                    fillColor: "transparent"
-                    PathSvg { path: "M1200 1600 L1450 1560 L1500 1800 L1260 1850 Z M300 900 L560 880 L600 1100 L320 1150 Z" }
-                }
-                ShapePath {
-                    strokeColor: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.30)
-                    strokeWidth: 3; fillColor: "transparent"
-                    capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
-                    PathSvg { path: map.roads.minor }
-                }
-                ShapePath {
-                    strokeColor: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55)
-                    strokeWidth: 6; fillColor: "transparent"
-                    capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
-                    PathSvg { path: map.roads.major }
-                }
-                // the route itself
-                ShapePath {
-                    strokeColor: Theme.accent
-                    strokeWidth: 9; fillColor: "transparent"
-                    capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
-                    PathSvg { path: Sim.routePath }
-                }
-            }
-            // street labels
-            Repeater {
-                model: Sim.routePoints.length - 1
-                T {
-                    readonly property var a: Sim.routePoints[index]
-                    readonly property var b: Sim.routePoints[index + 1]
-                    x: (a[0] + b[0]) / 2 + 16
-                    y: (a[1] + b[1]) / 2 - 12
-                    text: Sim.routeStreets[index]
-                    font.pixelSize: 17
-                    color: Theme.accentMid
-                    rotation: Sim.headingUp ? pos.angle + 90 : 0
-                }
-            }
-            // destination flag
-            Icon {
-                x: Sim.routePoints[Sim.routePoints.length - 1][0] - 4
-                y: Sim.routePoints[Sim.routePoints.length - 1][1] - 40
-                width: 40; height: 40
-                path: Icons.flag
-                stroke: 2
-                rotation: Sim.headingUp ? pos.angle + 90 : 0
-            }
-        }
-
-        // own-car arrow
-        Shape {
-            x: mapView.vx - 22; y: mapView.vy - 28
-            width: 44; height: 52
-            rotation: Sim.headingUp ? 0 : pos.angle + 90
-            transformOrigin: Item.Center
-            preferredRendererType: Shape.CurveRenderer
-            ShapePath {
-                strokeColor: Theme.bg; strokeWidth: 3
-                fillColor: Theme.accent
-                joinStyle: ShapePath.RoundJoin
-                PathSvg { path: "M22 2 L41 48 L22 37 L3 48 Z" }
-            }
-        }
-
-        // frame
         Rectangle {
             anchors.fill: parent
             color: "transparent"
@@ -144,80 +25,123 @@ Item {
             border.width: 1
         }
 
-        // scale bar
-        Column {
-            x: 16
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 14
-            spacing: 2
-            T { text: Math.round(200 / Sim.mapZoom / 10) * 10 + " m"; font.pixelSize: Theme.fontSmall }
-            Shape {
-                width: 64; height: 10
-                ShapePath {
-                    strokeColor: Theme.accent; strokeWidth: 2; fillColor: "transparent"
-                    PathSvg { path: "M1 0 V9 H63 V0" }
+        // next maneuver
+        Item {
+            anchors.fill: parent
+            visible: root.g.active
+            opacity: root.g.stale ? 0.4 : 1
+
+            ManeuverIcon {
+                id: arrow
+                x: 40
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenterOffset: -20
+                width: 320; height: 320
+                maneuver: root.g.maneuver
+                modifier: root.g.modifier
+                exit: root.g.exit
+            }
+            Column {
+                x: arrow.x + arrow.width + 40
+                anchors.verticalCenter: arrow.verticalCenter
+                width: panel.width - x - 36
+                spacing: 10
+                Row {
+                    visible: root.dist !== null
+                    spacing: 10
+                    T {
+                        id: distValue
+                        text: root.dist ? root.dist.value : ""
+                        font.family: Theme.numberFamily
+                        font.pixelSize: 132
+                    }
+                    T {
+                        text: root.dist ? root.dist.unit : ""
+                        font.pixelSize: 40
+                        anchors.baseline: distValue.baseline
+                    }
+                }
+                T {
+                    width: parent.width
+                    text: root.g.street
+                    visible: text !== ""
+                    font.pixelSize: 40
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 2
+                }
+                T {
+                    width: parent.width
+                    text: root.g.text
+                    visible: text !== "" && (root.g.maneuver === "unknown" || root.g.street === "")
+                    color: Theme.accentMid
+                    font.pixelSize: Theme.fontLarge
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 3
                 }
             }
         }
 
-        // current street
-        Rectangle {
+        // phone link lost: the last instruction stays, dimmed
+        Row {
+            visible: root.g.active && root.g.stale
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 14
-            width: street.implicitWidth + 36; height: 40
-            color: Theme.bg
-            border.color: Theme.accentDim
-            radius: 3
-            T { id: street; anchors.centerIn: parent; text: Sim.currentStreet; font.pixelSize: Theme.fontSmall }
+            anchors.bottomMargin: 30
+            spacing: 14
+            Icon { path: Icons.phone; width: 34; height: 34; anchors.verticalCenter: parent.verticalCenter }
+            T { text: "Phone connection lost · last instruction"; font.pixelSize: Theme.fontLarge }
         }
 
-        // zoom / orientation buttons
+        // no guidance: what to do
         Column {
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: 14
-            spacing: 10
-            LineButton { width: 56; height: 56; icon: Icons.plus; iconSize: 26; onClicked: root.knob(-1) }
-            LineButton { width: 56; height: 56; icon: Icons.minus; iconSize: 26; onClicked: root.knob(1) }
-            LineButton { width: 56; height: 56; icon: Sim.headingUp ? Icons.headingUp : Icons.compassN; iconSize: 30; onClicked: root.press() }
+            visible: !root.g.active
+            anchors.centerIn: parent
+            spacing: 18
+            Icon {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 120; height: 120
+                stroke: 1.2
+                path: root.phone.connected ? Icons.nav : Icons.phone
+            }
+            T {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: root.phone.connected ? "Start a route on your phone" : "No phone connected"
+                font.pixelSize: 40
+            }
+            T {
+                anchors.horizontalCenter: parent.horizontalCenter
+                horizontalAlignment: Text.AlignHCenter
+                text: root.phone.connected ? "The guidance from Google Maps or OsmAnd appears here."
+                                           : "Open the R80 Companion app on your phone."
+                color: Theme.accentMid
+                font.pixelSize: Theme.fontNormal
+            }
         }
     }
 
-    // ---- guidance panel ---------------------------------------------------
+    // ---- trip panel -------------------------------------------------------
     Item {
-        x: mapView.x + mapView.width + 30
+        x: panel.x + panel.width + 30
         y: 18
         width: parent.width - x - Theme.margin
-        height: mapView.height
+        height: panel.height
 
         Column {
             width: parent.width
-            spacing: 8
-            Icon {
-                width: 120; height: 120
-                stroke: 2.2
-                path: Sim.nextManeuver.type === "right" ? Icons.turnRight
-                    : Sim.nextManeuver.type === "left" ? Icons.turnLeft
-                    : Sim.nextManeuver.type === "flag" ? Icons.flag : Icons.straight
-            }
-            Row {
-                spacing: 8
-                T {
-                    text: Sim.nextManeuver.km < 1 ? (Math.round(Sim.nextManeuver.km * 100) * 10).toString() : Sim.nextManeuver.km.toFixed(1)
-                    font.family: Theme.numberFamily
-                    font.pixelSize: 72
+            spacing: 26
+            visible: root.g.active
+            opacity: root.g.stale ? 0.4 : 1
+            Repeater {
+                model: [
+                    { label: "Arrival", value: root.g.arrival ? Qt.formatTime(root.g.arrival, "HH:mm") : "--:--" },
+                    { label: "Time", value: Fmt.duration(root.g.remainingS) },
+                    { label: "Distance", value: Fmt.distanceText(root.g.remainingM) }
+                ]
+                Column {
+                    spacing: 2
+                    T { text: modelData.label; font.pixelSize: Theme.fontSmall; color: Theme.accentMid }
+                    T { text: modelData.value; font.family: Theme.numberFamily; font.pixelSize: 56 }
                 }
-                T {
-                    text: Sim.nextManeuver.km < 1 ? "m" : "km"
-                    font.pixelSize: Theme.fontLarge
-                    anchors.baseline: parent.children[0].baseline
-                }
-            }
-            T {
-                width: parent.width
-                text: Sim.nextManeuver.street
-                font.pixelSize: Theme.fontLarge
             }
         }
 
@@ -229,30 +153,22 @@ Item {
             Rectangle { width: parent.width; height: 1; color: Theme.accentDim }
             Row {
                 spacing: 12
-                Icon { path: Icons.flag; width: 28; height: 28; anchors.verticalCenter: parent.verticalCenter }
-                T { text: Sim.destination; font.pixelSize: Theme.fontSmall; color: Theme.accentMid; width: 300 }
-            }
-            Row {
-                spacing: 22
+                Icon { path: Icons.phone; width: 28; height: 28; anchors.verticalCenter: parent.verticalCenter }
                 Column {
-                    T { text: "Arrival"; font.pixelSize: Theme.fontSmall; color: Theme.accentMid }
-                    T { text: Qt.formatTime(Sim.eta, "HH:mm"); font.pixelSize: 30 }
+                    anchors.verticalCenter: parent.verticalCenter
+                    T {
+                        width: 300
+                        text: root.phone.connected ? (root.phone.device || "Phone") : "Not connected"
+                        font.pixelSize: Theme.fontSmall
+                    }
+                    T {
+                        width: 300
+                        visible: root.g.active && root.sourceName !== ""
+                        text: "Route from " + root.sourceName
+                        font.pixelSize: Theme.fontSmall
+                        color: Theme.accentMid
+                    }
                 }
-                Column {
-                    T { text: "Time"; font.pixelSize: Theme.fontSmall; color: Theme.accentMid }
-                    T { text: Sim.remainingMin + " min"; font.pixelSize: 30 }
-                }
-                Column {
-                    T { text: "Distance"; font.pixelSize: Theme.fontSmall; color: Theme.accentMid }
-                    T { text: Sim.remainingKm.toFixed(1) + " km"; font.pixelSize: 30 }
-                }
-            }
-            LineButton {
-                width: parent.width
-                icon: Sim.navGuidance ? Icons.pause : Icons.play
-                iconSize: 24
-                label: Sim.navGuidance ? "Pause simulation" : "Resume simulation"
-                onClicked: Sim.navGuidance = !Sim.navGuidance
             }
         }
     }

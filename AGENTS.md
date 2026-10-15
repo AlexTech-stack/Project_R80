@@ -32,7 +32,11 @@ ci/boat.version                   the BoAt release CI tests against
 ci/dut/                           emulated aarch64 DUT for CI: Dockerfile, start script, private bus config
 ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
 ci/boat_report.py                 BoAt reports as Markdown (CI job summaries)
-docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D8
+ci/build_android.sh               builds and unit-tests the companion app (companion-android/)
+docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D11
+docs/companion-protocol.md        phone (R80 Companion app) <-> HU link protocol (D11)
+docs/companion-protocol-examples.jsonl  protocol examples both sides test against
+companion-android/                R80 Companion, the Android app on the driver's phone (D11, Kotlin)
 hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
   run.py                          launcher, also renders screenshots headless
   hu-mockup.qmlproject            Qt Design Studio project (open this in Design Studio)
@@ -40,6 +44,7 @@ hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
   qml/Theme.qml                   all colours, fonts and sizes
   qml/Sim.qml                     fake vehicle/media/radio/phone/nav data
   qml/Icons.qml                   self-drawn line icons as SVG path data
+  qml/ManeuverIcon.qml            navigation maneuver arrows, drawn in code (D11)
   qml/*Screen.qml                 one file per screen
   qml/Logo.qml                    the placeholder "R80" brand mark
   fonts/                          B612 and OSP-DIN with their licence files
@@ -58,9 +63,12 @@ hu-virtual/
     audiod.py, audio.ini          audio service (volume, mute, D9), D-Bus de.r80.Audio, and its config
     warnd.py, warnings.ini        vehicle warnings (D10), D-Bus de.r80.Warnings, and its rules
     tripd.py, trip.ini            trip computer (D10), D-Bus de.r80.Trip, and its config
+    companion_link.py             companion app <-> HU protocol (D11, docs/companion-protocol.md)
+    navd.py, nav.ini              navigation service (D11), D-Bus de.r80.Nav, and its timing
     ui/run_hu.py, ui/backend.py   UI launcher and QML backend over D-Bus
     ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
   mcu_emu/                        MCU emulator and its control client (PC only)
+  phone_emu/                      phone emulator: companion app stand-in and demo route (PC only)
   boat/                           BoAt restbus node, tester panel and the 6 BoAt tests (PC only)
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```
@@ -115,7 +123,7 @@ SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 
 CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
 (`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
-A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`, `hu/warnd.py`, `hu/tripd.py`) in a
+A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`, `hu/warnd.py`, `hu/tripd.py`, `hu/navd.py`) in a
 Debian 13 container per CPU, arm64 (QEMU-emulated, like the Pi) and amd64, while BoAt
 stays on the x86 host (`ci/run_boat_sil.sh --install --dut-arch=arm64`; needs docker,
 and qemu-user-static for arm64).
@@ -123,7 +131,8 @@ The `boat-canary` workflow runs the same tests nightly against BoAt `master` and
 latest release. It does not block anything. When it fails and the cause is in BoAt,
 follow section 7.
 
-There is no unit test suite yet. Before you commit:
+The companion app has JVM unit tests (`ci/build_android.sh`, CI job `android`; needs JDK 21,
+Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side yet. Before you commit:
 
 1. Run `ci/check_static.sh`, or at least `python3 -m py_compile` on every Python file you changed.
 2. If you changed QML, run `run.py --screenshots` and check the images.
@@ -189,7 +198,7 @@ There is no unit test suite yet. Before you commit:
 - Keep all software portable. Put hardware-specific code in a thin, separate layer.
   No Pi-specific code outside that layer. No x86-only dependencies.
 - Code under `hu-virtual/hu/` is target software. It must not import BoAt,
-  `mcu_emu/` or `boat/`.
+  `mcu_emu/`, `phone_emu/` or `boat/`.
 - The CAN database is a made-up test DBC. Rules for it: classic CAN only (no CAN FD),
   one signal per message, 11-bit standard IDs plus one 29-bit extended ID (`0x18FF0100`).
 - Edit the DBC through `hu-can/tools/make_dbc.py`, never by hand.
@@ -199,8 +208,16 @@ There is no unit test suite yet. Before you commit:
 - The MCU link protocol in `hu-virtual/hu/mcu_link.py` is a placeholder. Keep all
   framing in that one file. Do not treat it as final.
 - No Android Auto and no CarPlay. Do not add them.
+- Navigation: the phone navigates, the HU only displays its guidance (D11). Do not add
+  offline routing or a map renderer on the HU without asking Alex. Keep the companion
+  link format in `hu/companion_link.py`, `companion-android/.../Protocol.kt` and
+  `docs/companion-protocol.md` in step; both sides test against
+  `docs/companion-protocol-examples.jsonl`.
+- The companion app: Android 14+ (minSdk 34), no Google Play services, only open-source
+  dependencies. Captured notifications contain the driver's streets: never commit them;
+  only the derived arrow fingerprints go into `maneuver_icons.json`.
 - The stock instrument cluster stays (decision D1).
-- The architecture decisions D1 to D8 are in `docs/architecture/HU_architecture_v0.3.md`.
+- The architecture decisions D1 to D11 are in `docs/architecture/HU_architecture_v0.3.md`.
   Do not contradict them. If a change needs a different decision, ask Alex first.
 
 ## 9. Code conventions

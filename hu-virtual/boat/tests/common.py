@@ -252,3 +252,44 @@ def trip_logic():
     sys.path.insert(0, str(ROOT / "hu"))
     import tripd
     return tripd, tripd.load_config()
+
+
+# ---- navigation (hu-navd, D11) ---------------------------------------------------
+NAV_SERVICE, NAV_PATH, NAV_IFACE = "de.r80.Nav", "/de/r80/Nav", "de.r80.Nav1"
+COMPANION_SOCKET = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu" / "companion.sock"
+
+
+def nav_props() -> dict:
+    obj = dbus.SessionBus().get_object(NAV_SERVICE, NAV_PATH)
+    raw = obj.GetAll(NAV_IFACE, dbus_interface="org.freedesktop.DBus.Properties")
+    return {str(k): _plain(v) for k, v in raw.items()}
+
+
+def wait_nav(cond, timeout=3.0, step=0.05):
+    t0 = time.monotonic()
+    props = {}
+    while time.monotonic() - t0 < timeout:
+        try:
+            props = nav_props()
+            if cond(props):
+                return True, props, time.monotonic() - t0
+        except dbus.DBusException:
+            pass
+        time.sleep(step)
+    return False, props, time.monotonic() - t0
+
+
+def nav_logic():
+    """navd's own config and Link class, so tests never repeat its numbers."""
+    sys.path.insert(0, str(ROOT / "hu"))
+    import navd
+    return navd, navd.load_config()
+
+
+def phone(device="Test phone", wait_free=True):
+    """A fresh emulated phone (not connected yet) for navd's companion link socket.
+    Waits until navd is up and, with wait_free, until no other phone is connected."""
+    sys.path.insert(0, str(ROOT / "phone_emu"))
+    from phone_emu import Phone
+    wait_nav(lambda p: not p["Phone"]["connected"] or not wait_free, timeout=10.0)
+    return Phone(COMPANION_SOCKET, device=device)

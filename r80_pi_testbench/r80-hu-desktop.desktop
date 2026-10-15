@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=R80 headunit
+Comment=Starts r80-hu-desktop.service once the desktop is up (installed by install-units.sh --desktop)
+Exec=sh -c "systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR && systemctl --user start r80-hu-desktop.service"
+NoDisplay=true

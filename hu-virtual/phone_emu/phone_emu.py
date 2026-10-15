@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""Phone emulator: stands in for the R80 Companion app on the driver's phone (PC only).
+
+Connects to hu-navd's companion link socket and speaks the companion protocol
+(hu/companion_link.py). Two uses:
+
+  library   `Phone` for the BoAt tests: connect, say hello, send any message or raw
+            bytes, read what the HU sends, stop heartbeats to provoke a link loss.
+  program   plays a route (route_demo.json) as the guidance a navigation app would show:
+            the distance to the next maneuver counts down with the car's speed
+            (VehicleSpeed from hu-vehicled when it runs, else --speed-kmh), rounded the
+            way navigation apps show it. At the destination it ends the guidance and
+            starts over. Reconnects when navd restarts.
+
+    python3 phone_emu.py                         # demo route, until Ctrl+C
+    python3 phone_emu.py --route my_route.json --speed-kmh 80
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import socket
+import sys
+import threading
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "hu"))
+import companion_link as cl  # noqa: E402
+
+DEFAULT_SOCKET = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu" / "companion.sock"
+APP, VERSION = "r80-companion", "phone_emu"
+
+
+def log(*a):
+    print("[phone_emu]", *a, flush=True)
+
+
+class Phone:
+    """One emulated phone connection. Thread-safe enough for tests: a reader thread
+    collects everything the HU sends in `received`; a heartbeat thread keeps the link
+    alive at the interval from the HU's hello unless `heartbeats` is False."""
+
+    def __init__(self, path: Path | str = DEFAULT_SOCKET, device: str = "Emulated phone"):
+        self.path, self.device = str(path), device
+        self.sock: socket.socket | None = None
+        self.decoder = cl.Decoder()
+        self.received: list[dict] = []
+        self.closed_by_hu = threading.Event()
+        self.heartbeats = True
+        self.heartbeat_s = 2.0
+        self._last_tx = 0.0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+
+    def connect(self, hello: bool = True, proto: int = cl.PROTO_VERSION, timeout: float = 3.0,
+                sock: socket.socket | None = None) -> dict | None:
+        """Connect (or use `sock`, an already connected stream, e.g. the phone's end of what a test hands
+        to navd as a Bluetooth connection); with hello, send ours and wait for the HU's.
+        Returns the HU's hello (or None)."""
+        if sock is not None:
+            self.sock = sock
+        else:
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(self.path)
+        threading.Thread(target=self._reader, daemon=True).start()
+        threading.Thread(target=self._beater, daemon=True).start()
+        if not hello:
+            return None
+        msg = cl.hello(APP, VERSION, caps=["guidance"], device=self.device)
+        msg["proto"] = proto
+        self.send_raw((json.dumps({k: v for k, v in msg.items() if v is not None}) + "\n").encode())
+        reply = self.wait_for(cl.HELLO, timeout)
+        if reply and reply.get("heartbeat_s"):
+            self.heartbeat_s = reply["heartbeat_s"]
+        return reply
+
+    def send(self, msg: dict):
+        self.send_raw(cl.encode(msg))
+
+    def send_raw(self, data: bytes):
+        with self._lock:
+            self.sock.sendall(data)
+            self._last_tx = time.monotonic()
+
+    def wait_for(self, msg_type: str, timeout: float = 3.0) -> dict | None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            for m in self.received:
+                if m["type"] == msg_type:
+                    return m
+            if self.closed_by_hu.is_set():
+                break
+            time.sleep(0.02)
+        return next((m for m in self.received if m["type"] == msg_type), None)
+
+    def close(self, bye: bool = False):
+        self._stop.set()
+        if self.sock:
+            try:
+                if bye:
+                    self.send(cl.bye("user"))
+                self.sock.shutdown(socket.SHUT_RDWR)   # wakes the reader; close() alone would not end the link
+            except OSError:
+                pass
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+
+    def _reader(self):
+        while not self._stop.is_set():
+            try:
+                data = self.sock.recv(65536)
+            except OSError:
+                data = b""
+            if not data:
+                self.closed_by_hu.set()
+                return
+            self.received += self.decoder.feed(data)
+
+    def _beater(self):
+        while not self._stop.wait(0.1):
+            if self.heartbeats and not self.closed_by_hu.is_set() and time.monotonic() - self._last_tx >= self.heartbeat_s:
+                try:
+                    self.send(cl.heartbeat())
+                except OSError:
+                    return
+
+
+# ---- route player -------------------------------------------------------------
+
+def shown_distance(m: float) -> float:
+    """Round like a navigation app: 100 m steps from 1 km, 50 m from 300 m, else 10 m."""
+    step = 100 if m >= 1000 else 50 if m >= 300 else 10
+    return float(round(m / step) * step)
+
+
+def vehicle_speed():
+    """VehicleSpeed (km/h) from hu-vehicled, or None if it does not run."""
+    try:
+        import dbus
+        obj = dbus.SessionBus().get_object("de.r80.Vehicle", "/de/r80/Vehicle")
+        return float(obj.Get("de.r80.Vehicle1", "VehicleSpeed", dbus_interface="org.freedesktop.DBus.Properties"))
+    except Exception:
+        return None
+
+
+def play(route: dict, path: str, fallback_kmh: float):
+    legs = route["legs"]
+    total = sum(leg["after_m"] for leg in legs)
+    city_mps = route.get("average_kmh", 40) / 3.6
+    while True:
+        phone = Phone(path, device=route.get("device", "Emulated phone"))
+        try:
+            if not phone.connect():
+                raise OSError("no hello from the HU")
+        except OSError as e:
+            log(f"HU not reachable ({e}), retrying")
+            phone.close()
+            time.sleep(1)
+            continue
+        log(f"connected, playing '{route['name']}' ({total / 1000:.1f} km)")
+        driven, last_sent, t = 0.0, None, time.monotonic()
+        try:
+            while not phone.closed_by_hu.is_set():
+                time.sleep(0.25)
+                now = time.monotonic()
+                kmh = vehicle_speed()
+                driven += (fallback_kmh if kmh is None else kmh) / 3.6 * (now - t)
+                t = now
+                if driven >= total:
+                    phone.send(cl.guidance(route["source"], "arrive", distance_m=0, street=legs[-1]["street"],
+                                           remaining_m=0, remaining_s=0))
+                    time.sleep(5)
+                    phone.send(cl.guidance_ended())
+                    log("arrived, guidance ended; starting over in 5 s")
+                    time.sleep(5)
+                    driven, last_sent, t = 0.0, None, time.monotonic()
+                    continue
+                at = 0.0
+                for leg in legs:
+                    at += leg["after_m"]
+                    if at > driven:
+                        break
+                remaining = total - driven
+                msg = cl.guidance(route["source"], leg["maneuver"], leg.get("modifier"), leg.get("exit"),
+                                  distance_m=shown_distance(at - driven), street=leg["street"],
+                                  text=leg.get("text"), remaining_m=shown_distance(remaining),
+                                  remaining_s=round(remaining / city_mps / 60) * 60.0)
+                if msg != last_sent:
+                    phone.send(msg)
+                    last_sent = msg
+            log("HU closed the link, reconnecting")
+        except OSError as e:
+            log(f"link error ({e}), reconnecting")
+        phone.close()
+        time.sleep(1)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--socket", default=str(DEFAULT_SOCKET), help="hu-navd's companion link socket")
+    ap.add_argument("--route", default=str(HERE / "route_demo.json"), help="route to play")
+    ap.add_argument("--speed-kmh", type=float, default=50, help="speed when hu-vehicled does not run")
+    a = ap.parse_args()
+    play(json.loads(Path(a.route).read_text()), a.socket, a.speed_kmh)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

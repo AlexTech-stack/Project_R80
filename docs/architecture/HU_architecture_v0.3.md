@@ -7,7 +7,7 @@ Status: v0.3, 2026-09-29. Updated with Alex's decisions (see §0). Everything el
 | # | Topic | Decision |
 |---|---|---|
 | D1 | Instrument cluster | Keep the stock cluster for now. The HU may send text to its DIS; the Drive screen stays an extra view on the HU. |
-| D2 | Phone projection | No Android Auto, no CarPlay. A deeper Android phone link may come later but is out of scope for now. |
+| D2 | Phone projection | No Android Auto, no CarPlay. A deeper Android phone link may come later but is out of scope for now. Since 2026-10-14 the R80 Companion app is that link (D11); projection stays out. |
 | D3 | Audio | HU outputs to a separate DSP amplifier; no power amp on the HU board. |
 | D4 | Compute platform | Bench development on a Raspberry Pi 3B+ or 4, upgrade only if needed. Final hardware is chosen once the software nears feature completion; almost certainly ARM-based. The software must therefore stay portable (no Pi-specific code outside a thin hardware layer). |
 | D5 | Vehicle data | All vehicle values (speed, rpm, ignition, lights, range, odometer, temperatures, pressures, …) are available on CAN. No diagnostic polling or extra sensors planned. |
@@ -16,6 +16,7 @@ Status: v0.3, 2026-09-29. Updated with Alex's decisions (see §0). Everything el
 | D8 | CAN channels | Agreed for now (2026-09-29): vehicle MCU gets two CAN channels, CAN 1 active on Infotainment, CAN 2 listen-only on Motor or Comfort. Revisit once real bus logs exist. |
 | D9 | Audio and volume | Agreed 2026-10-13: one audio service (`audiod`) owns all audio: master volume, one volume per source (media, navigation, phone, radio), mute, and how sources affect each other. A navigation prompt lowers music; a call (from ringing on) pauses media and mutes radio, media resumes afterwards. The last volume is remembered and capped at startup. Volume is handled in the HU for now (the DSP amp of D3 is not chosen) and does not depend on CAN signals. The numbers live in a config file, not in code. UI: volume shown on every screen, master volume popup from it, per-source volumes under Settings → Audio. |
 | D10 | Vehicle warnings and trip computer | Agreed 2026-10-14: a warning service (`warnd`) watches the CAN signals and shows as many warnings as possible, even where the stock cluster (D1) shows the same. Thresholds, hysteresis and timing live in a file, not in code; the first values are placeholders, not the real car's. Severity says how soon the driver has to act: *warning* within seconds (tyre pressure falling fast, oil pressure gone; warning chime, banner until acknowledged), *information* within minutes or hours, the car can still reach a workshop or fuel (tyre pressure low, range low; information chime, banner until acknowledged), *notice* not dangerous, some time soon (service due or overdue; silent). For tyre pressure the speed of a drop counts: a fast drop is a warning even while the value is still fine. Oil pressure has a static limit only (it falls fast on every lift-off). The chimes are generated in code; the information chime follows the chime volume and mute, the warning chime is audible even when muted. A trip computer (`tripd`) keeps a trip since start (resets itself after more than 2 h with the ignition off) and a long-term trip (reset by hand); consumption comes from the car's own value for now. |
+| D11 | Navigation | Agreed 2026-10-14: the phone navigates, the HU displays. A full offline navigation on the HU is not built: it would be the most resource-hungry part of the device, always worse than the phone's, and a readable map in the HU's style is a project of its own. An own Android app (R80 Companion, in this repo, Android 14 and newer) reads the turn-by-turn guidance of the phone's navigation app (Google Maps' navigation notification first, OsmAnd's interface as a second source) and sends it over Bluetooth RFCOMM to the HU (`docs/companion-protocol.md`). A navigation service (`navd`) publishes it; the UI shows the next maneuver, distance, street and arrival in its own style. Navigation needs the phone; that is accepted. The voice prompts come from the phone. Later: a reduced overview map drawn by the HU itself (main roads only), more phone sensors, and extending the HU's UI from the phone (concept open). A pointer towards the destination is dropped for now: there is no easy way to get the destination's coordinates. |
 
 Car: Audi A3 Sportback 8PA, 2005 (PQ35 platform), heavily modified.
 Starting point: the QML mockup v0.3 in `hu-mockup/`.
@@ -130,9 +131,9 @@ The vehicle service does not care which channel a signal came from; the DBC
 ├──────────────────────────────────────────────────────────────────────┤
 │ Services (separate processes, talk over D-Bus)                       │
 │  vehicle   media    radio    phone    nav      audio    system       │
-│  (MCU link,(MPD/    (tuner   (BlueZ + (MapLibre (PipeWire (power,     │
-│  signals)  GStreamer,driver)  oFono:  + Valhalla + Wire-   updates,   │
-│            BT A2DP)           HFP,PBAP)on OSM)   Plumber)  settings)  │
+│  (MCU link,(MPD/    (tuner   (BlueZ + (guidance (PipeWire (power,     │
+│  signals)  GStreamer,driver)  oFono:  from the   + Wire-   updates,   │
+│            BT A2DP)           HFP,PBAP)phone app)Plumber)  settings)  │
 ├──────────────────────────────────────────────────────────────────────┤
 │ OS   – Yocto-built embedded Linux, systemd, read-only root,          │
 │        A/B partitions for safe updates (RAUC or SWUpdate)             │
@@ -154,7 +155,7 @@ All open source, in line with the project rule:
 | media | MPD or GStreamer, BlueZ A2DP | USB library, BT streaming; exposes MPRIS. |
 | phone | BlueZ + oFono | Hands-free (HFP), contacts and call list (PBAP), echo cancellation via PipeWire. |
 | radio | own driver for the tuner module | FM/DAB+, RDS/DLS text, presets. |
-| navigation | MapLibre Native (Qt plugin) + Valhalla routing + OpenStreetMap data, all offline | Fits the red line-art style with a custom map style. |
+| navigation | own code, guidance from the R80 Companion app over BlueZ RFCOMM (D11) | The phone's navigation app routes; the HU shows its guidance in the line-art style. A small overview map drawn by the HU may follow. |
 | system | own code | Power states with the MCU, settings storage, logging, updates. |
 
 Why D-Bus: BlueZ, oFono, PipeWire, MPRIS and systemd already speak it, Qt has

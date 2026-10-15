@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="@string/access_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+        <TextView
+            android:id="@+id/access"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+        <Button
+            android:id="@+id/grant"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="@string/grant" />
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/hu_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+        <RadioGroup
+            android:id="@+id/transport"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <RadioButton
+                android:id="@+id/transport_bluetooth"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/transport_bluetooth" />
+            <RadioButton
+                android:id="@+id/transport_wifi"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/transport_wifi" />
+        </RadioGroup>
+        <Spinner
+            android:id="@+id/hu_device"
+            android:layout_width="match_parent" android:layout_height="wrap_content" />
+        <TextView
+            android:id="@+id/bt_hint"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/bt_hint" />
+        <EditText
+            android:id="@+id/address"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="@string/address_hint" android:inputType="textUri" android:importantForAutofill="no" />
+        <Button
+            android:id="@+id/connect"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="@string/connect" />
+        <TextView
+            android:id="@+id/link_status"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/guidance_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+        <TextView
+            android:id="@+id/guidance"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" android:textIsSelectable="true" />
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/capture_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+        <Switch
+            android:id="@+id/capture"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/capture" />
+        <TextView
+            android:id="@+id/capture_info"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+        <LinearLayout
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <Button
+                android:id="@+id/export"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/export" />
+            <Button
+                android:id="@+id/clear"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/clear" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

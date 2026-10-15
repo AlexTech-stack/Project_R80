@@ -1,12 +1,14 @@
+# Template: install-units.sh fills in @REPO@.
 [Unit]
 Description=R80 CAN tunnel: vcan + cannelloni to the test PC
 After=network-online.target
 Wants=network-online.target
+RequiresMountsFor=@REPO@
 
 [Service]
 Type=simple
 EnvironmentFile=-/etc/r80-bench.conf
-ExecStart=/home/pi/Project_R80/r80_pi_testbench/r80-can.sh
+ExecStart=@REPO@/r80_pi_testbench/r80-can.sh
 Restart=on-failure
 RestartSec=2
 
