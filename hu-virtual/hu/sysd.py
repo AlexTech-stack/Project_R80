@@ -9,14 +9,26 @@ saves them as state, so they survive a restart.
     interface  de.r80.System1
       properties  Settings (a{sv}): every setting's current value (bool b, number d, choice s)
                   Schema (a{sv}): per setting {type, default, min, max | choices}
+                  Shutdown (a{sv}): state (idle|saving|acked|cancelled), savers (as), waiting (as),
+                                    last_saved (as), last_timed_out (as), last_ms (u), last_cancelled (b)
       methods     Set(s name, v value)   checked against system.ini; errors:
                                          de.r80.System1.Error.UnknownSetting / InvalidValue
                   Reset(s name), ResetAll()
+                  RegisterSaver(s name)  a service that has to save before a shutdown
+                  Saved(s name)          ... has saved after PrepareForShutdown
+      signals     PrepareForShutdown()
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
 The values are saved to --state (default $XDG_STATE_HOME/r80/settings.json) half a
 second after a change (one write for a dragged slider). A saved value that no longer fits system.ini (renamed, out of range after an
-update) falls back to its default. The logic (Settings) has no D-Bus, so tests can use it.
+update) falls back to its default. 
+Shutdown (D12): when hu-vehicled reports Power = shutdown (the MCU announced off), sysd
+sends PrepareForShutdown; every registered saver (hu/saver.py: audiod, tripd) saves and
+answers Saved. sysd waits for all of them, at most [shutdown] save_timeout_s, saves its own
+settings, syncs the file systems and lets vehicled acknowledge to the MCU
+(de.r80.Vehicle1.ShutdownReady). With after_ack = poweroff (target) Linux then powers off.
+If the ignition comes back before that, nothing is acknowledged. A saver whose process
+ends is not waited for. The logic (Settings, Shutdown) has no D-Bus, so tests can use it.
 """
 from __future__ import annotations
 
@@ -25,7 +37,9 @@ import configparser
 import json
 import math
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "system.ini"
@@ -50,13 +64,30 @@ class SettingError(ValueError):
 
 
 def load_config(extra: str | None = None) -> dict:
-    """{"settings": {name: {"type", "default", "min", "max" | "choices"}}}, checked."""
+    """{"settings": {name: {"type", "default", "min", "max" | "choices"}},
+        "shutdown": {"save_timeout_s", "after_ack"}}, checked."""
     cp = configparser.ConfigParser()
     if extra and not Path(extra).is_file():
         raise ConfigError(f"config file not found: {extra}")
     cp.read([str(f) for f in [DEFAULT_CONFIG, SYSTEM_CONFIG] + ([Path(extra)] if extra else []) if f.is_file()])
     settings = {}
+    shutdown = {}
     for section in cp.sections():
+        if section == "shutdown":
+            unknown = set(cp.options(section)) - {"save_timeout_s", "after_ack"}
+            if unknown:
+                raise ConfigError(f"[shutdown] unknown key(s): {', '.join(sorted(unknown))}")
+            try:
+                shutdown["save_timeout_s"] = float(cp.get(section, "save_timeout_s"))
+                shutdown["after_ack"] = cp.get(section, "after_ack").strip()
+            except (configparser.Error, ValueError) as e:
+                raise ConfigError(f"[shutdown] {e}") from None
+            if not 0.1 <= shutdown["save_timeout_s"] <= 9:
+                raise ConfigError(f"[shutdown] save_timeout_s = {shutdown['save_timeout_s']} is outside 0.1..9 "
+                                  "(the MCU cuts the power after 10 s)")
+            if shutdown["after_ack"] not in ("none", "poweroff"):
+                raise ConfigError(f"[shutdown] after_ack = {shutdown['after_ack']!r}, expected none or poweroff")
+            continue
         kind, _, name = section.partition(" ")
         if kind != "setting" or not name.strip():
             raise ConfigError(f"unknown section [{section}]")
@@ -90,7 +121,9 @@ def load_config(extra: str | None = None) -> dict:
         settings[name] = s
     if not settings:
         raise ConfigError("no [setting ...] sections")
-    return {"settings": settings}
+    if not shutdown:
+        raise ConfigError("[shutdown] is missing")
+    return {"settings": settings, "shutdown": shutdown}
 
 
 def check(name: str, s: dict, value):
@@ -144,6 +177,58 @@ class Settings:
         return any([self.reset(n) for n in self.schema])
 
 
+class Shutdown:
+    """Who has to save before the HU may acknowledge the shutdown, and whether they did.
+    Feed it the monotonic time; check() says when to acknowledge. No D-Bus, no clock."""
+
+    def __init__(self, timeout_s: float):
+        self.timeout_s = timeout_s
+        self.savers: dict[str, str] = {}     # name -> D-Bus sender
+        self.state = "idle"                  # idle | saving | acked | cancelled
+        self.waiting: set[str] = set()
+        self.saved: list[str] = []
+        self.started = 0.0
+        self.last: dict = {}
+
+    def register(self, name: str, sender: str = ""):
+        self.savers[name] = sender
+
+    def gone(self, sender: str):
+        """A saver's process ended: nobody left to wait for under that name."""
+        for n in [n for n, s in self.savers.items() if s and s == sender]:
+            del self.savers[n]
+            self.waiting.discard(n)
+
+    def start(self, now: float) -> list[str]:
+        self.state, self.started = "saving", now
+        self.waiting, self.saved = set(self.savers), []
+        return sorted(self.waiting)
+
+    def done(self, name: str):
+        if self.state == "saving" and name in self.waiting:
+            self.waiting.discard(name)
+            self.saved.append(name)
+
+    def check(self, now: float) -> bool:
+        """True once: everybody saved, or the time is up. Then the caller acknowledges."""
+        if self.state != "saving":
+            return False
+        if self.waiting and now - self.started < self.timeout_s:
+            return False
+        self.state = "acked"
+        self.last = {"saved": sorted(self.saved), "timed_out": sorted(self.waiting),
+                     "ms": int((now - self.started) * 1000)}
+        return True
+
+    def cancel(self, now: float | None = None):
+        """The ignition came back before the acknowledgement: keep running."""
+        if self.state == "saving":
+            self.state = "cancelled"
+            self.last = {"saved": sorted(self.saved), "timed_out": [], "cancelled": True,
+                         "ms": int(((now if now is not None else self.started) - self.started) * 1000)}
+            self.waiting = set()
+
+
 def read_state(path: Path):
     try:
         return json.loads(path.read_text())
@@ -169,6 +254,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
 
     BUS_NAME, OBJ_PATH, IFACE = "de.r80.System", "/de/r80/System", "de.r80.System1"
     PROPS = "org.freedesktop.DBus.Properties"
+    VEHICLE = ("de.r80.Vehicle", "/de/r80/Vehicle", "de.r80.Vehicle1")
 
     def plain(v):
         if isinstance(v, dbus.Boolean):
@@ -187,8 +273,92 @@ def run_service(cfg: dict, state_path: Path, system: bool):
     class System(dbus.service.Object):
         def __init__(self, bus):
             super().__init__(bus, OBJ_PATH)
+            self.bus = bus
             self.settings = Settings(cfg["settings"], read_state(state_path))
             self.save_pending = False
+            self.shutdown = Shutdown(cfg["shutdown"]["save_timeout_s"])
+            bus.add_signal_receiver(self.on_vehicle, "PropertiesChanged", PROPS, None, VEHICLE[1])
+            bus.add_signal_receiver(self.on_owner, "NameOwnerChanged", "org.freedesktop.DBus",
+                                    "org.freedesktop.DBus", "/org/freedesktop/DBus")
+
+        # ---- shutdown (D12) -------------------------------------------------------
+        def on_owner(self, name, _old, new):
+            if not new and name.startswith(":"):
+                before = set(self.shutdown.savers)
+                self.shutdown.gone(name)
+                for n in sorted(before - set(self.shutdown.savers)):
+                    log(f"saver {n} is gone")
+                if before != set(self.shutdown.savers):
+                    self.publish_shutdown()
+
+        def on_vehicle(self, iface, changed, _inv):
+            if iface != VEHICLE[2] or "Power" not in changed:
+                return
+            power = str(changed["Power"])
+            if power == "shutdown" and self.shutdown.state != "saving":
+                waiting = self.shutdown.start(time.monotonic())
+                log(f"shutdown: asking {', '.join(waiting) or 'nobody'} to save "
+                    f"(at most {cfg['shutdown']['save_timeout_s']:g} s)")
+                if self.save_pending:
+                    self.save()
+                self.PrepareForShutdown()
+                self.publish_shutdown()
+                GLib.timeout_add(50, self.shutdown_tick)
+            elif power in ("on", "acc", "crank", "standby"):
+                if self.shutdown.state == "saving":
+                    log("shutdown cancelled: power is back")
+                    self.shutdown.cancel(time.monotonic())
+                elif self.shutdown.state != "idle":
+                    self.shutdown.state = "idle"
+                self.publish_shutdown()
+
+        def shutdown_tick(self):
+            if not self.shutdown.check(time.monotonic()):
+                return self.shutdown.state == "saving"
+            last = self.shutdown.last
+            if self.save_pending:
+                self.save()
+            os.sync()
+            log(f"shutdown: saved {', '.join(last['saved']) or 'nothing'}"
+                + (f", no answer from {', '.join(last['timed_out'])}" if last["timed_out"] else "")
+                + f" after {last['ms']} ms; acknowledging to the MCU")
+            self.bus.call_async(VEHICLE[0], VEHICLE[1], VEHICLE[2], "ShutdownReady", "", (),
+                                lambda *_: None, lambda e: log(f"vehicled refused the acknowledgement: {e}"), timeout=2.0)
+            self.publish_shutdown()
+            if cfg["shutdown"]["after_ack"] == "poweroff":
+                log("powering off")
+                subprocess.Popen(["systemctl", "poweroff"])
+            return False
+
+        def shutdown_v(self):
+            sd = self.shutdown
+            return dbus.Dictionary({
+                "state": dbus.String(sd.state),
+                "savers": dbus.Array(sorted(sd.savers), signature="s"),
+                "waiting": dbus.Array(sorted(sd.waiting), signature="s"),
+                "last_saved": dbus.Array(sd.last.get("saved", []), signature="s"),
+                "last_timed_out": dbus.Array(sd.last.get("timed_out", []), signature="s"),
+                "last_ms": dbus.UInt32(sd.last.get("ms", 0)),
+                "last_cancelled": dbus.Boolean(sd.last.get("cancelled", False))}, signature="sv")
+
+        def publish_shutdown(self):
+            self.PropertiesChanged(IFACE, dbus.Dictionary({"Shutdown": self.shutdown_v()}, signature="sv"),
+                                   dbus.Array([], signature="s"))
+
+        @dbus.service.method(IFACE, in_signature="s", sender_keyword="sender")
+        def RegisterSaver(self, name, sender=None):
+            self.shutdown.register(str(name), str(sender or ""))
+            log(f"saver registered: {name}")
+            self.publish_shutdown()
+
+        @dbus.service.method(IFACE, in_signature="s")
+        def Saved(self, name):
+            self.shutdown.done(str(name))
+            self.publish_shutdown()
+
+        @dbus.service.signal(IFACE)
+        def PrepareForShutdown(self):
+            pass
 
         def settings_v(self):
             return dbus.Dictionary({n: variant(v) for n, v in self.settings.values.items()}, signature="sv")
@@ -253,11 +423,14 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 return self.settings_v()
             if name == "Schema":
                 return self.schema_v()
+            if name == "Shutdown":
+                return self.shutdown_v()
             raise dbus.exceptions.DBusException(f"no property {name}", name="org.freedesktop.DBus.Error.UnknownProperty")
 
         @dbus.service.method(PROPS, in_signature="s", out_signature="a{sv}")
         def GetAll(self, iface):
-            return dbus.Dictionary({"Settings": self.settings_v(), "Schema": self.schema_v()}, signature="sv")
+            return dbus.Dictionary({"Settings": self.settings_v(), "Schema": self.schema_v(),
+                                    "Shutdown": self.shutdown_v()}, signature="sv")
 
         @dbus.service.signal(PROPS, signature="sa{sv}as")
         def PropertiesChanged(self, iface, changed, invalidated):

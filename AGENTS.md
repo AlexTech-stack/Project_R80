@@ -66,6 +66,7 @@ hu-virtual/
     companion_link.py             companion app <-> HU protocol (D11, docs/companion-protocol.md)
     navd.py, nav.ini              navigation service (D11), D-Bus de.r80.Nav, and its timing
     sysd.py, system.ini           system and settings service (D12), D-Bus de.r80.System, and the settings' schema
+    saver.py                      a service's part in the shutdown: register with sysd, save, report
     ui/run_hu.py, ui/backend.py   UI launcher and QML backend over D-Bus
     ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
   mcu_emu/                        MCU emulator and its control client (PC only)

@@ -55,6 +55,8 @@ import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
+from saver import register_saver
+
 BUS_NAME = "de.r80.Audio"
 OBJ_PATH = "/de/r80/Audio"
 IFACE = "de.r80.Audio1"
@@ -270,6 +272,7 @@ class Audio(dbus.service.Object):
                                 "org.freedesktop.DBus", "/org/freedesktop/DBus")
         GLib.timeout_add(100, self.flush)
         GLib.idle_add(self.push_media)
+        register_saver(bus, "audiod", self.save, log)      # volumes and tone saved before a shutdown (D12)
 
     # ---- state -------------------------------------------------------------
     def gains(self) -> dict:

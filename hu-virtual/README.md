@@ -313,6 +313,17 @@ its default. The UI (`backend.py` → `System`, `Sim.setSetting`) shows and chan
 them: accent colour, brightness, dim at night, 24-hour clock, units; without sysd
 it keeps them locally like the mockup. The HU always starts on Home.
 
+**Shutdown.** When the MCU announces off, vehicled reports `Power = shutdown` and
+sysd coordinates: it sends `PrepareForShutdown`, every registered saver
+(`hu/saver.py`; audiod: volumes and tone, tripd: trips) saves and answers `Saved`,
+sysd waits for all of them but at most `save_timeout_s` (`[shutdown]` in
+`hu/system.ini`), saves its own settings, syncs and lets vehicled acknowledge to the
+MCU (`ShutdownReady`). With `after_ack = poweroff` (target) Linux then powers off; the
+bench keeps `none`. If the ignition comes back first, nothing is acknowledged.
+Property `Shutdown` shows the state, the savers and the outcome of the last shutdown
+(saved, no answer, duration, cancelled). Without sysd vehicled acknowledges after 1 s
+as before.
+
 ```bash
 python3 hu/sysd.py --check              # check system.ini and list the settings
 gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set accent "<'amber'>"
@@ -352,6 +363,7 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_023 | navigation over Bluetooth with a BlueZ stand-in: navd registers the companion service (RFCOMM server, protocol UUID, paired phones only), a connection handed over like bluetoothd does carries the protocol, BlueZ's disconnect request, re-registration after a bluetoothd restart |
 | TC_HU_024 | settings: every setting takes a valid value of its type and is saved; wrong type, out of range, unknown name refused without a change; Reset / ResetAll; saved values that no longer fit fall back (sysd's logic) |
 | TC_HU_025 | tone controls in audiod: bass/treble in whole dB within the range, balance, loudness; refusals change nothing; saved with the volumes; old values fall back (audiod's logic) |
+| TC_HU_026 | shutdown (D12): bus sleep -> sysd asks audiod/tripd to save -> acknowledgement -> MCU off, settings on disk; a saver that never answers delays it by `save_timeout_s` at most; ignition back during saving cancels (MCU stays on); a saver whose process ended is not waited for |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
@@ -399,6 +411,7 @@ hu/navd.py               Linux navigation service: phone guidance -> D-Bus de.r8
 hu/nav.ini               navd's timing (heartbeat, link timeout, how long stale guidance stays)
 hu/sysd.py               Linux system and settings service -> D-Bus de.r80.System
 hu/system.ini            the settings' schema: type, range or choices, default
+hu/saver.py              a service's part in the shutdown (register with sysd, save, report)
 hu/ui/run_hu.py          UI launcher: mockup + Sim.qml overlay + MCU key input + power blanking
 hu/ui/backend.py         QML singletons `Vehicle`, `Media`, `Audio`, `Warnings`, `Trip`, `Nav` (R80.Backend 1.0) mirroring D-Bus
 hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`
