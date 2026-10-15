@@ -32,7 +32,11 @@ Item {
         return "M50 94 L50 63 Q50 50 " + f(50 + 13 * Math.sin(a)) + " " + f(50 - 13 * Math.cos(a))
              + " L" + f(ex) + " " + f(ey) + head(ex, ey, deg);
     }
-    readonly property real exitAngle: Math.min(Math.max(exit, 1) * 90, 315)   // from the entry, counter-clockwise
+    // Roundabout exit, counter-clockwise from the entry: by exit number (4-arm guess), else by the
+    // direction the app's arrow shows (Google Maps only gives that), else the first exit.
+    readonly property real exitAngle: exit > 0 ? Math.min(exit * 90, 315)
+        : (({ sharp_right: 45, right: 90, slight_right: 135, straight: 180,
+              slight_left: 225, left: 270, sharp_left: 315 })[modifier] || 90)
     readonly property var paths: {
         const m = maneuver;
         if (m === "turn" || m === "on_ramp" || m === "off_ramp" || m === "continue" || m === "depart")

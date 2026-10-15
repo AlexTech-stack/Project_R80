@@ -54,7 +54,9 @@ object Fingerprint {
 }
 
 class IconTable(val entries: List<Entry>, private val threshold: Double = 0.08) {
-    data class Entry(val maneuver: String, val modifier: String?, val exit: Int?, val fp: IntArray, val note: String? = null)
+    /** id: the capture's name for this image (first 12 hex of the SHA-1 of the fingerprint's hex). */
+    data class Entry(val maneuver: String, val modifier: String?, val exit: Int?, val fp: IntArray,
+                     val note: String? = null, val id: String? = null)
 
     /** The closest known arrow, if close enough. */
     fun match(fp: IntArray?): Entry? {
@@ -65,7 +67,7 @@ class IconTable(val entries: List<Entry>, private val threshold: Double = 0.08) 
     }
 
     companion object {
-        /** {"icons": [{"maneuver": "turn", "modifier": "right", "exit": 2, "fp": "<512 hex>", "note": "..."}]} */
+        /** {"icons": [{"id": "...", "maneuver": "turn", "modifier": "right", "exit": 2, "fp": "<512 hex>", "note": "..."}]} */
         fun parse(json: String): IconTable {
             val root = Json.parseToJsonElement(json).jsonObject
             val entries = root["icons"]?.jsonArray.orEmpty().mapNotNull { e ->
@@ -74,7 +76,8 @@ class IconTable(val entries: List<Entry>, private val threshold: Double = 0.08) 
                 val modifier = (o["modifier"] as? JsonPrimitive)?.contentOrNull
                 val fp = o["fp"]?.jsonPrimitive?.contentOrNull?.let { Fingerprint.fromHex(it) } ?: return@mapNotNull null
                 if (maneuver !in Protocol.MANEUVERS || (modifier != null && modifier !in Protocol.MODIFIERS)) return@mapNotNull null
-                Entry(maneuver, modifier, (o["exit"] as? JsonPrimitive)?.intOrNull, fp, (o["note"] as? JsonPrimitive)?.contentOrNull)
+                Entry(maneuver, modifier, (o["exit"] as? JsonPrimitive)?.intOrNull, fp,
+                      (o["note"] as? JsonPrimitive)?.contentOrNull, (o["id"] as? JsonPrimitive)?.contentOrNull)
             }
             return IconTable(entries)
         }

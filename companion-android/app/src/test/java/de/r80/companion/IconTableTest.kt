@@ -36,6 +36,29 @@ class IconTableTest {
         assertNull(Fingerprint.of(IntArray(100), 10, 10))
     }
 
+    /** The shipped table (assets/maneuver_icons.json, from captured Google Maps drives). */
+    @Test fun shippedTableIsConsistent() {
+        val file = java.io.File("src/main/assets/maneuver_icons.json")
+        val raw = kotlinx.serialization.json.Json.parseToJsonElement(file.readText())
+            .let { it as kotlinx.serialization.json.JsonObject }["icons"] as kotlinx.serialization.json.JsonArray
+        val table = IconTable.parse(file.readText())
+        assertEquals("every entry valid", raw.size, table.entries.size)
+        val sha1 = java.security.MessageDigest.getInstance("SHA-1")
+        for (e in table.entries) {
+            val id = sha1.digest(Fingerprint.toHex(e.fp).toByteArray()).joinToString("") { "%02x".format(it) }.take(12)
+            assertEquals("id matches the fingerprint", id, e.id)
+            assertEquals("${e.id} recognises itself", e, table.match(e.fp))
+        }
+        // Different meanings must not be confusable; the only close pair is "head toward"
+        // (dashed) vs "straight on": both straight arrows.
+        val close = mutableListOf<String>()
+        for ((i, a) in table.entries.withIndex()) for (b in table.entries.drop(i + 1)) {
+            if (Fingerprint.distance(a.fp, b.fp) <= 0.08 && (a.maneuver to a.modifier) != (b.maneuver to b.modifier))
+                close += setOf(a.maneuver, b.maneuver).sorted().joinToString("/") + " " + a.modifier
+        }
+        assertEquals(listOf("continue/depart straight"), close)
+    }
+
     @Test fun tableFromJson() {
         val fp = Fingerprint.of(arrow(80, 80, 10, 4), 80, 80)!!
         val hex = Fingerprint.toHex(fp)

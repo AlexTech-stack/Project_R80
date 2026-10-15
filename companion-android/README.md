@@ -12,10 +12,13 @@ Android 14 or newer, Kotlin, no Google Play services, MIT like the rest of R80.
 - **Reads Google Maps:** distance to the next maneuver, road, and remaining time
   and distance are text in the notification. The maneuver itself is only in the
   arrow image. The app turns that image into a small fingerprint and looks it up
-  in [`app/src/main/assets/maneuver_icons.json`](app/src/main/assets/maneuver_icons.json).
-  That table is empty until it is built from captured drives (see Capture). Until
-  then the HU gets maneuver `unknown` with distance and road, and shows a generic
-  arrow.
+  in [`app/src/main/assets/maneuver_icons.json`](app/src/main/assets/maneuver_icons.json):
+  19 Google Maps arrows (turns of every strength, U-turn, forks, motorway exit,
+  merge, roundabout right / straight / left, destination and its side), built from
+  captured virtual drives in Pforzheim, Stuttgart and Karlsruhe. Only fingerprints
+  are stored, never Google's images. An arrow that is not in the table yet reaches
+  the HU as maneuver `unknown` with distance and road (generic arrow); capture
+  mode records it, so it can be added.
 - **Link to the HU:** Bluetooth RFCOMM to the paired HU (hu-navd registers the
   companion service with BlueZ and only accepts paired phones). For development
   also Wi-Fi: TCP to a PC running `hu-navd --tcp 47800` (trusted network only, no

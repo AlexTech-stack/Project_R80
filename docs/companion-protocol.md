@@ -76,8 +76,8 @@ whenever something shown would change, and once right after `hello`.
 | Field | Values |
 |---|---|
 | `type` (required) | `depart`, `turn`, `continue`, `merge`, `fork`, `on_ramp`, `off_ramp`, `roundabout`, `uturn`, `arrive`, `unknown` |
-| `modifier` (optional) | `straight`, `slight_left`, `left`, `sharp_left`, `slight_right`, `right`, `sharp_right` |
-| `exit` (optional) | roundabout exit, integer 1–99 |
+| `modifier` (optional) | `straight`, `slight_left`, `left`, `sharp_left`, `slight_right`, `right`, `sharp_right`; for `roundabout` the direction of the exit, for `arrive` the side of the destination |
+| `exit` (optional) | roundabout exit, integer 1–99 (Google Maps only shows the direction: `modifier`) |
 
 "Keep left/right" is `fork` with `slight_left` / `slight_right`.
 
