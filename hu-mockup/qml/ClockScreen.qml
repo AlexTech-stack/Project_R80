@@ -4,7 +4,7 @@ import QtQuick
 Item {
     id: root
     function knob(d) {}
-    function press() { Sim.clock24h = !Sim.clock24h }
+    function press() { Sim.setSetting("clock_24h", !Sim.clock24h) }
 
     Rectangle {
         x: Theme.margin; y: 24

@@ -6,10 +6,12 @@
     interface  de.r80.Audio1
       properties  Max (i), Master (i), Muted (b), StartupCap (i),
                   Volumes (a{si}: source -> 0..Max), Gains (a{sd}: source -> 0.0..1.0),
+                  Tone (a{sv}: bass, treble (dB), balance (-1..1), loudness; kept until a DSP applies them),
                   NavPrompt (b), CallState (s: idle|ringing|active), Duck (d: 1.0 = none),
                   Chime (b), WarningChimeGain (d)
       methods     SetMaster(i), Step(i delta), SetMuted(b), ToggleMute(),
-                  SetVolume(s source, i value), SetNavPrompt(b), SetCallState(s), SetChime(b)
+                  SetVolume(s source, i value), SetNavPrompt(b), SetCallState(s), SetChime(b),
+                  SetTone(s name, v value)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
 Sources: media, navigation, phone, radio. For each source audiod computes the level
@@ -81,7 +83,8 @@ def load_config(extra: str | None = None) -> dict:
     cp.read([str(f) for f in files if f.is_file()])
     used = {"volume": {"max", "startup_cap", "default_master", "curve", "change_fade_ms"} | {f"default_{s}" for s in SOURCES},
             "focus": {"duck_level", "duck_fade_ms", "call_starts_on", "resume_media_after_call",
-                      "call_mutes_radio", "mute_spares_call", "warning_chime_min_gain"}}
+                      "call_mutes_radio", "mute_spares_call", "warning_chime_min_gain"},
+            "tone": {"tone_range_db", "default_bass", "default_treble", "default_balance", "default_loudness"}}
 
     def get(section, key, conv):
         try:
@@ -123,6 +126,12 @@ def load_config(extra: str | None = None) -> dict:
         "call_mutes_radio": flag("focus", "call_mutes_radio"),
         "mute_spares_call": flag("focus", "mute_spares_call"),
     }
+    rng = num("tone", "tone_range_db", int, 1, 24)
+    cfg["tone_range_db"] = rng
+    cfg["default_tone"] = {"bass": num("tone", "default_bass", int, -rng, rng),
+                           "treble": num("tone", "default_treble", int, -rng, rng),
+                           "balance": num("tone", "default_balance", float, -1.0, 1.0),
+                           "loudness": flag("tone", "default_loudness")}
     for section in cp.sections():
         if section not in used:
             raise ConfigError(f"unknown section [{section}]")
@@ -146,6 +155,41 @@ def startup_state(cfg: dict, saved: dict | None) -> tuple[int, dict]:
     vols = saved.get("volumes") if isinstance(saved.get("volumes"), dict) else {}
     volumes = {s: vols[s] if ok(vols.get(s)) else cfg["default_volumes"][s] for s in SOURCES}
     return min(master, cfg["startup_cap"]), volumes
+
+
+TONES = ("bass", "treble", "balance", "loudness")
+
+
+def check_tone(cfg: dict, name: str, value):
+    """value as the tone control's type, or ValueError (KeyError for an unknown name)."""
+    if name not in TONES:
+        raise KeyError(f"no tone control {name!r}; known: {', '.join(TONES)}")
+    if name == "loudness":
+        if not isinstance(value, bool):
+            raise ValueError(f"loudness takes true or false, not {value!r}")
+        return value
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} takes a number, not {value!r}")
+    if name == "balance":
+        if not -1.0 <= value <= 1.0:
+            raise ValueError(f"balance = {value} is outside -1..1")
+        return round(float(value), 3)
+    r = cfg["tone_range_db"]
+    if value != int(value) or not -r <= value <= r:
+        raise ValueError(f"{name} = {value} is not a whole dB step in -{r}..{r}")
+    return int(value)
+
+
+def startup_tone(cfg: dict, saved: dict | None) -> dict:
+    """The saved tone controls; defaults where missing or no longer valid."""
+    t = saved.get("tone") if isinstance(saved, dict) and isinstance(saved.get("tone"), dict) else {}
+    out = {}
+    for n in TONES:
+        try:
+            out[n] = check_tone(cfg, n, t[n]) if n in t else cfg["default_tone"][n]
+        except ValueError:
+            out[n] = cfg["default_tone"][n]
+    return out
 
 
 def gain(cfg: dict, master: int, volume: int, muted: bool) -> float:
@@ -189,10 +233,13 @@ def read_state(path: Path) -> dict | None:
         return None
 
 
-def write_state(path: Path, master: int, volumes: dict):
+def write_state(path: Path, master: int, volumes: dict, tone: dict | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"master": master, "volumes": volumes}, indent=1) + "\n")
+    data = {"master": master, "volumes": volumes}
+    if tone is not None:
+        data["tone"] = tone
+    tmp.write_text(json.dumps(data, indent=1) + "\n")
     os.replace(tmp, path)
 
 
@@ -202,6 +249,7 @@ class Audio(dbus.service.Object):
         self.bus, self.cfg, self.state_path = bus, cfg, state_path
         saved = read_state(state_path)
         self.master, self.volumes = startup_state(cfg, saved)
+        self.tone = startup_tone(cfg, saved)
         self.muted = False
         self.nav_prompt = False
         self.chime = False              # a chime is playing (hu-warnd)
@@ -233,6 +281,7 @@ class Audio(dbus.service.Object):
         self.set("Master", self.master)
         self.set("Muted", self.muted)
         self.set("Volumes", dict(self.volumes))
+        self.set("Tone", dict(self.tone))
         self.set("Gains", self.gains())
         self.set("NavPrompt", self.nav_prompt)
         self.set("Chime", self.chime)
@@ -250,7 +299,7 @@ class Audio(dbus.service.Object):
     def save(self):
         self.save_pending = False
         try:
-            write_state(self.state_path, self.master, self.volumes)
+            write_state(self.state_path, self.master, self.volumes, self.tone)
         except OSError as e:
             log(f"could not save {self.state_path}: {e}")
         return False
@@ -271,6 +320,9 @@ class Audio(dbus.service.Object):
         v = self.props[name]
         if name == "Volumes":
             return dbus.Dictionary({k: dbus.Int32(x) for k, x in v.items()}, signature="si")
+        if name == "Tone":
+            return dbus.Dictionary({k: dbus.Boolean(x) if isinstance(x, bool) else dbus.Double(x) if isinstance(x, float)
+                                    else dbus.Int32(x) for k, x in v.items()}, signature="sv")
         if name == "Gains":
             return dbus.Dictionary({k: dbus.Double(x) for k, x in v.items()}, signature="sd")
         if isinstance(v, bool):
@@ -440,6 +492,22 @@ class Audio(dbus.service.Object):
             raise dbus.exceptions.DBusException(f"unknown source {source!r}; known: {', '.join(SOURCES)}",
                                                 name="de.r80.Audio1.Error.UnknownSource")
         self.volumes[source] = self._clamp(value)
+        self.changed_volume()
+
+    @dbus.service.method(IFACE, in_signature="sv")
+    def SetTone(self, name, value):
+        """Bass / treble (whole dB steps within tone_range_db), balance (-1..1), loudness (bool)."""
+        v = value
+        if isinstance(v, dbus.Boolean):
+            v = bool(v)
+        elif isinstance(v, (dbus.Double, dbus.Int16, dbus.Int32, dbus.Int64, dbus.UInt16, dbus.UInt32, dbus.Byte)):
+            v = float(v) if isinstance(v, dbus.Double) else int(v)
+        try:
+            self.tone[str(name)] = check_tone(self.cfg, str(name), v)
+        except KeyError as e:
+            raise dbus.exceptions.DBusException(e.args[0], name="de.r80.Audio1.Error.UnknownTone")
+        except ValueError as e:
+            raise dbus.exceptions.DBusException(str(e), name="de.r80.Audio1.Error.InvalidValue")
         self.changed_volume()
 
 

@@ -14,8 +14,8 @@ saves them as state, so they survive a restart.
                   Reset(s name), ResetAll()
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
-The values are saved to --state (default $XDG_STATE_HOME/r80/settings.json) on every
-change. A saved value that no longer fits system.ini (renamed, out of range after an
+The values are saved to --state (default $XDG_STATE_HOME/r80/settings.json) half a
+second after a change (one write for a dragged slider). A saved value that no longer fits system.ini (renamed, out of range after an
 update) falls back to its default. The logic (Settings) has no D-Bus, so tests can use it.
 """
 from __future__ import annotations
@@ -188,6 +188,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
         def __init__(self, bus):
             super().__init__(bus, OBJ_PATH)
             self.settings = Settings(cfg["settings"], read_state(state_path))
+            self.save_pending = False
 
         def settings_v(self):
             return dbus.Dictionary({n: variant(v) for n, v in self.settings.values.items()}, signature="sv")
@@ -203,11 +204,19 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 out[n] = dbus.Dictionary(d, signature="sv")
             return dbus.Dictionary(out, signature="sv")
 
-        def changed(self):
+        def save(self):
+            self.save_pending = False
             try:
                 write_state(state_path, self.settings.values)
             except OSError as e:
                 log(f"could not save {state_path}: {e}")
+            return False
+
+        def changed(self):
+            # saved half a second later: a dragged slider sends many values, the SD card gets one write
+            if not self.save_pending:
+                self.save_pending = True
+                GLib.timeout_add(500, self.save)
             self.PropertiesChanged(IFACE, dbus.Dictionary({"Settings": self.settings_v()}, signature="sv"),
                                    dbus.Array([], signature="s"))
 

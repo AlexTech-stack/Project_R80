@@ -1,7 +1,8 @@
 import QtQuick
 
-// Settings: categories on the left, the chosen page on the right.
-// Display changes (brightness, accent colour) apply live to the whole UI.
+// Settings: categories on the left, the chosen page on the right. Every value goes through
+// Sim.setSetting (kept and saved by hu-sysd, D12) or Sim.setTone (hu-audiod, D9) and applies
+// live to the whole UI.
 Item {
     id: root
     objectName: "settingsScreen"     // run.py --screenshots opens the Audio page through it
@@ -15,19 +16,11 @@ Item {
         { label: "Connectivity", icon: Icons.wifi },
         { label: "System",       icon: Icons.chip }
     ]
-    // local fake settings
-    property int bass: 2
-    property int treble: 1
-    property real balance: 0
-    property real fader: 0
-    property bool loudness: true
+    // not wired yet: they get a service with the phone / connectivity work
     property bool bt: true
     property bool wifi: false
-    property bool carplay: false
-    property bool nightDim: true
-    property int language: 0
 
-    readonly property var itemCounts: [3, 3, 9, 3, 1]
+    readonly property var itemCounts: [2, 3, 9, 2, 1]
     onCatChanged: item = 0
 
     function knob(d) {
@@ -43,13 +36,12 @@ Item {
     function adjustable() { return (cat === 1 && item < 2) || cat === 2 }
     function adjust(d) {
         if (cat === 0) {
-            if (item === 0) language = (language + 1) % 3;
-            else if (item === 1) Sim.clock24h = !Sim.clock24h;
-            else Sim.units_metric = !Sim.units_metric;
+            if (item === 0) Sim.setSetting("clock_24h", !Sim.clock24h);
+            else Sim.setSetting("units", Sim.units_metric ? "imperial" : "metric");
         } else if (cat === 1) {
-            if (item === 0) Theme.brightness = Math.min(1, Math.max(0.2, Theme.brightness + d * 0.1));
-            else if (item === 1) Theme.accentIndex = (Theme.accentIndex + d + Theme.accents.length) % Theme.accents.length;
-            else nightDim = !nightDim;
+            if (item === 0) Sim.setSetting("brightness", Math.round(Math.min(1, Math.max(0.2, Sim.brightness + d * 0.1)) * 100) / 100);
+            else if (item === 1) Sim.setSetting("accent", Theme.accents[(Theme.accentIndex + d + Theme.accents.length) % Theme.accents.length].key);
+            else Sim.setSetting("night_dimming", !Sim.nightDimming);
         } else if (cat === 2) {
             const vol = (v) => Math.min(Sim.volumeMax, Math.max(0, v + d));
             if (item === 0) Sim.mediaVolume = vol(Sim.mediaVolume);
@@ -57,12 +49,12 @@ Item {
             else if (item === 2) Sim.phoneVolume = vol(Sim.phoneVolume);
             else if (item === 3) Sim.radioVolume = vol(Sim.radioVolume);
             else if (item === 4) Sim.chimeVolume = vol(Sim.chimeVolume);
-            else if (item === 5) bass = Math.min(6, Math.max(-6, bass + d));
-            else if (item === 6) treble = Math.min(6, Math.max(-6, treble + d));
-            else if (item === 7) balance = Math.min(1, Math.max(-1, balance + d * 0.2));
-            else loudness = !loudness;
+            else if (item === 5) Sim.setTone("bass", Math.min(6, Math.max(-6, Sim.toneBass + d)));
+            else if (item === 6) Sim.setTone("treble", Math.min(6, Math.max(-6, Sim.toneTreble + d)));
+            else if (item === 7) Sim.setTone("balance", Math.round(Math.min(1, Math.max(-1, Sim.toneBalance + d * 0.2)) * 10) / 10);
+            else Sim.setTone("loudness", !Sim.loudness);
         } else if (cat === 3) {
-            if (item === 0) bt = !bt; else if (item === 1) wifi = !wifi; else carplay = !carplay;
+            if (item === 0) bt = !bt; else wifi = !wifi;
         }
     }
 
@@ -112,13 +104,11 @@ Item {
         Column {
             visible: root.cat === 0
             spacing: 8
-            SettingRow { label: "Language"; idx: 0
-                T { anchors.verticalCenter: parent.verticalCenter; text: ["English", "Deutsch", "Français"][root.language] }
-                MouseArea { anchors.fill: parent; onClicked: { root.inPanel = true; root.item = 0; root.adjust(1) } } }
-            SettingRow { label: "24-hour clock"; idx: 1
-                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.clock24h; onToggled: Sim.clock24h = !Sim.clock24h } }
-            SettingRow { label: "Metric units"; idx: 2
-                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.units_metric; onToggled: Sim.units_metric = !Sim.units_metric } }
+            SettingRow { label: "24-hour clock"; idx: 0
+                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.clock24h; onToggled: Sim.setSetting("clock_24h", !Sim.clock24h) } }
+            SettingRow { label: "Metric units"; idx: 1
+                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.units_metric
+                         onToggled: Sim.setSetting("units", Sim.units_metric ? "imperial" : "metric") } }
         }
 
         // Display
@@ -130,8 +120,9 @@ Item {
                 Icon { anchors.horizontalCenter: parent.horizontalCenter; path: Icons.brightness; width: 90; height: 90; stroke: 1.3 }
             }
             SettingRow { label: "Brightness"; idx: 0
-                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: 0.2; to: 1; value: Theme.brightness
-                             focused: root.inPanel && root.item === 0; onMoved: (v) => Theme.brightness = v } }
+                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: 0.2; to: 1; value: Sim.brightness
+                             focused: root.inPanel && root.item === 0
+                             onMoved: (v) => Sim.setSetting("brightness", Math.round(v * 100) / 100) } }
             SettingRow { label: "Accent colour"; idx: 1
                 Row {
                     anchors.verticalCenter: parent.verticalCenter
@@ -143,13 +134,13 @@ Item {
                             color: modelData.color
                             border.color: index === Theme.accentIndex ? Theme.selectionRing : "transparent"
                             border.width: 3
-                            MouseArea { anchors.fill: parent; onClicked: Theme.accentIndex = index }
+                            MouseArea { anchors.fill: parent; onClicked: Sim.setSetting("accent", modelData.key) }
                         }
                     }
                 }
             }
             SettingRow { label: "Dim at night"; idx: 2
-                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: root.nightDim; onToggled: root.nightDim = !root.nightDim } }
+                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.nightDimming; onToggled: Sim.setSetting("night_dimming", !Sim.nightDimming) } }
             T { x: 18; text: Theme.accents[Theme.accentIndex].name; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
         }
 
@@ -169,17 +160,17 @@ Item {
                                  onMoved: (v) => Sim[modelData.key] = Math.round(v) }
                 }
             }
-            SettingRow { label: "Bass  " + (root.bass > 0 ? "+" : "") + root.bass; idx: 5; height: 66
-                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -6; to: 6; value: root.bass; centered: true
-                             focused: root.inPanel && root.item === 5; onMoved: (v) => root.bass = Math.round(v) } }
-            SettingRow { label: "Treble  " + (root.treble > 0 ? "+" : "") + root.treble; idx: 6; height: 66
-                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -6; to: 6; value: root.treble; centered: true
-                             focused: root.inPanel && root.item === 6; onMoved: (v) => root.treble = Math.round(v) } }
+            SettingRow { label: "Bass  " + (Sim.toneBass > 0 ? "+" : "") + Sim.toneBass; idx: 5; height: 66
+                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -6; to: 6; value: Sim.toneBass; centered: true
+                             focused: root.inPanel && root.item === 5; onMoved: (v) => Sim.setTone("bass", Math.round(v)) } }
+            SettingRow { label: "Treble  " + (Sim.toneTreble > 0 ? "+" : "") + Sim.toneTreble; idx: 6; height: 66
+                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -6; to: 6; value: Sim.toneTreble; centered: true
+                             focused: root.inPanel && root.item === 6; onMoved: (v) => Sim.setTone("treble", Math.round(v)) } }
             SettingRow { label: "Balance"; idx: 7; height: 66
-                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -1; to: 1; value: root.balance; centered: true
-                             focused: root.inPanel && root.item === 7; onMoved: (v) => root.balance = v } }
+                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -1; to: 1; value: Sim.toneBalance; centered: true
+                             focused: root.inPanel && root.item === 7; onMoved: (v) => Sim.setTone("balance", Math.round(v * 10) / 10) } }
             SettingRow { label: "Loudness"; idx: 8; height: 66
-                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: root.loudness; onToggled: root.loudness = !root.loudness } }
+                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.loudness; onToggled: Sim.setTone("loudness", !Sim.loudness) } }
         }
 
         // Connectivity
@@ -190,8 +181,6 @@ Item {
                 Toggle { anchors.verticalCenter: parent.verticalCenter; checked: root.bt; onToggled: root.bt = !root.bt } }
             SettingRow { label: "Wi-Fi hotspot"; idx: 1
                 Toggle { anchors.verticalCenter: parent.verticalCenter; checked: root.wifi; onToggled: root.wifi = !root.wifi } }
-            SettingRow { label: "Phone projection"; idx: 2
-                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: root.carplay; onToggled: root.carplay = !root.carplay } }
             Item { width: 1; height: 20 }
             T { x: 18; text: "Paired devices"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
             Repeater {

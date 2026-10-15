@@ -167,6 +167,32 @@ QtObject {
     function answer() { callSeconds = 0; callState = "active" }
     function hangUp() { callState = "idle" }
 
+    // ---- settings (D12; names as in hu-virtual/hu/system.ini, kept by hu-sysd there) --------
+    property string accent: "signal_red"
+    property real brightness: 0.9
+    property bool nightDimming: true
+    // What the display shows. Here: the user's brightness (no car dimmer in the mockup).
+    readonly property real displayBrightness: brightness
+    function setSetting(name, value) {
+        if (name === "accent") accent = value;
+        else if (name === "brightness") brightness = value;
+        else if (name === "night_dimming") nightDimming = value;
+        else if (name === "clock_24h") clock24h = value;
+        else if (name === "units") units_metric = value === "metric";
+    }
+
+    // ---- tone (D9: hu-audiod keeps it; applied once the DSP amplifier is chosen) ------------
+    property int toneBass: 0
+    property int toneTreble: 0
+    property real toneBalance: 0
+    property bool loudness: true
+    function setTone(name, value) {
+        if (name === "bass") toneBass = value;
+        else if (name === "treble") toneTreble = value;
+        else if (name === "balance") toneBalance = value;
+        else if (name === "loudness") loudness = value;
+    }
+
     // ---- navigation (D11: the phone navigates, the HU shows its guidance) ----
     // A fake phone drives a demo route: the same legs as hu-virtual/phone_emu/route_demo.json.
     readonly property var navRoute: [

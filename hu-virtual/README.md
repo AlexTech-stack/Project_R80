@@ -175,6 +175,11 @@ mirrors audiod's values into the mockup's property names (`volume`, `volumeMax`,
 `muted`, `mediaVolume`, `navVolume`, `phoneVolume`, `radioVolume`) and sends
 changes back to audiod.
 
+Tone controls (Settings → Audio: bass, treble, balance, loudness) also belong to
+audiod (D9, moved from the UI with D12): property `Tone`, method `SetTone(name,
+value)`, limits and defaults in `[tone]` of `hu/audio.ini`, saved with the
+volumes. They take effect once the DSP amplifier (D3) is chosen.
+
 ## Warnings (hu-warnd)
 
 `hu/warnd.py` raises vehicle warnings (decision D10) from the signals hu-vehicled
@@ -302,8 +307,11 @@ connect to `tcp:<pi-ip>:47800`. Connecting replaces a connected phone.
 `Reset(name)`, `ResetAll()`. What a setting may be is described in `hu/system.ini`
 (`[setting <name>]` sections); a wrong type, a value out of range or an unknown
 name is refused (`de.r80.System1.Error.InvalidValue` / `UnknownSetting`). The values
-are saved to `$XDG_RUNTIME_DIR/r80-hu/settings.json` under hu-virtual.sh on every
-change; a saved value that no longer fits `system.ini` falls back to its default.
+are saved to `$XDG_RUNTIME_DIR/r80-hu/settings.json` under hu-virtual.sh half a
+second after a change; a saved value that no longer fits `system.ini` falls back to
+its default. The UI (`backend.py` → `System`, `Sim.setSetting`) shows and changes
+them: accent colour, brightness, dim at night, 24-hour clock, units; without sysd
+it keeps them locally like the mockup. The HU always starts on Home.
 
 ```bash
 python3 hu/sysd.py --check              # check system.ini and list the settings
@@ -343,6 +351,7 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_022 | navigation: silent phone dropped after `link_timeout_s`, closed link noticed at once, guidance kept as stale and continued on reconnect, a second phone replaces the first; cleared after `keep_after_loss_s` (navd's logic, simulated clock) |
 | TC_HU_023 | navigation over Bluetooth with a BlueZ stand-in: navd registers the companion service (RFCOMM server, protocol UUID, paired phones only), a connection handed over like bluetoothd does carries the protocol, BlueZ's disconnect request, re-registration after a bluetoothd restart |
 | TC_HU_024 | settings: every setting takes a valid value of its type and is saved; wrong type, out of range, unknown name refused without a change; Reset / ResetAll; saved values that no longer fit fall back (sysd's logic) |
+| TC_HU_025 | tone controls in audiod: bass/treble in whole dB within the range, balance, loudness; refusals change nothing; saved with the volumes; old values fall back (audiod's logic) |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
