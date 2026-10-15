@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # R80 headunit kiosk for the Raspberry Pi: the MCU stand-in, the vehicle, media, audio,
-# warning, trip and navigation service, then the UI on Qt eglfs. r80-hu.service wraps this in
+# warning, trip, navigation and system service, then the UI on Qt eglfs. r80-hu.service wraps this in
 # dbus-run-session so all of them share one session bus.
 #
 # Override paths with R80_HU, R80_VENV and R80_MUSIC; extra navd flags with R80_NAV_ARGS.
@@ -20,6 +20,7 @@ PY="$VENV/bin/python"
 "$PY" "$HU/hu/audiod.py" >/tmp/r80-audiod.log 2>&1 &
 "$PY" "$HU/hu/warnd.py" >/tmp/r80-warnd.log 2>&1 &
 "$PY" "$HU/hu/tripd.py" >/tmp/r80-tripd.log 2>&1 &
+"$PY" "$HU/hu/sysd.py" >/tmp/r80-sysd.log 2>&1 &
 # shellcheck disable=SC2086  # R80_NAV_ARGS: extra navd flags, e.g. --tcp 47800 for the phone panel on the PC
 "$PY" "$HU/hu/navd.py" --bluetooth system ${R80_NAV_ARGS:-} >/tmp/r80-navd.log 2>&1 &
 sleep 1

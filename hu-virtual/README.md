@@ -294,6 +294,22 @@ connect to `tcp:<pi-ip>:47800`. Connecting replaces a connected phone.
 
 ![Phone panel](docs/phone_panel.png)
 
+## System and settings (hu-sysd)
+
+`hu/sysd.py` keeps the user's settings (decision D12) on D-Bus `de.r80.System` at
+`/de/r80/System` (interface `de.r80.System1`): property `Settings` (every value),
+`Schema` (type, range or choices, default per setting), methods `Set(name, value)`,
+`Reset(name)`, `ResetAll()`. What a setting may be is described in `hu/system.ini`
+(`[setting <name>]` sections); a wrong type, a value out of range or an unknown
+name is refused (`de.r80.System1.Error.InvalidValue` / `UnknownSetting`). The values
+are saved to `$XDG_RUNTIME_DIR/r80-hu/settings.json` under hu-virtual.sh on every
+change; a saved value that no longer fits `system.ini` falls back to its default.
+
+```bash
+python3 hu/sysd.py --check              # check system.ini and list the settings
+gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set accent "<'amber'>"
+```
+
 ## Tests (BoAt)
 
 ```bash
@@ -326,6 +342,7 @@ connect to `tcp:<pi-ip>:47800`. Connecting replaces a connected phone.
 | TC_HU_021 | navigation: phone hello and guidance reach `de.r80.Nav`, arrival from the HU's clock, bad lines counted with the link kept, guidance ended, wrong protocol and missing hello refused |
 | TC_HU_022 | navigation: silent phone dropped after `link_timeout_s`, closed link noticed at once, guidance kept as stale and continued on reconnect, a second phone replaces the first; cleared after `keep_after_loss_s` (navd's logic, simulated clock) |
 | TC_HU_023 | navigation over Bluetooth with a BlueZ stand-in: navd registers the companion service (RFCOMM server, protocol UUID, paired phones only), a connection handed over like bluetoothd does carries the protocol, BlueZ's disconnect request, re-registration after a bluetoothd restart |
+| TC_HU_024 | settings: every setting takes a valid value of its type and is saved; wrong type, out of range, unknown name refused without a change; Reset / ResetAll; saved values that no longer fit fall back (sysd's logic) |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
@@ -371,6 +388,8 @@ hu/trip.ini              tripd's settings (auto reset after 2 h, ...)
 hu/companion_link.py     companion app <-> HU protocol (D11, ../docs/companion-protocol.md)
 hu/navd.py               Linux navigation service: phone guidance -> D-Bus de.r80.Nav
 hu/nav.ini               navd's timing (heartbeat, link timeout, how long stale guidance stays)
+hu/sysd.py               Linux system and settings service -> D-Bus de.r80.System
+hu/system.ini            the settings' schema: type, range or choices, default
 hu/ui/run_hu.py          UI launcher: mockup + Sim.qml overlay + MCU key input + power blanking
 hu/ui/backend.py         QML singletons `Vehicle`, `Media`, `Audio`, `Warnings`, `Trip`, `Nav` (R80.Backend 1.0) mirroring D-Bus
 hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`
