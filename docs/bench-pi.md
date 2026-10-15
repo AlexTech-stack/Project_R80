@@ -1,14 +1,15 @@
 # R80 bench: Raspberry Pi 3B prototype
 
-How to run the headunit software, especially the Media application, on a
-Raspberry Pi 3B. The car is still simulated on the test PC (BoAt + restbus);
+How to run the headunit software (vehicle, media, audio, warnings, trip computer,
+navigation and the UI) on a Raspberry Pi 3B. The car is still simulated on the test PC (BoAt + restbus);
 only the CAN buses are tunnelled to the Pi with
 [cannelloni](https://github.com/mguentner/cannelloni) (GPL-2.0). BoAt itself
 never runs on the Pi.
 
 Everything the Pi runs under `hu/` is target software; `mcu_emu/` stands in for
 the not-yet-existing vehicle MCU. The restbus and the tester panel stay on the
-test PC.
+test PC. The driver's phone pairs with the Pi over Bluetooth and sends its
+navigation guidance with the R80 Companion app (decision D11).
 
 ```
  TEST PC (= "the car")                              Raspberry Pi 3B (= the headunit)
@@ -24,8 +25,8 @@ test PC.
         │                                            │ hu/audiod.py   -> D-Bus      │
         │                                            │ hu/warnd.py    -> D-Bus      │
         │                                            │ hu/tripd.py    -> D-Bus      │
-        │                                            │ hu/navd.py     -> D-Bus      │
-                                                     │ hu/ui/run_hu.py (eglfs)      │
+        │                                            │ hu/navd.py     -> D-Bus      │◄── Bluetooth ── phone
+                                                     │ hu/ui/run_hu.py (eglfs)      │    (R80 Companion app)
                                                      └──────────────────────────────┘
 ```
 
@@ -43,29 +44,31 @@ The ready-made files live in `r80_pi_testbench/`:
 | `r80-hu.service` | Pi | systemd unit for `r80-kiosk.sh` (eglfs kiosk) |
 | `r80-bench.conf.example` | Pi | `PC_IP`/ports for the can service |
 
-> These files are on `master`. The Media service is on the `Media_Application`
-> branch until it is merged. Check out `master` on the Pi once the branch is
-> merged, or copy `r80_pi_testbench/` onto a `Media_Application` checkout
-> meanwhile.
-
 ## 1. Hardware
 
 Pi 3B, 5 V/2.5 A supply, microSD >= 16 GB (A1/A2), heatsink (the 3B throttles
 under sustained Qt + GStreamer load), HDMI monitor, USB keyboard and mouse,
-speakers/headphones on the 3.5 mm jack. PC and Pi on the same LAN.
+speakers/headphones on the 3.5 mm jack. PC and Pi on the same LAN. The Pi's
+built-in Bluetooth is the link to the phone; keep it enabled. For the
+navigation test an Android 14+ phone with Google Maps and the R80 Companion app.
 
 ## 2. Operating system
 
 Flash **Raspberry Pi OS (64-bit)** with Raspberry Pi Imager. Use the current
-Debian 13 "Trixie" image: the 64-bit image supports the 3B, and its glibc (>= 2.39)
-is new enough for the latest PySide6 `aarch64` wheel. Set user, Wi-Fi, locale,
-timezone and enable SSH in Imager. Then:
+Debian 13 "Trixie" image with desktop (not Lite: section 9 runs the UI in a
+window first; section 11 switches the desktop off). The 64-bit image supports the
+3B, and its glibc (>= 2.39) is new enough for the latest PySide6 `aarch64` wheel.
+Set user, Wi-Fi, locale, timezone and enable SSH in Imager. The systemd units in
+`r80_pi_testbench/` assume the user `pi` (`User=pi`, `/home/pi/...`): choose `pi`
+as the username, or change those lines before installing the units (section 7).
+Then:
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
 uname -m          # must be aarch64
 ldd --version     # glibc >= 2.39 for PySide6 6.11
 python3 --version # must be 3.10 - 3.14
+bluetoothctl show # an adapter, "Powered: yes" (BlueZ comes with Raspberry Pi OS)
 ```
 
 ## 3. Dependencies
@@ -109,9 +112,11 @@ Sanity checks:
 ```bash
 git clone git@github.com:AlexTech-stack/Project_R80.git ~/Project_R80
 cd ~/Project_R80
-git checkout master                 # after Media_Application is merged
-# or: git checkout Media_Application  # until then
+git checkout Navigation             # until it is merged; then master
 ```
+
+`Navigation` contains everything: it builds on `Vehicle_Info` (warnings, trip
+computer), and `master` has media and audio. Once both are merged, use `master`.
 
 ## 5. Music and 3.5 mm audio
 
@@ -136,8 +141,8 @@ PI_IP=<raspberry-ip> ~/Project_R80/r80_pi_testbench/pc-cannelloni.sh
 candump -a vcan_info                                   # frames the Pi should see
 ```
 
-Keep the PC's own mcu/vehicled/mediad running: the tester panel's knob/keys and
-the six BoAt tests still drive that PC headunit. Allow UDP 20000-20002 through
+Keep the PC's own headunit services running: the tester panel's knob/keys and
+the BoAt tests still drive that PC headunit. Allow UDP 20000-20002 through
 the PC firewall.
 
 ## 7. CAN tunnel (Pi)
@@ -196,10 +201,49 @@ cd ~/Project_R80/hu-virtual
 ~/r80-venv/bin/python hu/ui/run_hu.py
 ```
 
-Expected: live Vehicle/Drive screens (from the tunnel) and real media playback.
+Expected: live Vehicle/Drive screens (from the tunnel), real media playback, and
+Navigation saying "No phone connected" until the phone is paired and connected
+(section 10). navd prints "companion service registered with BlueZ" at start.
 Headless check: `run_hu.py --screenshot /tmp/hu.png`.
 
-## 10. eglfs kiosk
+## 10. Phone (R80 Companion app)
+
+Pair once; afterwards the app connects by itself whenever it is started.
+
+1. Install the app on the phone and set it up as in
+   [`../companion-android/README.md`](../companion-android/README.md) (APK from the
+   CI job `android`, notification access, permissions).
+2. Make the Pi visible and accept the pairing (on the Pi):
+   ```bash
+   bluetoothctl
+   # in bluetoothctl:
+   power on
+   agent on
+   default-agent
+   pairable on
+   discoverable on
+   ```
+3. On the phone: Settings → Bluetooth → pair with the Pi (its hostname). Confirm
+   the code on both sides (`yes` in bluetoothctl).
+4. Trust the phone so it may reconnect without asking, then hide the Pi again:
+   ```bash
+   # in bluetoothctl:
+   devices                 # the phone's address
+   trust <phone address>
+   discoverable off
+   quit
+   ```
+5. In the app: Bluetooth → choose the Pi → Connect. Start a route in Google Maps.
+   The HU's Navigation screen shows the guidance; `Phone.via` says "Bluetooth":
+   ```bash
+   gdbus call --session -d de.r80.Nav -o /de/r80/Nav \
+     -m org.freedesktop.DBus.Properties.Get de.r80.Nav1 Phone
+   ```
+
+navd only accepts paired phones (BlueZ checks that before navd sees the
+connection). Pair while the desktop is still on, before the kiosk takes over.
+
+## 11. eglfs kiosk
 
 Disable the desktop and grant device access:
 
@@ -209,7 +253,8 @@ sudo systemctl disable --now lightdm 2>/dev/null || true
 sudo usermod -aG video,render,input,audio $USER
 ```
 
-`r80-kiosk.sh` starts mcu emu, `vehicled`, `mediad`, `audiod`, `warnd`, `tripd` and `navd`, then execs the UI with
+`r80-kiosk.sh` starts mcu emu, `vehicled`, `mediad`, `audiod`, `warnd`, `tripd` and `navd`
+(`--bluetooth system`), then execs the UI with
 `QT_QPA_PLATFORM=eglfs`. `r80-hu.service` wraps it in `dbus-run-session` so the
 services and the UI share one session bus (`de.r80.Vehicle` / `de.r80.Media`),
 and requires `r80-can.service`:
@@ -223,15 +268,17 @@ Edit the paths in `r80-kiosk.sh` and the units if the repo, venv or music live
 somewhere other than `~/Project_R80`, `~/r80-venv` and `~/Music`; `r80-kiosk.sh`
 also honours `R80_HU`, `R80_VENV` and `R80_MUSIC`.
 
-## 11. Verify
+## 12. Verify
 
 - `journalctl -u r80-can -u r80-hu -f` and `cat /tmp/r80-*.log`.
 - `candump -a vcan_info` on the Pi mirrors the PC.
 - `gdbus` reads `de.r80.Vehicle` / `de.r80.Media`; transport buttons change the
   track and position advances.
+- `/tmp/r80-navd.log` says "companion service registered with BlueZ"; with the
+  app connected, "phone hello: <phone model>". 
 - `vcgencmd measure_temp` under load; add cooling if it throttles.
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 - **eglfs blank or fails:** try `QT_QPA_EGLFS_INTEGRATION=eglfs_kms`, then
   `QT_QPA_EGLFS_ALWAYS_SET_MODE=1`; check `dmesg` for the `v3d` driver. Last
@@ -244,6 +291,13 @@ also honours `R80_HU`, `R80_VENV` and `R80_MUSIC`.
   `ip -br link` shows the vcans `UP`.
 - **No sound:** `gst-inspect-1.0 | grep -E 'alsa|pulse|pipewire'`; force the sink
   with `~/r80-venv/bin/python hu/mediad.py --sink alsasink`.
+- **navd: "BlueZ refused the companion service":** add the user to the
+  `bluetooth` group (`sudo usermod -aG bluetooth $USER`, log in again) and check
+  `systemctl status bluetooth`.
+- **App stays at "connecting" over Bluetooth:** the phone must be paired with the
+  Pi (section 10) and navd running with `--bluetooth system`; `bluetoothctl info
+  <phone address>` should show `Paired: yes` and `Trusted: yes`. Removing and
+  re-pairing on both sides fixes most cases.
 - **Out of memory:** the 3B has only 1 GB; use a leaner image or reduce what runs
   beside the UI.
 
