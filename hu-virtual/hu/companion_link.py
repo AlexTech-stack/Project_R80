@@ -19,6 +19,7 @@ import math
 
 PROTO_VERSION = 1
 SERVICE_UUID = "b4184390-fb7f-44db-9eaa-6985447914af"   # RFCOMM service record of the HU
+RFCOMM_CHANNEL = 22      # fixed, so BlueZ puts it into the service record (phones look it up by UUID)
 MAX_LINE = 4096
 MAX_TEXT = 200          # longer strings are cut, not rejected
 

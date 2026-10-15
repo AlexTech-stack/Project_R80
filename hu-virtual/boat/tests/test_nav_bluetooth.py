@@ -59,6 +59,8 @@ conn.request_name("org.bluez", dbus.bus.NAME_FLAG_DO_NOT_QUEUE)
 check(wait(lambda: bluez.registrations), "navd registers the companion service when BlueZ appears")
 sender, path, uuid, opts = bluez.registrations[-1] if bluez.registrations else ("", "", "", {})
 check(uuid == cl.SERVICE_UUID, f"with the protocol's service UUID ({uuid})")
+check(int(opts.get("Channel", 0)) == cl.RFCOMM_CHANNEL,
+      f"with a fixed RFCOMM channel ({opts.get('Channel')}), so the service record tells phones where to connect")
 check(opts.get("Role") == "server" and bool(opts.get("RequireAuthentication")) and not bool(opts.get("RequireAuthorization", True)),
       f"as RFCOMM server, paired phones only, no extra prompt (Role {opts.get('Role')}, "
       f"RequireAuthentication {opts.get('RequireAuthentication')}, RequireAuthorization {opts.get('RequireAuthorization')})")

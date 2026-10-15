@@ -10,8 +10,8 @@ step; the Android app (`companion-android/`, later) implements the same rules.
 ## Transport
 
 - **Target:** Bluetooth Classic RFCOMM. The HU is the server and registers the
-  service UUID `b4184390-fb7f-44db-9eaa-6985447914af`; the phone (already paired for
-  calls and music) connects to it.
+  service UUID `b4184390-fb7f-44db-9eaa-6985447914af` on RFCOMM channel 22; the phone
+  (already paired for calls and music) looks the UUID up and connects to it.
 - **Virtual environment and CI:** a local stream socket to the phone emulator.
 - Both sides only see a byte stream, so framing and session rules are the same.
 

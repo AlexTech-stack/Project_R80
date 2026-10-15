@@ -355,7 +355,10 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                 self.register()
 
         def register(self):
+            # Without "Channel" BlueZ registers a custom UUID with an L2CAP-only service record and
+            # no RFCOMM listener: phones find the service but cannot connect.
             opts = dbus.Dictionary({"Name": "R80 Companion", "Role": "server",
+                                    "Channel": dbus.UInt16(cl.RFCOMM_CHANNEL),
                                     "RequireAuthentication": True, "RequireAuthorization": False},
                                    signature="sv")
             self.bt_bus.call_async(BLUEZ, "/org/bluez", "org.bluez.ProfileManager1", "RegisterProfile", "osa{sv}",
