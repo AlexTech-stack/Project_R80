@@ -10,6 +10,16 @@ QtObject {
         if (m >= 1000) return { value: (m / 1000).toFixed(1), unit: "km" };
         return { value: (m >= 300 ? Math.round(m / 50) * 50 : Math.round(m / 10) * 10).toString(), unit: "m" };
     }
+    // A navigation app's street / signpost text -> { main, sub }: the street first, the rest
+    // ("Richtung ...", the further destinations of a signpost "A / B / C") as a second line.
+    function signpost(s) {
+        if (!s) return { main: "", sub: "" };
+        const r = s.indexOf(" Richtung ");
+        if (r > 0) return { main: s.slice(0, r).trim(), sub: s.slice(r + 1).trim() };
+        const parts = s.split(/\s+\/\s+/);
+        if (parts.length > 1) return { main: parts[0].trim(), sub: parts.slice(1).join(" / ") };
+        return { main: s, sub: "" };
+    }
     function distanceText(m) { const d = distance(m); return d ? d.value + " " + d.unit : "--" }
     // Duration in seconds -> "12 min" / "1 h 05 min"; "--" if unknown (< 0).
     function duration(s) {

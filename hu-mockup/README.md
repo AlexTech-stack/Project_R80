@@ -45,7 +45,7 @@ use the project file.
 | Volume (header, right of the temperature) | click: master volume popup; knob or slider changes it, Mute button, press or Esc closes |
 | C | simulate an incoming call |
 | W | simulate vehicle warnings (banner, header indicator, Vehicle → Warnings) |
-| N | cycle the navigation states: guidance, phone link lost, no route, no phone (D11) |
+| N | cycle the navigation states: guidance, phone link lost, no route, no phone, rerouting, long signpost, destination on the left (D11) |
 | F11 | toggle fullscreen |
 
 ## Screens

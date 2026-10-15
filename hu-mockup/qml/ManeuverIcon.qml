@@ -57,6 +57,13 @@ Item {
                            + " L" + f(ex) + " " + f(ey) + head(ex, ey, 180 - exitAngle),
                      dim: Icons.circle(50, cy, r) };
         }
+        if (m === "arrive" && (modifier.indexOf("left") >= 0 || modifier.indexOf("right") >= 0)) {
+            // destination beside the road: road up the middle, flag on that side
+            const x = 50 + side * 22, f = side * 26;
+            return { main: "M" + x + " 94 L" + x + " 24 M" + x + " 26 L" + (x + f) + " 26 L" + (x + f * 0.75) + " 40 L"
+                           + (x + f) + " 54 L" + x + " 54",
+                     dim: "M50 94 L50 6" };
+        }
         if (m === "arrive")
             return { main: "M38 94 L38 12 M38 14 L76 14 L66 31 L76 48 L38 48", dim: "M22 94 L78 94" };
         return { main: "", dim: "M50 94 L50 10" + head(50, 10, 0) };   // unknown: the screen shows the app's text
