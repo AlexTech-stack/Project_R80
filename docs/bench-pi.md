@@ -240,6 +240,16 @@ cd ~/Project_R80/hu-virtual
 ~/r80-venv/bin/python hu/ui/run_hu.py
 ```
 
+Without a monitor (VNC, section 2), the same as one command that survives logging
+out of SSH: everything `r80-kiosk.sh` starts, with the UI full screen on the desktop
+instead of eglfs:
+
+```bash
+systemd-run --user --unit=r80-hu-window --collect -E QT_QPA_PLATFORM=wayland -E WAYLAND_DISPLAY=wayland-0 \
+  dbus-run-session -- ~/Project_R80/r80_pi_testbench/r80-kiosk.sh
+systemctl --user stop r80-hu-window      # stop it again; logs in /tmp/r80-*.log
+```
+
 Expected: live Vehicle/Drive screens (from the tunnel), real media playback, and
 Navigation saying "No phone connected" until the phone is paired and connected
 (section 10). navd prints "companion service registered with BlueZ" at start.
