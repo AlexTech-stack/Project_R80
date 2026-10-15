@@ -9,6 +9,8 @@ saves them as state, so they survive a restart.
     interface  de.r80.System1
       properties  Settings (a{sv}): every setting's current value (bool b, number d, choice s)
                   Schema (a{sv}): per setting {type, default, min, max | choices}
+                  DisplayBrightness (d): what the display shows, 0..1 (D12: by day the user's
+                                    brightness; at night the car's dimmer shifted by it)
                   Shutdown (a{sv}): state (idle|saving|acked|cancelled), savers (as), waiting (as),
                                     last_saved (as), last_timed_out (as), last_ms (u), last_cancelled (b)
       methods     Set(s name, v value)   checked against system.ini; errors:
@@ -72,7 +74,19 @@ def load_config(extra: str | None = None) -> dict:
     cp.read([str(f) for f in [DEFAULT_CONFIG, SYSTEM_CONFIG] + ([Path(extra)] if extra else []) if f.is_file()])
     settings = {}
     shutdown = {}
+    brightness = {}
     for section in cp.sections():
+        if section == "brightness":
+            unknown = set(cp.options(section)) - {"night_min", "night_max", "floor"}
+            if unknown:
+                raise ConfigError(f"[brightness] unknown key(s): {', '.join(sorted(unknown))}")
+            try:
+                brightness = {k: float(cp.get(section, k)) for k in ("night_min", "night_max", "floor")}
+            except (configparser.Error, ValueError) as e:
+                raise ConfigError(f"[brightness] {e}") from None
+            if not 0 < brightness["floor"] <= brightness["night_min"] < brightness["night_max"] <= 1:
+                raise ConfigError("[brightness] needs 0 < floor <= night_min < night_max <= 1")
+            continue
         if section == "shutdown":
             unknown = set(cp.options(section)) - {"save_timeout_s", "after_ack"}
             if unknown:
@@ -123,7 +137,24 @@ def load_config(extra: str | None = None) -> dict:
         raise ConfigError("no [setting ...] sections")
     if not shutdown:
         raise ConfigError("[shutdown] is missing")
-    return {"settings": settings, "shutdown": shutdown}
+    if not brightness:
+        raise ConfigError("[brightness] is missing")
+    for need, t in (("brightness", "number"), ("night_dimming", "bool")):
+        if settings.get(need, {}).get("type") != t:
+            raise ConfigError(f"[setting {need}] ({t}) is needed for the display brightness")
+    return {"settings": settings, "shutdown": shutdown, "brightness": brightness}
+
+
+def display_brightness(cfg: dict, values: dict, night: bool, dim_level: float) -> float:
+    """What the display shows (0..1), D12: by day the user's brightness; at night the car's
+    dimmer is the base and the user's setting shifts it (relative to the setting's default)."""
+    user = values["brightness"]
+    if not (night and values["night_dimming"]):
+        return round(user, 3)
+    b = cfg["brightness"]
+    base = b["night_min"] + (b["night_max"] - b["night_min"]) * max(0.0, min(100.0, dim_level)) / 100
+    shifted = base * user / cfg["settings"]["brightness"]["default"]
+    return round(max(b["floor"], min(1.0, shifted)), 3)
 
 
 def check(name: str, s: dict, value):
@@ -277,12 +308,30 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             self.settings = Settings(cfg["settings"], read_state(state_path))
             self.save_pending = False
             self.shutdown = Shutdown(cfg["shutdown"]["save_timeout_s"])
+            self.night, self.dim_level = False, 100.0
+            self.display = display_brightness(cfg, self.settings.values, self.night, self.dim_level)
             bus.add_signal_receiver(self.on_vehicle, "PropertiesChanged", PROPS, None, VEHICLE[1])
+            GLib.idle_add(self.read_vehicle)
             bus.add_signal_receiver(self.on_owner, "NameOwnerChanged", "org.freedesktop.DBus",
                                     "org.freedesktop.DBus", "/org/freedesktop/DBus")
 
         # ---- shutdown (D12) -------------------------------------------------------
+        # ---- display brightness (D12) ------------------------------------------
+        def read_vehicle(self):
+            self.bus.call_async(VEHICLE[0], VEHICLE[1], PROPS, "GetAll", "s", (VEHICLE[2],),
+                                lambda props: self.on_vehicle(VEHICLE[2], props, []), lambda e: None, timeout=1.0)
+            return False
+
+        def update_display(self):
+            d = display_brightness(cfg, self.settings.values, self.night, self.dim_level)
+            if d != self.display:
+                self.display = d
+                self.PropertiesChanged(IFACE, dbus.Dictionary({"DisplayBrightness": dbus.Double(d)}, signature="sv"),
+                                       dbus.Array([], signature="s"))
+
         def on_owner(self, name, _old, new):
+            if name == VEHICLE[0] and new:
+                self.read_vehicle()
             if not new and name.startswith(":"):
                 before = set(self.shutdown.savers)
                 self.shutdown.gone(name)
@@ -292,7 +341,13 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                     self.publish_shutdown()
 
         def on_vehicle(self, iface, changed, _inv):
-            if iface != VEHICLE[2] or "Power" not in changed:
+            if iface != VEHICLE[2]:
+                return
+            if "Night" in changed or "DimLevel" in changed:
+                self.night = bool(changed.get("Night", self.night))
+                self.dim_level = float(changed.get("DimLevel", self.dim_level))
+                self.update_display()
+            if "Power" not in changed:
                 return
             power = str(changed["Power"])
             if power == "shutdown" and self.shutdown.state != "saving":
@@ -389,6 +444,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 GLib.timeout_add(500, self.save)
             self.PropertiesChanged(IFACE, dbus.Dictionary({"Settings": self.settings_v()}, signature="sv"),
                                    dbus.Array([], signature="s"))
+            self.update_display()
 
         def fail(self, e: SettingError):
             raise dbus.exceptions.DBusException(
@@ -425,12 +481,15 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 return self.schema_v()
             if name == "Shutdown":
                 return self.shutdown_v()
+            if name == "DisplayBrightness":
+                return dbus.Double(self.display)
             raise dbus.exceptions.DBusException(f"no property {name}", name="org.freedesktop.DBus.Error.UnknownProperty")
 
         @dbus.service.method(PROPS, in_signature="s", out_signature="a{sv}")
         def GetAll(self, iface):
             return dbus.Dictionary({"Settings": self.settings_v(), "Schema": self.schema_v(),
-                                    "Shutdown": self.shutdown_v()}, signature="sv")
+                                    "Shutdown": self.shutdown_v(), "DisplayBrightness": dbus.Double(self.display)},
+                                   signature="sv")
 
         @dbus.service.signal(PROPS, signature="sa{sv}as")
         def PropertiesChanged(self, iface, changed, invalidated):

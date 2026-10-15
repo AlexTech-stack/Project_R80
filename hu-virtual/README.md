@@ -320,6 +320,12 @@ sysd waits for all of them but at most `save_timeout_s` (`[shutdown]` in
 `hu/system.ini`), saves its own settings, syncs and lets vehicled acknowledge to the
 MCU (`ShutdownReady`). With `after_ack = poweroff` (target) Linux then powers off; the
 bench keeps `none`. If the ignition comes back first, nothing is acknowledged.
+**Display brightness.** sysd publishes `DisplayBrightness` (0..1): by day the
+user's brightness setting; at night (lights on, "dim at night" on) the car's dimmer
+(`DimLevel` from the MCU) gives the base between `night_min` and `night_max`, and the
+user's setting shifts it (at its default the display follows the dimmer exactly), never
+below `floor` (`[brightness]` in `hu/system.ini`). The UI fades to it.
+
 Property `Shutdown` shows the state, the savers and the outcome of the last shutdown
 (saved, no answer, duration, cancelled). Without sysd vehicled acknowledges after 1 s
 as before.
@@ -364,6 +370,7 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_024 | settings: every setting takes a valid value of its type and is saved; wrong type, out of range, unknown name refused without a change; Reset / ResetAll; saved values that no longer fit fall back (sysd's logic) |
 | TC_HU_025 | tone controls in audiod: bass/treble in whole dB within the range, balance, loudness; refusals change nothing; saved with the volumes; old values fall back (audiod's logic) |
 | TC_HU_026 | shutdown (D12): bus sleep -> sysd asks audiod/tripd to save -> acknowledgement -> MCU off, settings on disk; a saver that never answers delays it by `save_timeout_s` at most; ignition back during saving cancels (MCU stays on); a saver whose process ended is not waited for |
+| TC_HU_027 | display brightness (D12) from LightState over the bus: by day the user's brightness; at night the car's dimmer shifted by the user's setting; dim at night off; floor (sysd's formula and `system.ini`) |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).

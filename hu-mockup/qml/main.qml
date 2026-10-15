@@ -141,6 +141,7 @@ Window {
             anchors.fill: parent
             color: Theme.shade
             opacity: (1 - Theme.brightness) * 0.85
+            Behavior on opacity { NumberAnimation { duration: 400 } }   // lights on / off: fade, no jump
         }
     }
 }

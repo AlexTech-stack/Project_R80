@@ -284,10 +284,9 @@ QtObject {
     readonly property string accent: _setting("accent")
     readonly property real brightness: _setting("brightness")
     readonly property bool nightDimming: _setting("night_dimming")
-    // Until hu-sysd computes it (D12 step 4): at night with the lights on, the car's dimmer
-    // scales the user's brightness.
-    readonly property real displayBrightness: nightDimming && Vehicle.night
-                                              ? Math.max(0.05, brightness * Math.max(0.2, Vehicle.dimLevel / 100)) : brightness
+    // What the display shows: hu-sysd computes it from the user's brightness, day/night and
+    // the car's dimmer (D12); without sysd the user's brightness.
+    readonly property real displayBrightness: settingsLive ? System.displayBrightness : brightness
     function setSetting(name, value) {
         if (settingsLive) { System.set(name, value); return }
         const l = Object.assign({}, _local); l[name] = value; _local = l;

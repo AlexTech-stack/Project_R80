@@ -529,7 +529,8 @@ SYS_SERVICE, SYS_PATH, SYS_IFACE = "de.r80.System", "/de/r80/System", "de.r80.Sy
 
 class System(QObject):
     """QML singleton mirroring hu-sysd (de.r80.System1, D12): the user's settings as a dict
-    {name: value} (names as in hu/system.ini). sysd checks and saves every change."""
+    {name: value} (names as in hu/system.ini; sysd checks and saves every change) and the
+    display brightness sysd computes from them, day/night and the car's dimmer."""
     changed = Signal()
     availableChanged = Signal()
 
@@ -537,6 +538,7 @@ class System(QObject):
         super().__init__(parent)
         self._available = False
         self._settings = {}
+        self._display = 0.9
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
         self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, SYS_PATH)
@@ -561,6 +563,8 @@ class System(QObject):
     def _apply(self, changed: dict):
         if "Settings" in changed:
             self._settings = {str(k): _py(v) for k, v in changed["Settings"].items()}
+        if "DisplayBrightness" in changed:
+            self._display = float(changed["DisplayBrightness"])
         if not self._available:
             self._available = True
             self.availableChanged.emit()
@@ -568,6 +572,7 @@ class System(QObject):
 
     available = Property(bool, lambda self: self._available, notify=availableChanged)
     settings = Property("QVariantMap", lambda self: dict(self._settings), notify=changed)
+    displayBrightness = Property(float, lambda self: self._display, notify=changed)
 
     @Slot(str, "QVariant")
     def set(self, name, value):
