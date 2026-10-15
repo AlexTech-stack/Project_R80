@@ -68,7 +68,7 @@ hu-virtual/
     ui/run_hu.py, ui/backend.py   UI launcher and QML backend over D-Bus
     ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
   mcu_emu/                        MCU emulator and its control client (PC only)
-  phone_emu/                      phone emulator: companion app stand-in and demo route (PC only)
+  phone_emu/                      phone emulator and phone panel (GUI): companion app stand-ins (PC only)
   boat/                           BoAt restbus node, tester panel and the 6 BoAt tests (PC only)
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```

@@ -44,6 +44,7 @@ class Phone:
     alive at the interval from the HU's hello unless `heartbeats` is False."""
 
     def __init__(self, path: Path | str = DEFAULT_SOCKET, device: str = "Emulated phone"):
+        """path: navd's local socket, or "tcp:HOST:PORT" for navd --tcp."""
         self.path, self.device = str(path), device
         self.sock: socket.socket | None = None
         self.decoder = cl.Decoder()
@@ -62,6 +63,10 @@ class Phone:
         Returns the HU's hello (or None)."""
         if sock is not None:
             self.sock = sock
+        elif self.path.startswith("tcp:"):           # tcp:host:port, e.g. a Pi's navd --tcp
+            host, port = self.path[4:].rsplit(":", 1)
+            self.sock = socket.create_connection((host, int(port)), timeout=5)
+            self.sock.settimeout(None)
         else:
             self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.sock.connect(self.path)
@@ -148,10 +153,50 @@ def vehicle_speed():
         return None
 
 
+class RoutePlayer:
+    """A route as a navigation app shows it. Feed it the metres driven; guidance() is the
+    message the app would send now (distance and remaining rounded like an app shows them).
+    Route file: {"name", "source", "average_kmh", "legs": [{"after_m", "maneuver", "modifier",
+    "exit", "street", "text"}]} (route_demo.json)."""
+
+    def __init__(self, route: dict):
+        self.route = route
+        self.legs = route["legs"]
+        self.total = float(sum(leg["after_m"] for leg in self.legs))
+        self.avg_mps = route.get("average_kmh", 40) / 3.6
+        self.driven = 0.0
+
+    @property
+    def arrived(self) -> bool:
+        return self.driven >= self.total
+
+    def advance(self, metres: float):
+        self.driven = min(self.total, max(0.0, self.driven + metres))
+
+    def leg_index(self) -> int:
+        at = 0.0
+        for i, leg in enumerate(self.legs):
+            at += leg["after_m"]
+            if at > self.driven:
+                return i
+        return len(self.legs) - 1
+
+    def guidance(self) -> dict:
+        if self.arrived:
+            return cl.guidance(self.route["source"], "arrive", distance_m=0, street=self.legs[-1]["street"],
+                               remaining_m=0, remaining_s=0)
+        i = self.leg_index()
+        leg = self.legs[i]
+        at = sum(lg["after_m"] for lg in self.legs[:i + 1])
+        remaining = self.total - self.driven
+        return cl.guidance(self.route["source"], leg["maneuver"], leg.get("modifier"), leg.get("exit"),
+                           distance_m=shown_distance(at - self.driven), street=leg["street"],
+                           text=leg.get("text"), remaining_m=shown_distance(remaining),
+                           remaining_s=round(remaining / self.avg_mps / 60) * 60.0)
+
+
 def play(route: dict, path: str, fallback_kmh: float):
-    legs = route["legs"]
-    total = sum(leg["after_m"] for leg in legs)
-    city_mps = route.get("average_kmh", 40) / 3.6
+    player = RoutePlayer(route)
     while True:
         phone = Phone(path, device=route.get("device", "Emulated phone"))
         try:
@@ -162,34 +207,24 @@ def play(route: dict, path: str, fallback_kmh: float):
             phone.close()
             time.sleep(1)
             continue
-        log(f"connected, playing '{route['name']}' ({total / 1000:.1f} km)")
-        driven, last_sent, t = 0.0, None, time.monotonic()
+        log(f"connected, playing '{route['name']}' ({player.total / 1000:.1f} km)")
+        player.driven, last_sent, t = 0.0, None, time.monotonic()
         try:
             while not phone.closed_by_hu.is_set():
                 time.sleep(0.25)
                 now = time.monotonic()
                 kmh = vehicle_speed()
-                driven += (fallback_kmh if kmh is None else kmh) / 3.6 * (now - t)
+                player.advance((fallback_kmh if kmh is None else kmh) / 3.6 * (now - t))
                 t = now
-                if driven >= total:
-                    phone.send(cl.guidance(route["source"], "arrive", distance_m=0, street=legs[-1]["street"],
-                                           remaining_m=0, remaining_s=0))
+                if player.arrived:
+                    phone.send(player.guidance())
                     time.sleep(5)
                     phone.send(cl.guidance_ended())
                     log("arrived, guidance ended; starting over in 5 s")
                     time.sleep(5)
-                    driven, last_sent, t = 0.0, None, time.monotonic()
+                    player.driven, last_sent, t = 0.0, None, time.monotonic()
                     continue
-                at = 0.0
-                for leg in legs:
-                    at += leg["after_m"]
-                    if at > driven:
-                        break
-                remaining = total - driven
-                msg = cl.guidance(route["source"], leg["maneuver"], leg.get("modifier"), leg.get("exit"),
-                                  distance_m=shown_distance(at - driven), street=leg["street"],
-                                  text=leg.get("text"), remaining_m=shown_distance(remaining),
-                                  remaining_s=round(remaining / city_mps / 60) * 60.0)
+                msg = player.guidance()
                 if msg != last_sent:
                     phone.send(msg)
                     last_sent = msg
@@ -202,7 +237,8 @@ def play(route: dict, path: str, fallback_kmh: float):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--socket", default=str(DEFAULT_SOCKET), help="hu-navd's companion link socket")
+    ap.add_argument("--socket", default=str(DEFAULT_SOCKET),
+                    help="hu-navd's companion link socket, or tcp:HOST:PORT (navd --tcp)")
     ap.add_argument("--route", default=str(HERE / "route_demo.json"), help="route to play")
     ap.add_argument("--speed-kmh", type=float, default=50, help="speed when hu-vehicled does not run")
     a = ap.parse_args()

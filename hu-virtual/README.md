@@ -274,6 +274,26 @@ gdbus call --session -d de.r80.Nav -o /de/r80/Nav \
   -m org.freedesktop.DBus.Properties.Get de.r80.Nav1 Guidance
 ```
 
+### Phone panel
+
+`./hu-virtual.sh phonepanel` opens a window that plays the phone by hand, for
+testing the HU without a real phone, Google Maps or fake GPS:
+
+- link: connect, disconnect with `bye`, drop without a word, go silent (no
+  heartbeats: navd drops the link and keeps the guidance as stale),
+- route: play `phone_emu/*.json` at a set speed or at the HU's vehicle speed,
+  pause, jump anywhere,
+- by hand: any maneuver, direction, roundabout exit, distance, street, text and
+  remaining distance/time; presets for edge cases (rerouting, long signpost,
+  unknown arrow, destination side, ...); guidance ended; raw (also broken) lines,
+- a log of everything sent and received.
+
+It also reaches the Pi bench over the cable: give the Pi's navd a TCP port
+(`R80_NAV_ARGS="--tcp 47800"` for `r80-kiosk.sh`, see `docs/bench-pi.md`) and
+connect to `tcp:<pi-ip>:47800`. Connecting replaces a connected phone.
+
+![Phone panel](docs/phone_panel.png)
+
 ## Tests (BoAt)
 
 ```bash
@@ -357,6 +377,7 @@ hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`
 mcu_emu/mcu_emu.py       MCU emulator
 mcu_emu/mcuctl.py        control client (also used by the tests)
 phone_emu/phone_emu.py   phone emulator (companion app stand-in), also the tests' Phone class
+phone_emu/phone_panel.py phone panel: GUI that plays the phone (routes, any guidance, link loss)
 phone_emu/route_demo.json  demo route the emulator plays
 boat/restbus.py          BoAt restbus node / library
 boat/restbus_panel.py    tester GUI: the restbus with live signal editing + HU controls
