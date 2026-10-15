@@ -316,7 +316,7 @@ Pair once; afterwards the app connects by itself whenever it is started.
 Without a phone: the phone panel on the PC (`hu-virtual/hu-virtual.sh phonepanel`,
 see `hu-virtual/README.md`) reaches the Pi's navd over the cable once navd has a TCP
 port. For the desktop service: `systemctl --user edit r80-hu-desktop`, add
-`[Service]` / `Environment=R80_NAV_ARGS=--tcp 47800`, restart it, then connect the
+`[Service]` / `Environment="R80_NAV_ARGS=--tcp 47800"` (with the quotes), restart it, then connect the
 panel to `tcp:<pi-ip>:47800` (no authentication: only on the cable to the PC).
 
 navd only accepts paired phones (BlueZ checks that before navd sees the
