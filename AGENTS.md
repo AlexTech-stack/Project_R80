@@ -56,6 +56,8 @@ hu-virtual/
     vehicled.py                   vehicle service, publishes D-Bus de.r80.Vehicle
     mediad.py                     media service (GStreamer), D-Bus de.r80.Media
     audiod.py, audio.ini          audio service (volume, mute, D9), D-Bus de.r80.Audio, and its config
+    warnd.py, warnings.ini        vehicle warnings (D10), D-Bus de.r80.Warnings, and its rules
+    tripd.py, trip.ini            trip computer (D10), D-Bus de.r80.Trip, and its config
     ui/run_hu.py, ui/backend.py   UI launcher and QML backend over D-Bus
     ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
   mcu_emu/                        MCU emulator and its control client (PC only)
@@ -113,7 +115,7 @@ SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 
 CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
 (`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
-A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`) in a
+A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`, `hu/warnd.py`, `hu/tripd.py`) in a
 Debian 13 container per CPU, arm64 (QEMU-emulated, like the Pi) and amd64, while BoAt
 stays on the x86 host (`ci/run_boat_sil.sh --install --dut-arch=arm64`; needs docker,
 and qemu-user-static for arm64).

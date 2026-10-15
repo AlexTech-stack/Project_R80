@@ -26,10 +26,25 @@ QtObject {
     property real fuelLevel: 0.62          // 0..1
     readonly property int rangeKm: Math.round(fuelLevel * 760)
     property real odometer: 187432.4
-    property real tripKm: 43.7
-    property int tripMinutes: 52
     property real avgConsumption: 11.8
-    readonly property int avgSpeed: Math.round(tripKm / Math.max(tripMinutes, 1) * 60)
+    // ---- trip computer (D10; from hu-tripd in hu-virtual) -------------------
+    // {km, minutes, avgSpeed, maxSpeed}; "since start" and "long-term"
+    property var tripStart: ({ km: 43.7, minutes: 52, avgSpeed: 50, maxSpeed: 128 })
+    property var tripLong: ({ km: 1874.2, minutes: 1712, avgSpeed: 66, maxSpeed: 187 })
+    function resetTrip(which) { _setTrip(which, { km: 0, minutes: 0, avgSpeed: 0, maxSpeed: 0 }) }
+    function _setTrip(which, v) { if (which === "start") tripStart = v; else tripLong = v }
+    property real _tripSeconds: 0
+    function _driveTrips(dt) {                // the fake data's own trip computer
+        _tripSeconds += dt
+        for (const which of ["start", "long"]) {
+            const t = which === "start" ? tripStart : tripLong
+            const km = t.km + speed * dt / 3600
+            const minutes = t.minutes + (_tripSeconds >= 60 ? 1 : 0)
+            _setTrip(which, { km: km, minutes: minutes, avgSpeed: minutes ? Math.round(km / minutes * 60) : 0,
+                              maxSpeed: Math.max(t.maxSpeed, Math.round(speed)) })
+        }
+        if (_tripSeconds >= 60) _tripSeconds = 0
+    }
     property var tyres: [2.3, 2.3, 2.2, 2.2]   // FL FR RL RR, bar
     property int serviceKm: 6400
     property int serviceDays: 112
@@ -42,7 +57,24 @@ QtObject {
     property int navVolume: 30
     property int phoneVolume: 30
     property int radioVolume: 30
+    property int chimeVolume: 30
     function toggleMute() { muted = !muted }
+
+    // ---- warnings (D10; from hu-warnd in hu-virtual) ----------------------
+    // Most urgent first: {id, severity: warning | information | notice, text, acknowledged, since (s)}
+    property var warnings: []
+    function acknowledgeWarning(id) {
+        warnings = warnings.map(w => w.id === id ? Object.assign({}, w, { acknowledged: true }) : w)
+    }
+    function acknowledgeAllWarnings() { warnings = warnings.map(w => Object.assign({}, w, { acknowledged: true })) }
+    function simulateWarnings() {
+        warnings = [
+            { id: "tyre_dropping.TyrePressureFL", severity: "warning", acknowledged: false, since: 3,
+              text: "Tyre pressure dropping fast, front left (0.15 bar/s)" },
+            { id: "fuel_low", severity: "information", acknowledged: false, since: 40, text: "Fuel low (8 %)" },
+            { id: "service_distance", severity: "notice", acknowledged: false, since: 300, text: "Service due in 800 km" }
+        ]
+    }
     property int homeIndex: 0
     property bool units_metric: true
 
@@ -217,11 +249,10 @@ QtObject {
             }
             if (sim.callState === "active") sim.callSeconds += 1;
             sim.odometer += sim.speed / 3600;
-            sim.tripKm += sim.speed / 3600;
+            sim._driveTrips(1);
             sim.fuelLevel = Math.max(0.05, sim.fuelLevel - sim.speed * 0.0000004);
             sim.batteryVolt = 14.1 + Math.random() * 0.2;
             sim.oilTemp = Math.round(91 + Math.random() * 2);
-            if (Math.random() < 0.02) sim.tripMinutes += 1;
         }
     }
     property Timer driveTimer: Timer {

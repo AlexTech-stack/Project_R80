@@ -1,10 +1,12 @@
 import QtQuick
 
-// Vehicle data: status, trip computer, tyres, service.
+// Vehicle data: status, trip computer, tyres, service, active warnings (D10).
 Item {
     id: root
+    objectName: "vehicleScreen"     // run.py --screenshots opens the Warnings tab through it
     property int tab: 0
-    readonly property var tabs: ["Status", "Trip", "Tyres", "Service"]
+    readonly property var tabs: ["Status", "Trip", "Tyres", "Service", "Warnings"]
+    readonly property int warningsTab: 4
     function knob(d) { tab = (tab + d + tabs.length) % tabs.length }
     function press() {}
 
@@ -49,38 +51,47 @@ Item {
         }
     }
 
-    // --- Trip
-    Grid {
+    // --- Trip (D10): "since start" (starts over after 2 h with the ignition off) and long-term
+    Row {
         visible: root.tab === 1
-        x: Theme.margin + 40; y: 130
-        columns: 2
-        columnSpacing: 160
-        rowSpacing: 50
+        x: Theme.margin; y: 84
+        spacing: 60
         Repeater {
-            model: [
-                { label: "Distance",          value: Sim.tripKm.toFixed(1), unit: "km" },
-                { label: "Driving time",      value: Math.floor(Sim.tripMinutes / 60) + ":" + ("0" + Sim.tripMinutes % 60).slice(-2), unit: "h" },
-                { label: "Avg. consumption",  value: Sim.avgConsumption.toFixed(1).replace(".", ","), unit: "l/100 km" },
-                { label: "Avg. speed",        value: Sim.avgSpeed, unit: "km/h" }
-            ]
+            model: [{ title: "Since start", which: "start", t: Sim.tripStart },
+                    { title: "Long-term", which: "long", t: Sim.tripLong }]
             Column {
-                width: 440
-                spacing: 4
-                T { text: modelData.label; color: Theme.accentMid }
-                Row {
-                    spacing: 12
-                    T { id: big; text: modelData.value; font.family: Theme.numberFamily; font.pixelSize: 96 }
-                    T { text: modelData.unit; font.pixelSize: Theme.fontLarge; anchors.baseline: big.baseline }
+                width: (root.width - 2 * Theme.margin - 60) / 2
+                spacing: 2
+                Item {
+                    width: parent.width; height: 64
+                    T { text: modelData.title; font.pixelSize: Theme.fontLarge; anchors.verticalCenter: parent.verticalCenter }
+                    LineButton {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        label: "Reset"
+                        onClicked: Sim.resetTrip(modelData.which)
+                    }
+                }
+                Repeater {
+                    model: [
+                        { label: "Distance",         value: modelData.t.km.toFixed(1).replace(".", ","), unit: "km" },
+                        { label: "Driving time",     value: Math.floor(modelData.t.minutes / 60) + ":" + ("0" + modelData.t.minutes % 60).slice(-2), unit: "h" },
+                        { label: "Avg. speed",       value: modelData.t.avgSpeed, unit: "km/h" },
+                        { label: "Max. speed",       value: modelData.t.maxSpeed, unit: "km/h" },
+                        { label: "Avg. consumption", value: Sim.avgConsumption.toFixed(1).replace(".", ","), unit: "l/100 km" }
+                    ]
+                    Item {
+                        width: parent.width; height: 100
+                        T { y: 8; text: modelData.label; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
+                        Row {
+                            y: 32; spacing: 10
+                            T { id: big; text: modelData.value; font.family: Theme.numberFamily; font.pixelSize: 52 }
+                            T { text: modelData.unit; font.pixelSize: Theme.fontNormal; anchors.baseline: big.baseline; color: Theme.accentMid }
+                        }
+                        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.accentFaint }
+                    }
                 }
             }
         }
-    }
-    LineButton {
-        visible: root.tab === 1
-        anchors.right: parent.right; anchors.rightMargin: Theme.margin
-        anchors.bottom: parent.bottom; anchors.bottomMargin: 30
-        label: "Reset trip"
-        onClicked: { Sim.tripKm = 0; Sim.tripMinutes = 0 }
     }
 
     // --- Tyres (top view)
@@ -144,6 +155,51 @@ Item {
             Column {
                 T { text: "Fault memory"; color: Theme.accentMid }
                 T { text: "No entries"; font.pixelSize: 44 }
+            }
+        }
+    }
+
+    // --- Warnings (D10): everything hu-warnd reports, most urgent first
+    Item {
+        anchors.fill: parent
+        visible: root.tab === root.warningsTab
+        T {
+            x: Theme.margin; y: 110
+            visible: Sim.warnings.length === 0
+            text: "No warnings"
+            color: Theme.accentMid
+        }
+        Column {
+            x: Theme.margin; y: 84
+            width: parent.width - 2 * Theme.margin
+            Repeater {
+                model: Sim.warnings
+                Item {
+                    width: parent.width; height: 74
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 34; height: 34
+                        path: modelData.severity === "warning" ? Icons.warning : Icons.info
+                        color: modelData.severity === "notice" ? Theme.accentMid : Theme.accent
+                    }
+                    T {
+                        x: 58; width: parent.width - 58 - 360; anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.text; elide: Text.ElideRight
+                        color: modelData.severity === "notice" ? Theme.accentMid : Theme.accent
+                    }
+                    T {
+                        anchors.right: parent.right; anchors.rightMargin: 150; anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.severity === "warning" ? "Warning" : modelData.severity === "information" ? "Information" : "Notice"
+                        font.pixelSize: Theme.fontSmall; color: Theme.accentMid
+                    }
+                    T {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.acknowledged ? "acknowledged" : modelData.severity === "notice" ? "" : "open"
+                        font.pixelSize: Theme.fontSmall
+                        color: modelData.acknowledged ? Theme.accentDim : Theme.accent
+                    }
+                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.accentFaint }
+                }
             }
         }
     }

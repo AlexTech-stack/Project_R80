@@ -352,3 +352,116 @@ class Audio(QObject):
     def setCallState(self, state):
         """Stand-in for the phone service: the UI's simulated call (idle|ringing|active)."""
         self._call("SetCallState", "s", (str(state),))
+
+
+WARN_SERVICE, WARN_PATH, WARN_IFACE = "de.r80.Warnings", "/de/r80/Warnings", "de.r80.Warnings1"
+
+
+class Warnings(QObject):
+    """QML singleton mirroring hu-warnd (de.r80.Warnings1): the active vehicle warnings,
+    most urgent first, as dicts {id, severity, text, acknowledged, since}. `available`
+    tells the overlay Sim.qml whether to fall back to its own demo warnings."""
+    changed = Signal()
+    availableChanged = Signal()
+
+    def __init__(self, system_bus=False, parent=None):
+        super().__init__(parent)
+        self._available = False
+        self._active = []
+        DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
+        self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, WARN_PATH)
+        self._poll = QTimer(self, interval=3000, timeout=self.refresh)
+        self._poll.start()
+        QTimer.singleShot(0, self.refresh)
+
+    def refresh(self):
+        self.bus.call_async(WARN_SERVICE, WARN_PATH, PROPS, "GetAll", "s", (WARN_IFACE,),
+                            self._apply, self._on_gone, timeout=1.0)
+
+    def _on_gone(self, _err):
+        if self._available:
+            self._available = False
+            self._active = []
+            self.availableChanged.emit()
+            self.changed.emit()
+
+    def _on_props(self, iface, changed, _invalidated):
+        if iface == WARN_IFACE:
+            self._apply(changed)
+
+    def _apply(self, changed: dict):
+        if not self._available:
+            self._available = True
+            self.availableChanged.emit()
+        if "Active" in changed:
+            self._active = [{str(k): _py(v) for k, v in w.items()} for w in changed["Active"]]
+            self.changed.emit()
+
+    def _call(self, method, signature="", args=()):
+        self.bus.call_async(WARN_SERVICE, WARN_PATH, WARN_IFACE, method,
+                            signature, args, lambda *_: None, lambda *_: None, timeout=1.0)
+
+    available = Property(bool, lambda self: self._available, notify=availableChanged)
+    active = Property("QVariantList", lambda self: list(self._active), notify=changed)
+
+    @Slot(str)
+    def acknowledge(self, rid):
+        self._call("Acknowledge", "s", (str(rid),))
+
+    @Slot()
+    def acknowledgeAll(self):
+        self._call("AcknowledgeAll")
+
+
+TRIP_SERVICE, TRIP_PATH, TRIP_IFACE = "de.r80.Trip", "/de/r80/Trip", "de.r80.Trip1"
+
+
+class Trip(QObject):
+    """QML singleton mirroring hu-tripd (de.r80.Trip1): the "since start" and "long-term"
+    trips as dicts {distance, time, avg_speed, max_speed, avg_consumption}."""
+    changed = Signal()
+    availableChanged = Signal()
+
+    def __init__(self, system_bus=False, parent=None):
+        super().__init__(parent)
+        self._available = False
+        self._v = {"SinceStart": {}, "LongTerm": {}}
+        DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
+        self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, TRIP_PATH)
+        self._poll = QTimer(self, interval=3000, timeout=self.refresh)
+        self._poll.start()
+        QTimer.singleShot(0, self.refresh)
+
+    def refresh(self):
+        self.bus.call_async(TRIP_SERVICE, TRIP_PATH, PROPS, "GetAll", "s", (TRIP_IFACE,),
+                            self._apply, self._on_gone, timeout=1.0)
+
+    def _on_gone(self, _err):
+        if self._available:
+            self._available = False
+            self.availableChanged.emit()
+            self.changed.emit()
+
+    def _on_props(self, iface, changed, _invalidated):
+        if iface == TRIP_IFACE:
+            self._apply(changed)
+
+    def _apply(self, changed: dict):
+        if not self._available:
+            self._available = True
+            self.availableChanged.emit()
+        for k in ("SinceStart", "LongTerm"):
+            if k in changed:
+                self._v[k] = {str(a): _py(b) for a, b in changed[k].items()}
+        self.changed.emit()
+
+    available = Property(bool, lambda self: self._available, notify=availableChanged)
+    sinceStart = Property("QVariantMap", lambda self: dict(self._v["SinceStart"]), notify=changed)
+    longTerm = Property("QVariantMap", lambda self: dict(self._v["LongTerm"]), notify=changed)
+
+    @Slot(str)
+    def reset(self, which):
+        self.bus.call_async(TRIP_SERVICE, TRIP_PATH, TRIP_IFACE, "Reset", "s", (str(which),),
+                            lambda *_: None, lambda *_: None, timeout=1.0)

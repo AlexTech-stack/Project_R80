@@ -125,9 +125,10 @@ Media screen to this service and falls back to the mockup's own playlist when
 
 - properties `Max`, `Master`, `Muted`, `StartupCap`, `Volumes` (per source:
   media, navigation, phone, radio), `Gains` (the level each source should play at),
-  `NavPrompt`, `CallState` (idle / ringing / active), `Duck`
+  `NavPrompt`, `CallState` (idle / ringing / active), `Duck`, `Chime`,
+  `WarningChimeGain`; sources are media, navigation, phone, radio and chime
 - methods `SetMaster`, `Step`, `SetMuted`, `ToggleMute`, `SetVolume(source, value)`,
-  `SetNavPrompt(active)`, `SetCallState(state)`
+  `SetNavPrompt(active)`, `SetCallState(state)`, `SetChime(active)`
 
 For each source it computes `gain = ((Master / Max) * (Volume / Max)) ** curve`
 (0 while muted) and the source applies it itself: `mediad` through `SetGain`,
@@ -174,6 +175,63 @@ mirrors audiod's values into the mockup's property names (`volume`, `volumeMax`,
 `muted`, `mediaVolume`, `navVolume`, `phoneVolume`, `radioVolume`) and sends
 changes back to audiod.
 
+## Warnings (hu-warnd)
+
+`hu/warnd.py` raises vehicle warnings (decision D10) from the signals hu-vehicled
+publishes, on D-Bus `de.r80.Warnings` at `/de/r80/Warnings` (interface
+`de.r80.Warnings1`): property `Active` (one dict per warning: id, severity,
+text, value, since, acknowledged; most severe first), methods `Acknowledge(id)`
+and `AcknowledgeAll()`, signal `Raised(id, severity, text)`.
+
+The rules are in `hu/warnings.ini` (overridden by `/etc/r80/warnings.ini`, then
+`--config`, or `WARN_ARGS` for `hu-virtual.sh`); warnd refuses a bad file.
+**The numbers there are placeholders, not the real car's.** Rule kinds:
+threshold with hysteresis (`below` / `above`, `clear_above` / `clear_below`, a
+band with `at_least`), drop rate (`drop_rate` per second over `window_s`, held
+`hold_s`; a fast tyre pressure drop is a warning while the value is still fine),
+difference of two signals (`diff_above`), and missing data (`stale`). Every rule
+has a debounce (`for_s`), can require the engine to run, and a severity by how
+soon the driver has to act: `warning` (within seconds), `information` (within
+minutes or hours) or `notice` (some time soon; silent). Warnings are only
+evaluated while the HU is on. Oil pressure has a static limit only, since it
+falls fast on every lift-off.
+
+Chimes: a newly raised `information` plays the information chime (a soft falling
+two-note bell), a `warning` the warning chime (two groups of three high beeps);
+a `notice` is silent, and of several warnings raised together only the most
+urgent one chimes. Both are generated in code at start (no sound files). warnd
+plays them at hu-audiod's levels: the information chime is the `chime` source
+(its own volume under Settings → Audio, silent when muted), the warning chime
+uses `WarningChimeGain`, which ignores mute and never goes below
+`warning_chime_min_gain` (audio.ini). Meanwhile audiod ducks the music
+(`SetChime`). warnd publishes `LastChime`, `LastChimeGain` and `ChimeCount`.
+`run_boat_sil.sh` passes `WARN_ARGS=--sink fakesink`, so tests stay silent.
+
+In the UI (`hu/ui/backend.py` → `Sim.warnings`, `Sim.acknowledgeWarning`), the
+most urgent open warning or information is a banner below the header until it
+is acknowledged (OK or knob press → `Acknowledge`); a notice shows for 5 s; the
+header has a warning count; Vehicle → Warnings lists all of them.
+
+```bash
+python3 hu/warnd.py --check            # check warnings.ini and list every rule
+gdbus call --session -d de.r80.Warnings -o /de/r80/Warnings \
+  -m org.freedesktop.DBus.Properties.Get de.r80.Warnings1 Active
+```
+
+## Trip computer (hu-tripd)
+
+`hu/tripd.py` keeps two trips (decision D10) on D-Bus `de.r80.Trip` at
+`/de/r80/Trip` (interface `de.r80.Trip1`): properties `SinceStart` and
+`LongTerm` (distance km, driving time s, average and maximum speed, and the
+car's own `AvgConsumption`, the same for both), method `Reset(since_start |
+long_term)`. Distance comes from odometer steps (a step over
+`max_odometer_jump_km` is ignored), driving time counts while the HU is on.
+"Since start" starts over when the ignition was off longer than
+`auto_reset_h` (`hu/trip.ini`, 2 h); the switch-off time is saved with the
+trips (`$XDG_RUNTIME_DIR/r80-hu/trip-state.json` under hu-virtual.sh), and if
+the HU lost power while driving, the last save counts as switch-off. The
+Vehicle → Trip tab shows both trips side by side, each with its own Reset.
+
 ## Tests (BoAt)
 
 ```bash
@@ -196,6 +254,12 @@ changes back to audiod.
 | TC_HU_011 | audio: a navigation prompt fades media and radio to `duck_level` and back; navigation and phone untouched |
 | TC_HU_012 | audio: a call pauses media and silences radio from ringing on, media resumes only if it played before, mute spares the phone |
 | TC_HU_013 | audio: VOL_UP / MUTE from the MCU are ignored while the HU is off and work again after wake-up |
+| TC_HU_014 | warnings: debounce, hysteresis, acknowledge; oil pressure gone is a warning only with the engine running |
+| TC_HU_015 | warnings: a fast tyre pressure drop is a warning while the value is still fine; a slow drop is not; no oil drop-rate rule |
+| TC_HU_016 | warnings: missing CAN message -> 'No data', clears when back; no warnings while the HU is off |
+| TC_HU_017 | chimes: information chime at the chime volume, music ducks; muted: information silent, warning chime still audible; notice silent |
+| TC_HU_018 | trip: distance from the odometer in both trips, max speed, reset since start only, odometer jump ignored, no time while off, car's consumption |
+| TC_HU_019 | trip: state file; since start starts over after > 2 h off, also after a power loss while driving; average speed (tripd's logic, simulated clock) |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
@@ -234,6 +298,10 @@ hu/vehicled.py           Linux vehicle service: UART -> DBC -> D-Bus de.r80.Vehi
 hu/mediad.py             Linux media service: GStreamer playbin -> D-Bus de.r80.Media
 hu/audiod.py             Linux audio service: volume, mute -> D-Bus de.r80.Audio, gain to mediad
 hu/audio.ini             audiod's numbers (scale, startup cap, defaults, curve)
+hu/warnd.py              Linux warning service: rules on vehicled's signals -> D-Bus de.r80.Warnings
+hu/warnings.ini          warnd's rules (placeholder thresholds)
+hu/tripd.py              Linux trip computer: odometer / speed -> D-Bus de.r80.Trip
+hu/trip.ini              tripd's settings (auto reset after 2 h, ...)
 hu/ui/run_hu.py          UI launcher: mockup + Sim.qml overlay + MCU key input + power blanking
 hu/ui/backend.py         QML singletons `Vehicle` and `Media` (R80.Backend 1.0) mirroring D-Bus
 hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`

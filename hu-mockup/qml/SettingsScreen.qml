@@ -27,7 +27,7 @@ Item {
     property bool nightDim: true
     property int language: 0
 
-    readonly property var itemCounts: [3, 3, 8, 3, 1]
+    readonly property var itemCounts: [3, 3, 9, 3, 1]
     onCatChanged: item = 0
 
     function knob(d) {
@@ -56,9 +56,10 @@ Item {
             else if (item === 1) Sim.navVolume = vol(Sim.navVolume);
             else if (item === 2) Sim.phoneVolume = vol(Sim.phoneVolume);
             else if (item === 3) Sim.radioVolume = vol(Sim.radioVolume);
-            else if (item === 4) bass = Math.min(6, Math.max(-6, bass + d));
-            else if (item === 5) treble = Math.min(6, Math.max(-6, treble + d));
-            else if (item === 6) balance = Math.min(1, Math.max(-1, balance + d * 0.2));
+            else if (item === 4) Sim.chimeVolume = vol(Sim.chimeVolume);
+            else if (item === 5) bass = Math.min(6, Math.max(-6, bass + d));
+            else if (item === 6) treble = Math.min(6, Math.max(-6, treble + d));
+            else if (item === 7) balance = Math.min(1, Math.max(-1, balance + d * 0.2));
             else loudness = !loudness;
         } else if (cat === 3) {
             if (item === 0) bt = !bt; else if (item === 1) wifi = !wifi; else carplay = !carplay;
@@ -158,7 +159,8 @@ Item {
             spacing: 4
             Repeater {
                 model: [{ label: "Media", key: "mediaVolume" }, { label: "Navigation", key: "navVolume" },
-                        { label: "Phone", key: "phoneVolume" }, { label: "Radio", key: "radioVolume" }]
+                        { label: "Phone", key: "phoneVolume" }, { label: "Radio", key: "radioVolume" },
+                        { label: "Chimes", key: "chimeVolume" }]
                 SettingRow {
                     label: modelData.label + "  " + Sim[modelData.key]; idx: index; height: 66
                     LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: 0; to: Sim.volumeMax
@@ -167,16 +169,16 @@ Item {
                                  onMoved: (v) => Sim[modelData.key] = Math.round(v) }
                 }
             }
-            SettingRow { label: "Bass  " + (root.bass > 0 ? "+" : "") + root.bass; idx: 4; height: 66
+            SettingRow { label: "Bass  " + (root.bass > 0 ? "+" : "") + root.bass; idx: 5; height: 66
                 LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -6; to: 6; value: root.bass; centered: true
-                             focused: root.inPanel && root.item === 4; onMoved: (v) => root.bass = Math.round(v) } }
-            SettingRow { label: "Treble  " + (root.treble > 0 ? "+" : "") + root.treble; idx: 5; height: 66
+                             focused: root.inPanel && root.item === 5; onMoved: (v) => root.bass = Math.round(v) } }
+            SettingRow { label: "Treble  " + (root.treble > 0 ? "+" : "") + root.treble; idx: 6; height: 66
                 LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -6; to: 6; value: root.treble; centered: true
-                             focused: root.inPanel && root.item === 5; onMoved: (v) => root.treble = Math.round(v) } }
-            SettingRow { label: "Balance"; idx: 6; height: 66
+                             focused: root.inPanel && root.item === 6; onMoved: (v) => root.treble = Math.round(v) } }
+            SettingRow { label: "Balance"; idx: 7; height: 66
                 LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: -1; to: 1; value: root.balance; centered: true
-                             focused: root.inPanel && root.item === 6; onMoved: (v) => root.balance = v } }
-            SettingRow { label: "Loudness"; idx: 7; height: 66
+                             focused: root.inPanel && root.item === 7; onMoved: (v) => root.balance = v } }
+            SettingRow { label: "Loudness"; idx: 8; height: 66
                 Toggle { anchors.verticalCenter: parent.verticalCenter; checked: root.loudness; onToggled: root.loudness = !root.loudness } }
         }
 

@@ -7,6 +7,7 @@ Item {
     property bool showBack: title !== ""
     signal back()
     signal volumeClicked()
+    signal warningsClicked()
     height: Theme.headerHeight
 
     Row {
@@ -50,6 +51,24 @@ Item {
             visible: Sim.callState === "active"
             Icon { path: Icons.phone; width: 24; height: 24; anchors.verticalCenter: parent.verticalCenter }
             T { text: Sim.fmtTime(Sim.callSeconds); font.pixelSize: Theme.fontSmall }
+        }
+        // active vehicle warnings (D10): bright while one is not acknowledged yet
+        Item {
+            id: warnIndicator
+            readonly property bool open: Sim.warnings.some(w => !w.acknowledged && w.severity !== "notice")
+            visible: Sim.warnings.length > 0
+            width: warnRow.width; height: 44
+            anchors.verticalCenter: parent.verticalCenter
+            Row {
+                id: warnRow
+                spacing: 6
+                anchors.verticalCenter: parent.verticalCenter
+                Icon { path: Icons.warning; width: 24; height: 24; anchors.verticalCenter: parent.verticalCenter
+                       color: warnIndicator.open ? Theme.accent : Theme.accentMid }
+                T { text: Sim.warnings.length; font.pixelSize: Theme.fontSmall + 2; anchors.verticalCenter: parent.verticalCenter
+                    color: warnIndicator.open ? Theme.accent : Theme.accentMid }
+            }
+            MouseArea { anchors.fill: parent; anchors.margins: -10; onClicked: root.warningsClicked() }
         }
         T {
             text: Math.round(Sim.outsideTemp) + "°C"
