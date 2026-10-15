@@ -181,10 +181,21 @@ QtObject {
     ]
     readonly property real _navTotal: navRoute.reduce((a, l) => a + l.m, 0)
     property real _navDriven: 1050
-    // What the demo shows (key N cycles): "live", "stale" (phone link lost),
-    // "idle" (phone connected, no route), "nophone".
+    // What the demo shows (key N cycles): "live", "stale" (phone link lost), "idle" (phone
+    // connected, no route), "nophone", and edge cases the phone panel also sends: "reroute"
+    // (status text, no arrow), "signpost" (long signpost text), "arrive" (destination on the left).
     property string navDemo: "live"
-    function simulateNavState() { navDemo = ({ live: "stale", stale: "idle", idle: "nophone", nophone: "live" })[navDemo] }
+    readonly property var _navDemoNext: ({ live: "stale", stale: "idle", idle: "nophone", nophone: "reroute",
+                                           reroute: "signpost", signpost: "arrive", arrive: "live" })
+    function simulateNavState() { navDemo = _navDemoNext[navDemo] }
+    readonly property var _navDemoCases: ({
+        reroute: { maneuver: "unknown", modifier: "", distance: -1, street: "", text: "Route wird neu berechnet…",
+                   remainingM: -1, remainingS: -1 },
+        signpost: { maneuver: "turn", modifier: "right", distance: 80, text: "", remainingM: 7300, remainingS: 660,
+                    street: "Pragstraße Richtung A8 A81 B10 B27 Karlsruhe / Heilbronn / Vaihingen/Enz / Ludwigsburg / S-Zentrum / S-Feuerbach" },
+        arrive: { maneuver: "arrive", modifier: "left", distance: 40, street: "Schlossweg 8", text: "",
+                  remainingM: 40, remainingS: 30 }
+    })
     function _driveRoute(dt) {
         _navDriven += speed / 3.6 * dt;
         if (_navDriven >= _navTotal) _navDriven = 0;
@@ -192,11 +203,16 @@ QtObject {
     readonly property var _noGuidance: ({ active: false, stale: false, source: "", maneuver: "", modifier: "", exit: 0,
                                           distance: -1, street: "", text: "", remainingM: -1, remainingS: -1, arrival: null })
     // Phone link: { connected, device }
-    readonly property var navPhone: ({ connected: navDemo === "live" || navDemo === "idle", device: "Redmi Note 12 Pro 5G" })
+    readonly property var navPhone: ({ connected: navDemo !== "stale" && navDemo !== "nophone", device: "Redmi Note 12 Pro 5G" })
     // Guidance: { active, stale, source, maneuver, modifier, exit, distance (m), street, text,
     //             remainingM, remainingS, arrival (Date) }; -1 / null = not known
     readonly property var guidance: {
         if (navDemo === "idle" || navDemo === "nophone") return _noGuidance;
+        const c = _navDemoCases[navDemo];
+        if (c) return { active: true, stale: false, source: "google_maps", maneuver: c.maneuver, modifier: c.modifier,
+                        exit: 0, distance: c.distance, street: c.street, text: c.text, remainingM: c.remainingM,
+                        remainingS: c.remainingS,
+                        arrival: c.remainingS >= 0 ? new Date(now.getTime() + c.remainingS * 1000) : null };
         let at = 0, leg = navRoute[navRoute.length - 1];
         for (const l of navRoute) { at += l.m; if (at > _navDriven) { leg = l; break; } }
         const remaining = _navTotal - _navDriven, secs = remaining / (40 / 3.6);

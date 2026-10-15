@@ -157,6 +157,7 @@ Item {
             width: 34; height: 34; stroke: 9; anchors.verticalCenter: parent.verticalCenter
             maneuver: Sim.guidance.maneuver; modifier: Sim.guidance.modifier; exit: 0
         }
-        T { text: Fmt.distanceText(Sim.guidance.distance) + "  " + (Sim.guidance.street || Sim.guidance.text); font.pixelSize: Theme.fontSmall }
+        T { text: (Sim.guidance.distance >= 0 ? Fmt.distanceText(Sim.guidance.distance) + "  " : "")
+                  + (Fmt.signpost(Sim.guidance.street).main || Sim.guidance.text); font.pixelSize: Theme.fontSmall }
     }
 }

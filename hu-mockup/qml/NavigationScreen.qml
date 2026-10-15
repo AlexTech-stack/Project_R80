@@ -9,6 +9,11 @@ Item {
     readonly property var phone: Sim.navPhone
     readonly property var dist: Fmt.distance(g.distance)
     readonly property string sourceName: ({ google_maps: "Google Maps", osmand: "OsmAnd" })[g.source] || g.source
+    readonly property var sign: Fmt.signpost(g.street)
+    // A status message instead of a maneuver ("Route wird neu berechnet…", "Navigation wird
+    // gestartet…"): no arrow and no distance, only the app's words.
+    readonly property bool statusOnly: g.active && g.maneuver === "unknown" && g.distance < 0
+                                       && (g.text !== "" || g.street !== "")
 
     // ---- guidance panel ---------------------------------------------------
     Item {
@@ -28,7 +33,7 @@ Item {
         // next maneuver
         Item {
             anchors.fill: parent
-            visible: root.g.active
+            visible: root.g.active && !root.statusOnly
             opacity: root.g.stale ? 0.4 : 1
 
             ManeuverIcon {
@@ -61,13 +66,23 @@ Item {
                         anchors.baseline: distValue.baseline
                     }
                 }
+                // street large; the rest of a signpost ("Richtung …", further destinations) below
                 T {
                     width: parent.width
-                    text: root.g.street
+                    text: root.sign.main
                     visible: text !== ""
                     font.pixelSize: 40
                     wrapMode: Text.WordWrap
                     maximumLineCount: 2
+                }
+                T {
+                    width: parent.width
+                    text: root.sign.sub
+                    visible: text !== ""
+                    color: Theme.accentMid
+                    font.pixelSize: Theme.fontNormal
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 3
                 }
                 T {
                     width: parent.width
@@ -78,6 +93,30 @@ Item {
                     wrapMode: Text.WordWrap
                     maximumLineCount: 3
                 }
+            }
+        }
+
+        // status message (rerouting, starting): the app's words, no arrow
+        Column {
+            visible: root.statusOnly
+            opacity: root.g.stale ? 0.4 : 1
+            anchors.centerIn: parent
+            anchors.verticalCenterOffset: -20
+            width: parent.width - 120
+            spacing: 26
+            Icon {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 150; height: 150
+                stroke: 1.4
+                path: Icons.reroute
+            }
+            T {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                text: root.g.text || root.g.street
+                font.pixelSize: 40
+                wrapMode: Text.WordWrap
+                maximumLineCount: 3
             }
         }
 
@@ -129,7 +168,8 @@ Item {
         Column {
             width: parent.width
             spacing: 26
-            visible: root.g.active
+            // hidden when the app sends neither time nor distance (e.g. while it recalculates)
+            visible: root.g.active && (root.g.remainingS >= 0 || root.g.remainingM >= 0)
             opacity: root.g.stale ? 0.4 : 1
             Repeater {
                 model: [

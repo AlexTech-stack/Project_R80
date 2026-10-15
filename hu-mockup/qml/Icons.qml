@@ -86,6 +86,8 @@ QtObject {
     readonly property string callOut: "M13 11 L20 4 M14.5 4 H20 V9.5"
     readonly property string callMissed: "M4 7 L9 12 L14 7 M20 4 L14 10"
     readonly property string flag: "M6 21.5 V3 M6 4 H18.5 L15.5 8.5 L18.5 13 H6"
+    // circular arrow: route being recalculated
+    readonly property string reroute: "M19.5 12 A7.5 7.5 0 1 1 17.3 6.7 M17.6 2.6 L17.3 6.7 L13.2 6.9"
     readonly property string turnRight: "M7 21.5 V12 A4 4 0 0 1 11 8 H18.5 M14.5 4 L18.5 8 L14.5 12"
     readonly property string turnLeft: "M17 21.5 V12 A4 4 0 0 0 13 8 H5.5 M9.5 4 L5.5 8 L9.5 12"
     readonly property string straight: "M12 21.5 V3.5 M7 8.5 L12 3.5 L17 8.5"

@@ -61,7 +61,7 @@ Item {
         Repeater {
             model: [
                 { icon: Icons.nav,   top: Sim.guidance.active ? Fmt.distanceText(Sim.guidance.distance) : "--",
-                  sub: Sim.guidance.active ? (Sim.guidance.street || Sim.guidance.text) : (Sim.navPhone.connected ? "No route" : "No phone"), key: "navigation" },
+                  sub: Sim.guidance.active ? (Fmt.signpost(Sim.guidance.street).main || Sim.guidance.text) : (Sim.navPhone.connected ? "No route" : "No phone"), key: "navigation" },
                 { icon: Icons.music, top: Sim.track.title, sub: Sim.track.artist, key: "media" },
                 { icon: Icons.fuel,  top: Sim.rangeKm + " km", sub: "Range", key: "vehicle" }
             ]
