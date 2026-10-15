@@ -43,6 +43,8 @@ The ready-made files live in `r80_pi_testbench/`:
 | `r80-kiosk.sh` | Pi | starts mcu emu + vehicled + mediad + audiod + warnd + tripd + navd + the UI |
 | `r80-hu.service` | Pi | systemd unit for `r80-kiosk.sh` (eglfs kiosk) |
 | `r80-bench.conf.example` | Pi | `PC_IP`/ports for the can service |
+| `install-units.sh` | Pi | installs both units for the current user and checkout |
+| `pc-share-internet.sh` | test PC | shares the PC's internet with the Pi over the cable (NAT) |
 
 ## 1. Hardware
 
@@ -58,9 +60,38 @@ Flash **Raspberry Pi OS (64-bit)** with Raspberry Pi Imager. Use the current
 Debian 13 "Trixie" image with desktop (not Lite: section 9 runs the UI in a
 window first; section 11 switches the desktop off). The 64-bit image supports the
 3B, and its glibc (>= 2.39) is new enough for the latest PySide6 `aarch64` wheel.
-Set user, Wi-Fi, locale, timezone and enable SSH in Imager. The systemd units in
-`r80_pi_testbench/` assume the user `pi` (`User=pi`, `/home/pi/...`): choose `pi`
-as the username, or change those lines before installing the units (section 7).
+Set user, locale, timezone and enable SSH in Imager (any user name; the units
+are filled in for it in section 7).
+
+**Network.** The bench uses a direct cable between PC and Pi (static addresses,
+e.g. PC 200.200.0.101, Pi 200.200.0.102) for SSH, VNC and the CAN tunnel. The Pi
+also needs internet for the steps below. The Pi 3B only does 2.4 GHz Wi-Fi; on a
+crowded 2.4 GHz channel it was unusable here (seconds of delay, most packets
+lost, `brcmf ... status -110` in `dmesg`). Reliable instead: the PC shares its
+internet over the cable.
+
+```bash
+# test PC (once; persistent; undo: see the script's header)
+r80_pi_testbench/pc-share-internet.sh enp0s31f6 200.200.0.0/24
+# Pi: gateway = the PC, public DNS, Wi-Fi off
+sudo nmcli con modify <cable connection> ipv4.gateway 200.200.0.101 ipv4.dns "1.1.1.1 8.8.8.8" ipv4.ignore-auto-dns yes
+sudo nmcli dev reapply eth0
+sudo nmcli radio wifi off
+```
+
+**Screen without a monitor.** Make the Pi behave as if a 1280 x 768 display were
+connected (the HU's design size; it also gives eglfs a display later), and turn on
+its VNC server:
+
+```bash
+sudo sed -i '1 s/$/ video=HDMI-A-1:1280x768M@60D/' /boot/firmware/cmdline.txt
+sudo raspi-config nonint do_vnc 0
+sudo reboot
+```
+
+On the PC: `vncviewer <pi address>` (TigerVNC), log in with the Pi's user and
+password. Screenshots over SSH: `XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0 grim shot.png`.
+
 Then:
 
 ```bash
@@ -118,6 +149,17 @@ git checkout Navigation             # until it is merged; then master
 `Navigation` contains everything: it builds on `Vehicle_Info` (warnings, trip
 computer), and `master` has media and audio. Once both are merged, use `master`.
 
+Optional, a USB stick for repo, venv and music (saves the SD card; on a Pi 3B it
+is not faster, USB and Ethernet share one USB 2.0 bus). Format it ext4, mount it
+by UUID in `/etc/fstab` (e.g. at `/mnt/r80`, with `nofail`), put the three folders
+there and link them, so every path in this guide stays the same:
+
+```bash
+ln -s /mnt/r80/Project_R80 ~/Project_R80
+ln -s /mnt/r80/r80-venv ~/r80-venv
+ln -s /mnt/r80/Music ~/Music
+```
+
 ## 5. Music and 3.5 mm audio
 
 ```bash
@@ -147,15 +189,12 @@ the PC firewall.
 
 ## 7. CAN tunnel (Pi)
 
-Copy `r80-bench.conf.example` to `/etc/r80-bench.conf` and set `PC_IP`. Install
-the two units (once the repo is at `~/Project_R80`):
+Install the two units for your user and checkout (as that user, not root). It
+fills in user, UID and repo path, and creates `/etc/r80-bench.conf` with `PC_IP`
+(the PC's address on the link to the Pi) if it does not exist yet:
 
 ```bash
-sudo cp ~/Project_R80/r80_pi_testbench/r80-can.service /etc/systemd/system/
-sudo cp ~/Project_R80/r80_pi_testbench/r80-hu.service  /etc/systemd/system/
-sudo cp ~/Project_R80/r80_pi_testbench/r80-bench.conf.example /etc/r80-bench.conf
-sudo nano /etc/r80-bench.conf                          # set PC_IP
-sudo chmod +x ~/Project_R80/r80_pi_testbench/*.sh
+~/Project_R80/r80_pi_testbench/install-units.sh <PC_IP>
 ```
 
 To bring the tunnel up manually first:
