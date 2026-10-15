@@ -163,13 +163,24 @@ ln -s /mnt/r80/Music ~/Music
 ## 5. Music and 3.5 mm audio
 
 ```bash
-mkdir -p ~/Music                    # copy mp3/ogg/flac/wav here
+mkdir -p ~/Music                    # copy mp3/ogg/flac/wav here (or a link to the USB stick)
 ```
 
-Enable the headphone jack with `sudo raspi-config` -> System Options -> Audio ->
-Headphones, then test with `speaker-test -t sine -c 1` or
-`gst-play-1.0 ~/Music/<file>`. Under PipeWire use `wpctl status` /
-`wpctl set-default <id>`; otherwise select the output in `alsamixer`.
+`dtparam=audio=on` in `/boot/firmware/config.txt` (the default) gives the jack as
+ALSA card `bcm2835 Headphones`. The HU's services play through PipeWire's default
+output, so make the jack the default and give the volume to the HU (audiod, D9):
+PipeWire at 0 dB on the jack. At 100 % the Pi's analog output runs at +4 dB and
+distorts loud tracks.
+
+```bash
+wpctl status                        # under Sinks: the "Built-in Audio" whose card is bcm2835 Headphones
+wpctl inspect <id> | grep -E "alsa.pcm.card|node.name"
+wpctl set-default <id>              # stored by name, survives reboots and HDMI audio appearing
+wpctl set-volume <id> 0.86          # = 0 dB on the jack (amixer -c 1 sget PCM)
+```
+
+While the HU plays, `wpctl status` lists a `python` stream going to
+`bcm2835 Headphones`. Test without the HU: `speaker-test -t sine -c 2 -l 1`.
 
 ## 6. CAN tunnel (test PC)
 
