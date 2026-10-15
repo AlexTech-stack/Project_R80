@@ -90,7 +90,9 @@ sudo reboot
 ```
 
 On the PC: `vncviewer <pi address>` (TigerVNC), log in with the Pi's user and
-password. Screenshots over SSH: `XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0 grim shot.png`.
+password. On a bench where only the PC can reach the Pi, the login can go: in
+`/etc/wayvnc/config` set `enable_auth=false` and bind it to the cable address
+(`address=<pi address on the cable>`), then `sudo systemctl restart wayvnc`. Screenshots over SSH: `XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0 grim shot.png`.
 
 Then:
 
