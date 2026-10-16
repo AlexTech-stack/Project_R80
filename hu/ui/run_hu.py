@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run the R80 headunit UI mockup on real vehicle data from hu-vehicled.
 
-Loads the UI's QML (hu/ui/qml) with one file swapped: Sim.qml comes from
-hu/ui/live and takes vehicle values from D-Bus. Knob and
+Loads the UI's QML (hu/ui/qml) with the real R80.Backend singletons, so Sim.qml
+takes its values from the services over D-Bus. Knob and
 button events from the MCU become the same key presses the mockup already
 handles, and the display blanks while the MCU reports power off.
 
@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -37,17 +36,6 @@ Rectangle {
     MouseArea { anchors.fill: parent }   // swallow input while the display is off
 }
 """
-
-
-def overlay_dir(mockup: Path) -> Path:
-    """The UI's qml/ with the files of live/ (Sim.qml) swapped in, as symlinks in a temp dir."""
-    root = Path(tempfile.mkdtemp(prefix="r80-hu-"))
-    (root / "qml").mkdir()
-    for f in (mockup / "qml").iterdir():
-        src = HERE / "live" / f.name if (HERE / "live" / f.name).exists() else f
-        (root / "qml" / f.name).symlink_to(src.resolve())
-    (root / "fonts").symlink_to((mockup / "fonts").resolve())
-    return root
 
 
 def main():
@@ -89,9 +77,8 @@ def main():
     qmlRegisterSingletonInstance(Nav, "R80.Backend", 1, 0, "Nav", nav)
     qmlRegisterSingletonInstance(System, "R80.Backend", 1, 0, "System", settings)
 
-    root = overlay_dir(mockup)
     engine = QQmlApplicationEngine()
-    engine.load(QUrl.fromLocalFile(str(root / "qml" / "main.qml")))
+    engine.load(QUrl.fromLocalFile(str(mockup / "qml" / "main.qml")))
     if not engine.rootObjects():
         sys.exit(1)
     win = engine.rootObjects()[0]
@@ -101,7 +88,7 @@ def main():
         win.showFullScreen()
 
     comp = QQmlComponent(engine)
-    comp.setData(POWER_OVERLAY, QUrl.fromLocalFile(str(root / "qml" / "PowerOverlay.qml")))
+    comp.setData(POWER_OVERLAY, QUrl.fromLocalFile(str(mockup / "qml" / "PowerOverlay.qml")))   # base URL for its imports
     overlay = comp.create()
     if overlay is None:
         sys.exit("power overlay failed: " + comp.errorString())

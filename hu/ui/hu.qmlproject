@@ -5,6 +5,8 @@ import QmlProject
 // no D-Bus or hu-virtual needed. run.py and hu-virtual do not use this file.
 Project {
     mainFile: "qml/main.qml"
+    // demo stand-ins for the R80.Backend singletons, so Sim.qml runs on demo data
+    importPaths: [ "qml-demo" ]
     mainUiFile: "qml/HomeScreen.qml"
 
     QmlFiles {

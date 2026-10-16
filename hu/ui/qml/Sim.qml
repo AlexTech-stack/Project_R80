@@ -1,43 +1,111 @@
 pragma Singleton
 import QtQuick
+import R80.Backend 1.0
 
-// Fake vehicle / media / phone / navigation data so the mockup feels alive.
-// Nothing here talks to real hardware.
+// Everything the screens show, in one place. Each value comes from its service through
+// the R80.Backend singletons (hu/ui/backend.py: Vehicle, Media, Audio, Warnings, Trip,
+// Nav, System) when that service runs, and falls back to built-in demo data when it does
+// not. Demo mode (hu/ui/run.py --demo, screenshots, Qt Design Studio) loads stand-ins
+// for the backends (hu/ui/qml-demo) that report nothing connected, so the whole UI runs
+// on demo data. Radio and phone calls are still simulated.
 QtObject {
     id: sim
 
+    readonly property bool live: Vehicle.linkUp
+    property Connections vehicleConn: Connections {
+        target: Vehicle
+        // With hu-audiod on the bus it handles the MCU's volume keys itself.
+        function onVolumeStep(d) { if (!sim.audioLive) sim.volume = Math.min(sim.volumeMax, Math.max(0, sim.volume + d)) }
+        function onMuteToggled() { if (!sim.audioLive) sim.muted = !sim.muted }
+    }
+
     signal navigate(string screen)
+
+    // ---- audio (hu-audiod) -------------------------------------------------
+    // Master volume, mute and the per-source volumes mirror audiod; changing one asks
+    // audiod, which owns them (D9). Without audiod they are plain local values.
+    readonly property bool audioLive: Audio.available
+    property bool _audioSync: false
+    function _pullAudio() {
+        if (!audioLive) return
+        _audioSync = true
+        volumeMax = Audio.max
+        volume = Audio.master
+        muted = Audio.muted
+        const v = Audio.volumes
+        if (v.media !== undefined) mediaVolume = v.media
+        if (v.navigation !== undefined) navVolume = v.navigation
+        if (v.phone !== undefined) phoneVolume = v.phone
+        if (v.radio !== undefined) radioVolume = v.radio
+        if (v.chime !== undefined) chimeVolume = v.chime
+        _audioSync = false
+    }
+    function _push(f) { if (audioLive && !_audioSync) f() }
+    onVolumeChanged: _push(() => Audio.setMaster(volume))
+    onMutedChanged: _push(() => Audio.setMuted(muted))
+    onMediaVolumeChanged: _push(() => Audio.setVolume("media", mediaVolume))
+    onNavVolumeChanged: _push(() => Audio.setVolume("navigation", navVolume))
+    onPhoneVolumeChanged: _push(() => Audio.setVolume("phone", phoneVolume))
+    onRadioVolumeChanged: _push(() => Audio.setVolume("radio", radioVolume))
+    onChimeVolumeChanged: _push(() => Audio.setVolume("chime", chimeVolume))
+    // Until there is a phone service, the simulated call tells audiod about calls
+    // (D9: media pauses and radio is silent from ringing on).
+    function _pushCall() { if (audioLive) Audio.setCallState(callState === "incoming" ? "ringing" : callState) }
+    onCallStateChanged: _pushCall()
+    property Connections audioConn: Connections {
+        target: Audio
+        function onChanged() { sim._pullAudio() }
+        function onAvailableChanged() { sim._pullAudio(); sim._pushCall() }
+    }
 
     // ---- time ------------------------------------------------------------
     property date now: new Date()
-    property bool clock24h: true
+    readonly property bool clock24h: _setting("clock_24h")
     readonly property string timeText: Qt.formatTime(now, clock24h ? "HH:mm" : "h:mm AP")
     readonly property string dateText: now.toLocaleDateString(Qt.locale("de_DE"), "ddd, d. MMM yyyy")
 
     // ---- vehicle ---------------------------------------------------------
-    property real speed: 0
+    // _-prefixed values are the mockup's own simulation, used when not live
+    property real _speed: 0
     property real targetSpeed: 50
-    readonly property real rpm: speed < 1 ? 780 : 900 + (speed % 45) * 48 + speed * 6
-    property string gear: "D"
-    property real outsideTemp: 12
-    property real oilTemp: 92
-    property real coolantTemp: 88
-    property real batteryVolt: 14.2
-    property real fuelLevel: 0.62          // 0..1
-    readonly property int rangeKm: Math.round(fuelLevel * 760)
-    property real odometer: 187432.4
-    property real avgConsumption: 11.8
+    property real _oilTemp: 92
+    property real _batteryVolt: 14.2
+    property real _fuelLevel: 0.62
+    property real _odometer: 187432.4
+
+    readonly property real speed: live ? Vehicle.speed : _speed
+    readonly property real rpm: live ? Vehicle.rpm : (speed < 1 ? 780 : 900 + (speed % 45) * 48 + speed * 6)
+    readonly property string gear: live ? Vehicle.gear : "D"
+    readonly property real outsideTemp: live ? Vehicle.outsideTemp : 12
+    readonly property real oilTemp: live ? Vehicle.oilTemp : _oilTemp
+    readonly property real coolantTemp: live ? Vehicle.coolantTemp : 88
+    readonly property real batteryVolt: live ? Vehicle.batteryVolt : _batteryVolt
+    readonly property real fuelLevel: live ? Vehicle.fuelLevel : _fuelLevel          // 0..1
+    readonly property int rangeKm: live ? Vehicle.rangeKm : Math.round(fuelLevel * 760)
+    readonly property real odometer: live ? Vehicle.odometer : _odometer
+    readonly property real avgConsumption: live ? Vehicle.avgConsumption : 11.8
     // ---- trip computer (D10; from hu-tripd in hu-virtual) -------------------
     // {km, minutes, avgSpeed, maxSpeed}; "since start" and "long-term"
-    property var tripStart: ({ km: 43.7, minutes: 52, avgSpeed: 50, maxSpeed: 128 })
-    property var tripLong: ({ km: 1874.2, minutes: 1712, avgSpeed: 66, maxSpeed: 187 })
-    function resetTrip(which) { _setTrip(which, { km: 0, minutes: 0, avgSpeed: 0, maxSpeed: 0 }) }
-    function _setTrip(which, v) { if (which === "start") tripStart = v; else tripLong = v }
+    // Live from hu-tripd; without it the fake data counts its own (as in the mockup).
+    readonly property bool tripLive: Trip.available
+    property var _fakeStart: ({ km: 43.7, minutes: 52, avgSpeed: 50, maxSpeed: 128 })
+    property var _fakeLong: ({ km: 1874.2, minutes: 1712, avgSpeed: 66, maxSpeed: 187 })
+    function _fromTripd(v) {
+        return { km: v.distance || 0, minutes: Math.floor((v.time || 0) / 60),
+                 avgSpeed: Math.round(v.avg_speed || 0), maxSpeed: Math.round(v.max_speed || 0) }
+    }
+    readonly property var tripStart: tripLive ? _fromTripd(Trip.sinceStart) : _fakeStart
+    readonly property var tripLong: tripLive ? _fromTripd(Trip.longTerm) : _fakeLong
+    function resetTrip(which) {
+        if (tripLive) Trip.reset(which === "start" ? "since_start" : "long_term")
+        else _setTrip(which, { km: 0, minutes: 0, avgSpeed: 0, maxSpeed: 0 })
+    }
+    function _setTrip(which, v) { if (which === "start") _fakeStart = v; else _fakeLong = v }
     property real _tripSeconds: 0
     function _driveTrips(dt) {                // the fake data's own trip computer
         _tripSeconds += dt
         for (const which of ["start", "long"]) {
-            const t = which === "start" ? tripStart : tripLong
+            const t = which === "start" ? _fakeStart : _fakeLong
             const km = t.km + speed * dt / 3600
             const minutes = t.minutes + (_tripSeconds >= 60 ? 1 : 0)
             _setTrip(which, { km: km, minutes: minutes, avgSpeed: minutes ? Math.round(km / minutes * 60) : 0,
@@ -45,11 +113,10 @@ QtObject {
         }
         if (_tripSeconds >= 60) _tripSeconds = 0
     }
-    property var tyres: [2.3, 2.3, 2.2, 2.2]   // FL FR RL RR, bar
-    property int serviceKm: 6400
-    property int serviceDays: 112
+    readonly property var tyres: live ? Vehicle.tyres : [2.3, 2.3, 2.2, 2.2]   // FL FR RL RR, bar
+    readonly property int serviceKm: live ? Vehicle.serviceKm : 6400
+    readonly property int serviceDays: live ? Vehicle.serviceDays : 112
     property int altitude: 412
-    // ---- audio (D9): master volume, mute, one volume per source ----------
     property int volume: 14                // master volume, 0 .. volumeMax
     property int volumeMax: 30
     property bool muted: false
@@ -60,15 +127,22 @@ QtObject {
     property int chimeVolume: 30
     function toggleMute() { muted = !muted }
 
-    // ---- warnings (D10; from hu-warnd in hu-virtual) ----------------------
-    // Most urgent first: {id, severity: warning | information | notice, text, acknowledged, since (s)}
-    property var warnings: []
+    // ---- warnings (hu-warnd, D10) ------------------------------------------
+    // Most urgent first: {id, severity: warning | information | notice, text, acknowledged, since}
+    readonly property bool warnLive: Warnings.available
+    property var _demoWarnings: []
+    readonly property var warnings: warnLive ? Warnings.active : _demoWarnings
     function acknowledgeWarning(id) {
-        warnings = warnings.map(w => w.id === id ? Object.assign({}, w, { acknowledged: true }) : w)
+        if (warnLive) Warnings.acknowledge(id)
+        else _demoWarnings = _demoWarnings.map(w => w.id === id ? Object.assign({}, w, { acknowledged: true }) : w)
     }
-    function acknowledgeAllWarnings() { warnings = warnings.map(w => Object.assign({}, w, { acknowledged: true })) }
-    function simulateWarnings() {
-        warnings = [
+    function acknowledgeAllWarnings() {
+        if (warnLive) Warnings.acknowledgeAll()
+        else _demoWarnings = _demoWarnings.map(w => Object.assign({}, w, { acknowledged: true }))
+    }
+    function simulateWarnings() {           // only without hu-warnd: the mockup's demo set
+        if (warnLive) return
+        _demoWarnings = [
             { id: "tyre_dropping.TyrePressureFL", severity: "warning", acknowledged: false, since: 3,
               text: "Tyre pressure dropping fast, front left (0.15 bar/s)" },
             { id: "fuel_low", severity: "information", acknowledged: false, since: 40, text: "Fuel low (8 %)" },
@@ -76,10 +150,12 @@ QtObject {
         ]
     }
     property int homeIndex: 0
-    property bool units_metric: true
+    readonly property bool units_metric: _setting("units") === "metric"
 
     // ---- media -----------------------------------------------------------
-    property var tracks: [
+    // hu-mediad (de.r80.Media1, singleton Media) drives these when it runs;
+    // otherwise the mockup's own playlist below keeps the screen alive.
+    property var _tracks: [
         { title: "The Passenger",    artist: "Iggy Pop",          album: "Lust for Life",      duration: 296 },
         { title: "Night Drive",      artist: "Neon Autobahn",     album: "Kilometer Null",     duration: 241 },
         { title: "Red Horizon",      artist: "The Quattro Lines", album: "V8 Sessions",        duration: 318 },
@@ -87,17 +163,51 @@ QtObject {
         { title: "Coastline",        artist: "Marta Kovac",       album: "Blue Roads",         duration: 263 },
         { title: "Low Frequencies",  artist: "Nord Signal",       album: "Carrier Wave",       duration: 227 }
     ]
+    readonly property bool mediaLive: Media.available && Media.trackCount > 0
+    property bool _mediaSync: false
+
     property int trackIndex: 0
     property int trackPos: 137
     property bool playing: true
     property bool shuffle: false
     property bool repeatAll: true
     property string mediaSource: "USB"
-    readonly property var track: tracks[trackIndex]
-    function nextTrack() { trackIndex = (trackIndex + 1) % tracks.length; trackPos = 0 }
+
+    readonly property var tracks: mediaLive ? Media.tracks : _tracks
+    readonly property var track: tracks.length ? tracks[Math.min(trackIndex, tracks.length - 1)] : null
+
+    function _pullMedia() {
+        if (!mediaLive) return
+        _mediaSync = true
+        playing = Media.playing
+        trackIndex = Media.trackIndex
+        trackPos = Media.trackPos
+        shuffle = Media.shuffle
+        repeatAll = Media.repeatAll
+        mediaSource = Media.mediaSource
+        _mediaSync = false
+    }
+    onPlayingChanged: if (mediaLive && !_mediaSync) Media.setPlaying(playing)
+    onTrackIndexChanged: if (mediaLive && !_mediaSync) Media.setTrack(trackIndex)
+    onTrackPosChanged: if (mediaLive && !_mediaSync) Media.setPosition(trackPos)
+    onShuffleChanged: if (mediaLive && !_mediaSync) Media.setShuffle(shuffle)
+    onRepeatAllChanged: if (mediaLive && !_mediaSync) Media.setRepeatAll(repeatAll)
+    onMediaSourceChanged: if (mediaLive && !_mediaSync) Media.setSource(mediaSource)
+
+    property Connections mediaConn: Connections {
+        target: Media
+        function onChanged() { sim._pullMedia() }
+        function onAvailableChanged() { sim._pullMedia() }
+    }
+
+    function nextTrack() {
+        if (mediaLive) { Media.next(); return }
+        trackIndex = (trackIndex + 1) % _tracks.length; trackPos = 0
+    }
     function prevTrack() {
+        if (mediaLive) { Media.prev(); return }
         if (trackPos > 3) { trackPos = 0; return }
-        trackIndex = (trackIndex - 1 + tracks.length) % tracks.length; trackPos = 0
+        trackIndex = (trackIndex - 1 + _tracks.length) % _tracks.length; trackPos = 0
     }
     function fmtTime(s) { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2) }
 
@@ -167,23 +277,24 @@ QtObject {
     function answer() { callSeconds = 0; callState = "active" }
     function hangUp() { callState = "idle" }
 
-    // ---- settings (D12; names as in hu/services/system.ini, kept by hu-sysd there) --------
-    property string accent: "signal_red"
-    property real brightness: 0.9
-    property bool nightDimming: true
-    // What the display shows. Here: the user's brightness (no car dimmer in the mockup).
-    readonly property real displayBrightness: brightness
+    // ---- settings (D12): live from hu-sysd; without it local values as in the mockup -----
+    readonly property bool settingsLive: System.available && System.settings.accent !== undefined
+    property var _local: ({ accent: "signal_red", brightness: 0.9, night_dimming: true, clock_24h: true, units: "metric" })
+    function _setting(name) { return settingsLive && System.settings[name] !== undefined ? System.settings[name] : _local[name] }
+    readonly property string accent: _setting("accent")
+    readonly property real brightness: _setting("brightness")
+    readonly property bool nightDimming: _setting("night_dimming")
+    // What the display shows: hu-sysd computes it from the user's brightness, day/night and
+    // the car's dimmer (D12); without sysd the user's brightness.
+    readonly property real displayBrightness: settingsLive ? System.displayBrightness : brightness
     function setSetting(name, value) {
-        if (name === "accent") accent = value;
-        else if (name === "brightness") brightness = value;
-        else if (name === "night_dimming") nightDimming = value;
-        else if (name === "clock_24h") clock24h = value;
-        else if (name === "units") units_metric = value === "metric";
+        if (settingsLive) { System.set(name, value); return }
+        const l = Object.assign({}, _local); l[name] = value; _local = l;
     }
 
-    // ---- system information (Settings -> System; hu-sysd's Info in hu-virtual) ---------------
+    // ---- system information (Settings -> System): hu-sysd's Info; without it demo values ------
     readonly property date _bootTime: new Date(now.getTime() - 3 * 3600 * 1000 - 12 * 60 * 1000)
-    readonly property var systemInfo: ({
+    readonly property var _fakeInfo: ({
         version: "mockup", os: "simulated", kernel: "-", host: "r80-mockup",
         uptime_s: Math.floor((now - _bootTime) / 1000), cpu_temp_c: 48.5, load: 0.42,
         mem_total_mb: 905, mem_available_mb: 512, disk_free_mb: 6900,
@@ -191,21 +302,25 @@ QtObject {
                       "de.r80.Nav", "de.r80.System"],
         services_missing: [], bt_name: "R80", bt_address: "B8:27:EB:00:00:00", bt_powered: true
     })
+    readonly property var systemInfo: settingsLive && System.info.version !== undefined ? System.info : _fakeInfo
 
-    // ---- tone (D9: hu-audiod keeps it; applied once the DSP amplifier is chosen) ------------
-    property int toneBass: 0
-    property int toneTreble: 0
-    property real toneBalance: 0
-    property bool loudness: true
+    // ---- tone (D9): kept by hu-audiod; without it local values ------------------------------
+    readonly property bool toneLive: Audio.available && Audio.tone.bass !== undefined
+    property var _tone: ({ bass: 0, treble: 0, balance: 0, loudness: true })
+    function _toneValue(name) { return toneLive ? Audio.tone[name] : _tone[name] }
+    readonly property int toneBass: _toneValue("bass")
+    readonly property int toneTreble: _toneValue("treble")
+    readonly property real toneBalance: _toneValue("balance")
+    readonly property bool loudness: _toneValue("loudness")
     function setTone(name, value) {
-        if (name === "bass") toneBass = value;
-        else if (name === "treble") toneTreble = value;
-        else if (name === "balance") toneBalance = value;
-        else if (name === "loudness") loudness = value;
+        if (toneLive) { Audio.setTone(name, value); return }
+        const t = Object.assign({}, _tone); t[name] = value; _tone = t;
     }
 
     // ---- navigation (D11: the phone navigates, the HU shows its guidance) ----
-    // A fake phone drives a demo route: the same legs as dev/phone_emu/route_demo.json.
+    // Live from hu-navd; without it a fake phone drives a demo route (as in the mockup):
+    // the same legs as dev/phone_emu/route_demo.json.
+    readonly property bool navLive: Nav.available
     readonly property var navRoute: [
         { m: 1400, maneuver: "turn", modifier: "right", street: "Ringstraße" },
         { m: 1300, maneuver: "turn", modifier: "slight_right", street: "Bergstraße" },
@@ -240,10 +355,10 @@ QtObject {
     readonly property var _noGuidance: ({ active: false, stale: false, source: "", maneuver: "", modifier: "", exit: 0,
                                           distance: -1, street: "", text: "", remainingM: -1, remainingS: -1, arrival: null })
     // Phone link: { connected, device }
-    readonly property var navPhone: ({ connected: navDemo !== "stale" && navDemo !== "nophone", device: "Redmi Note 12 Pro 5G" })
+    readonly property var _fakePhone: ({ connected: navDemo !== "stale" && navDemo !== "nophone", device: "Redmi Note 12 Pro 5G" })
     // Guidance: { active, stale, source, maneuver, modifier, exit, distance (m), street, text,
     //             remainingM, remainingS, arrival (Date) }; -1 / null = not known
-    readonly property var guidance: {
+    readonly property var _fakeGuidance: {
         if (navDemo === "idle" || navDemo === "nophone") return _noGuidance;
         const c = _navDemoCases[navDemo];
         if (c) return { active: true, stale: false, source: "google_maps", maneuver: c.maneuver, modifier: c.modifier,
@@ -256,6 +371,14 @@ QtObject {
         return { active: true, stale: navDemo === "stale", source: "google_maps", maneuver: leg.maneuver,
                  modifier: leg.modifier || "", exit: leg.exit || 0, distance: at - _navDriven, street: leg.street,
                  text: "", remainingM: remaining, remainingS: secs, arrival: new Date(now.getTime() + secs * 1000) };
+    }
+    readonly property var navPhone: navLive ? { connected: Nav.phone.connected === true, device: Nav.phone.device || "" } : _fakePhone
+    readonly property var guidance: navLive ? _fromNavd(Nav.guidance) : _fakeGuidance
+    function _fromNavd(g) {
+        if (!g.active) return _noGuidance;
+        return { active: true, stale: g.stale === true, source: g.source, maneuver: g.maneuver, modifier: g.modifier,
+                 exit: g.exit, distance: g.distance_m, street: g.street, text: g.text, remainingM: g.remaining_m,
+                 remainingS: g.remaining_s, arrival: g.arrival > 0 ? new Date(g.arrival * 1000) : null };
     }
 
     // ---- weather -------------------------------------------------------------
@@ -271,16 +394,18 @@ QtObject {
         interval: 1000; running: true; repeat: true
         onTriggered: {
             sim.now = new Date();
-            if (sim.playing) {
+            if (sim.playing && !sim.mediaLive) {
                 sim.trackPos += 1;
                 if (sim.trackPos >= sim.track.duration) sim.nextTrack();
             }
             if (sim.callState === "active") sim.callSeconds += 1;
-            sim.odometer += sim.speed / 3600;
-            sim._driveTrips(1);
-            sim.fuelLevel = Math.max(0.05, sim.fuelLevel - sim.speed * 0.0000004);
-            sim.batteryVolt = 14.1 + Math.random() * 0.2;
-            sim.oilTemp = Math.round(91 + Math.random() * 2);
+            if (!sim.live) {
+                sim._odometer += sim.speed / 3600;
+                sim._driveTrips(1);
+                sim._fuelLevel = Math.max(0.05, sim._fuelLevel - sim.speed * 0.0000004);
+                sim._batteryVolt = 14.1 + Math.random() * 0.2;
+                sim._oilTemp = Math.round(91 + Math.random() * 2);
+            }
         }
     }
     property Timer driveTimer: Timer {
@@ -292,9 +417,9 @@ QtObject {
                 const r = Math.random();
                 sim.targetSpeed = r < 0.12 ? 0 : (r < 0.5 ? 30 + Math.random() * 30 : 60 + Math.random() * 80);
             }
-            sim.speed += (sim.targetSpeed - sim.speed) * 0.02;
-            if (sim.speed < 0.3 && sim.targetSpeed === 0) sim.speed = 0;
-            if (sim.navDemo === "live") sim._driveRoute(0.05);
+            sim._speed += (sim.targetSpeed - sim._speed) * 0.02;
+            if (sim._speed < 0.3 && sim.targetSpeed === 0) sim._speed = 0;
+            if (sim.navDemo === "live" && !sim.navLive) sim._driveRoute(0.05);
         }
     }
 }

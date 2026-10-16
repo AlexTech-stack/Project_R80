@@ -30,6 +30,7 @@ def main():
     app = QGuiApplication(sys.argv)
     app.setApplicationName("R80 Headunit mockup")
     engine = QQmlApplicationEngine()
+    engine.addImportPath(str(HERE / "qml-demo"))      # demo stand-ins for R80.Backend: no services needed
     engine.load(QUrl.fromLocalFile(str(HERE / "qml" / "main.qml")))
     if not engine.rootObjects():
         sys.exit(1)
