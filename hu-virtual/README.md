@@ -24,10 +24,12 @@ virtual CAN buses and the vehicle MCU replaced by an emulator process.
 | Knob / buttons | MCU pins | `mcu_emu/mcuctl.py` over a control socket |
 | Linux vehicle service | `hu/vehicled.py --system --uart /dev/ttyAMA0` | `hu/vehicled.py` (session bus) |
 | Linux media service | `hu/mediad.py --system --music-dir /media/usb` (GStreamer) | `hu/mediad.py` (session bus, demo tones unless `MUSIC_DIR` is set) |
+| Other HU services | `audiod` (audio, D9), `warnd` and `tripd` (D10), `navd` (D11), `sysd` (system and settings, D12), all with `--system` | the same files on the session bus |
+| Driver's phone | R80 Companion app over Bluetooth (D11) | `phone_emu/`: a route player and the phone panel |
 | UI | Qt 6 / QML | `../hu-mockup`, with `hu/ui/qml/Sim.qml` swapped in |
 
 Everything under `hu/` is target software and has no BoAt dependency; it runs
-unchanged on the Pi. `mcu_emu/` and `boat/` exist only for the PC.
+unchanged on the Pi. `mcu_emu/`, `phone_emu/` and `boat/` exist only for the PC.
 
 ## Run it
 
@@ -37,7 +39,7 @@ and `sudo` once to create the vcan buses. No cantools or python-can.
 
 ```bash
 cd hu-virtual
-./hu-virtual.sh drive      # buses, gateway, MCU emulator, vehicled, mediad, restbus drive cycle
+./hu-virtual.sh drive      # buses, gateway, MCU emulator, all HU services, restbus drive cycle
 ./hu-virtual.sh ui         # the UI window on top (UI_ARGS="--fullscreen" etc.)
 ./hu-virtual.sh status
 ./hu-virtual.sh down

@@ -12,7 +12,7 @@ permission:
 ---
 
 First read `AGENTS.md` and `CLAUDE.md` and follow them, plus
-`docs/architecture/HU_architecture_v0.3.md` (decisions D1 to D8).
+`docs/architecture/HU_architecture_v0.3.md` (decisions D1 to D12).
 
 You review one diff. Get it with `git diff` (or `git diff <base>...HEAD` if
 asked). Read the changed files and their neighbours. Check, and report each

@@ -73,7 +73,7 @@ jobs:
           retention-days: 14
 
   boat-sil:
-    # The 6 BoAt smoke tests against the virtual headunit, with the BoAt release
+    # The BoAt tests against the virtual headunit, with the BoAt release
     # pinned in ci/boat.version. System Python (3.12): boat-py needs 3.11+ and
     # the D-Bus bindings come from apt.
     needs: static

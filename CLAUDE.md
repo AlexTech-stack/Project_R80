@@ -21,6 +21,7 @@ same rules. Change shared rules there, not here. This file only adds notes for C
     `/home/testuser/BoAt`). Use them for anything that needs BoAt, vcan or a real window.
 - The cloud GitHub token cannot delete remote branches. Branch cleanup happens from
   Alex's device.
-- Larger work goes on a feature branch named after it and is pushed there; do not
-  open a pull request. Alex merges or deletes the branches (AGENTS.md section 4).
+- Larger work goes on a feature branch named after it and is pushed there; open a
+  pull request only when Alex asks. Small changes go directly to `master`
+  (AGENTS.md section 4).
 - When you show UI changes to Alex, render screenshots and attach them.

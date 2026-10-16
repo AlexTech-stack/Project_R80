@@ -3,9 +3,12 @@
 A headunit (hardware and software) and centre console for a modified
 2005 Audi A3 Sportback (8PA, PQ35 platform).
 
-Current state: a clickable UI mockup running on Linux, a made-up test CAN database with
-a drive simulator, and the first architecture drafts. Real bus logs, hardware designs
-and the production software come later.
+Current state: the headunit software runs without target hardware, on a Linux PC and on
+a Raspberry Pi bench: services for vehicle data, media, audio, warnings and trip computer,
+navigation guidance from the driver's phone (with the R80 Companion Android app), and
+system settings, under the line-art UI. The car is simulated with a made-up test CAN
+database and [BoAt](https://github.com/AlexTech-stack/BoAt); CI runs the BoAt tests on
+every push. Real bus logs and the hardware designs come later.
 
 ## Folders
 
@@ -13,10 +16,10 @@ and the production software come later.
 |---|---|
 | [`hu-mockup/`](hu-mockup/) | Qt 6 / QML UI mockup (v0.3, runs via PySide6), 1280 x 768, all data simulated. See its README to run it. |
 | [`hu-can/`](hu-can/) | Test CAN database (`r80_test.dbc`, classic CAN, 22 messages), generator and drive simulator, sample candump log. |
-| [`docs/architecture/`](docs/architecture/) | Headunit architecture (v0.3): vehicle MCU + Linux module, CAN channels, power states. |
-| [`hu-virtual/`](hu-virtual/) | Virtual HU test environment: BoAt restbus on vcan, MCU emulator, `vehicled`, `mediad`, `audiod`, `warnd`, `tripd` and `navd` D-Bus services driving the mockup, a phone emulator, BoAt smoke tests. |
+| [`docs/architecture/`](docs/architecture/) | Headunit architecture (v0.3) and the decisions D1 to D12: vehicle MCU + Linux module, CAN channels, power states, services. |
+| [`hu-virtual/`](hu-virtual/) | Virtual HU test environment: BoAt restbus on vcan, MCU emulator, `vehicled`, `mediad`, `audiod`, `warnd`, `tripd`, `navd` and `sysd` D-Bus services driving the UI, phone emulator and phone panel, BoAt tests. |
 | [`companion-android/`](companion-android/) | R80 Companion, the Android app on the driver's phone: sends the phone's navigation guidance to the HU (decision D11). |
-| [`r80_pi_testbench/`](r80_pi_testbench/) | Raspberry Pi 3B prototype bench files: cannelloni CAN tunnel, kiosk launcher and systemd units. See [`docs/bench-pi.md`](docs/bench-pi.md). |
+| [`r80_pi_testbench/`](r80_pi_testbench/) | Raspberry Pi 3B bench files: cannelloni CAN tunnel, kiosk launcher, systemd units and their installer, internet sharing from the test PC. See [`docs/bench-pi.md`](docs/bench-pi.md). |
 | [`ci/`](ci/) | CI scripts. GitHub Actions runs them on every push; run `ci/check_static.sh` locally for the same checks. |
 | [`hardware/`](hardware/) | Placeholder for hardware designs (PCBs, console). Licensed CERN-OHL-P-2.0. |
 

@@ -13,7 +13,9 @@ If a rule here conflicts with what you think is best, follow the rule and tell t
   - `hu-mockup/` is a clickable UI mockup. All its data is fake.
   - `hu-can/` holds a made-up test CAN database. There is no real one yet.
   - `docs/architecture/` holds the architecture draft (v0.3).
-  - `hu-virtual/` runs the headunit software on a PC without target hardware.
+  - `hu-virtual/` runs the headunit software on a PC without target hardware, and on
+    the Raspberry Pi bench (`r80_pi_testbench/`, `docs/bench-pi.md`).
+  - `companion-android/` is the R80 Companion app on the driver's phone (D11).
   - `hardware/` is an empty placeholder.
 
 ## 2. Repository layout
@@ -71,7 +73,7 @@ hu-virtual/
     ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
   mcu_emu/                        MCU emulator and its control client (PC only)
   phone_emu/                      phone emulator and phone panel (GUI): companion app stand-ins (PC only)
-  boat/                           BoAt restbus node, tester panel and the 6 BoAt tests (PC only)
+  boat/                           BoAt restbus node, tester panel and the BoAt tests (PC only; list in hu-virtual/README.md)
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```
 
@@ -109,7 +111,7 @@ cd hu-virtual
 ./hu-virtual.sh drive   # buses, BoAt gateway, MCU emulator, vehicled, drive cycle
 ./hu-virtual.sh ui      # UI window on top
 ./hu-virtual.sh up && ./hu-virtual.sh panel   # tester panel instead of the drive cycle
-./hu-virtual.sh up && ./hu-virtual.sh test   # run the 6 BoAt tests
+./hu-virtual.sh up && ./hu-virtual.sh test   # run the BoAt tests
 ./hu-virtual.sh down
 ```
 
@@ -123,7 +125,7 @@ ci/check_static.sh            # py_compile, repo rules, DBC and simulator drift,
 SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 ```
 
-CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
+CI also runs the BoAt tests with the BoAt release pinned in `ci/boat.version`
 (`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
 A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`, `hu/warnd.py`, `hu/tripd.py`, `hu/navd.py`, `hu/sysd.py`) in a
 Debian 13 container per CPU, arm64 (QEMU-emulated, like the Pi) and amd64, while BoAt
@@ -145,10 +147,11 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
 ## 4. Git rules
 
 - Larger features or changes go on a feature branch named after the work
-  (for example `Media_Application`). Small, focused changes may still go directly
-  to `master`.
-- Do NOT create a branch per commit. Do NOT open pull requests. Alex merges or
-  deletes the feature branches himself.
+  (for example `Media_Application`). Small, focused changes (a doc fix, a one-file
+  change) go directly to `master`, without a branch or pull request.
+- Do NOT create a branch per commit. Open a pull request only when Alex asks for one;
+  Alex merges the pull requests and deletes branches. Delete a branch only when he
+  asks.
 - Write short, clear commit messages that say what changed and why.
 - Never force-push `master`. Never rewrite published history.
 - Never commit secrets, tokens, or personal data.

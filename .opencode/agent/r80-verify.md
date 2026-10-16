@@ -1,5 +1,5 @@
 ---
-description: Use to verify a Project R80 change set by running the AGENTS.md section 3 checks (py_compile, mockup screenshots, hu-virtual plus the 6 BoAt tests). Needs Alex's PC because it uses BoAt, vcan and a display. Reads code but does not edit it. Reports exactly what passed, what failed and what could not be checked.
+description: Use to verify a Project R80 change set by running the AGENTS.md section 3 checks (py_compile, mockup screenshots, hu-virtual plus the BoAt tests). Needs Alex's PC because it uses BoAt, vcan and a display. Reads code but does not edit it. Reports exactly what passed, what failed and what could not be checked.
 mode: subagent
 permission:
   edit: deny

@@ -1,5 +1,5 @@
 ---
-description: Use to research external APIs, libraries and standards for Project R80 (GStreamer, MPRIS, D-Bus, BlueZ, oFono, PipeWire/WirePlumber, MapLibre, Valhalla, Qt 6/QML, Yocto, SocketCAN) on the web. Returns version-specific findings with source URLs and licence notes. Read-only; never edits the repo.
+description: Use to research external APIs, libraries and standards for Project R80 (GStreamer, MPRIS, D-Bus, BlueZ, oFono, PipeWire/WirePlumber, Android notification APIs, Qt 6/QML, Yocto, SocketCAN) on the web. Returns version-specific findings with source URLs and licence notes. Read-only; never edits the repo.
 mode: subagent
 permission:
   edit: deny

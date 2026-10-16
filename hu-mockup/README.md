@@ -55,7 +55,8 @@ street, arrival; no map), Media, Radio (FM dial),
 Phone (favourites/recent/contacts, keypad, call popup), Vehicle (status, trip, tyres,
 service), Drive (virtual cluster), Clock & Weather, Settings. Under
 Settings → Display you can change brightness and the accent colour (red, amber,
-white, ice blue) live.
+white, ice blue) live; Settings → System shows what runs (in hu-virtual: the values
+of `hu-sysd`, D12).
 
 The master volume is shown in the header on every screen, right of the outside
 temperature; clicking it opens the volume popup. Settings → Audio has one volume

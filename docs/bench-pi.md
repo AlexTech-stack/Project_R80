@@ -365,7 +365,10 @@ also honours `R80_HU`, `R80_VENV` and `R80_MUSIC`.
 - `gdbus` reads `de.r80.Vehicle` / `de.r80.Media`; transport buttons change the
   track and position advances.
 - `/tmp/r80-navd.log` says "companion service registered with BlueZ"; with the
-  app connected, "phone hello: <phone model>". 
+  app connected, "phone hello: <phone model>".
+- `/tmp/r80-sysd.log` says "saver registered: audiod / tripd"; Settings → System on
+  the HU lists 7 of 7 services running. The settings are kept in
+  `~/.local/state/r80/settings.json`.
 - `vcgencmd measure_temp` under load; add cooling if it throttles.
 
 ## 13. Troubleshooting
