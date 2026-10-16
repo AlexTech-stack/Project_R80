@@ -174,10 +174,71 @@ QtObject {
     property string mediaSource: "USB"
     readonly property var mediaSources: mediaLive ? Media.sources : ["Library", "USB"]
 
-    readonly property var tracks: mediaLive ? Media.tracks : _tracks
+    // the queue: how many tracks, its name, the next ones in play order
+    readonly property int trackCount: mediaLive ? Media.trackCount : _tracks.length
+    property string _demoQueueTitle: "All tracks"
+    readonly property string queueTitle: mediaLive ? Media.queueTitle : _demoQueueTitle
+    readonly property var upNext: mediaLive ? Media.upNext : _demoUpNext(trackIndex, repeatAll)
     // never null: an empty source shows a blank track
-    readonly property var track: tracks.length ? tracks[Math.min(trackIndex, tracks.length - 1)]
-                                               : ({ title: "", artist: "", album: "", trackNumber: 0, duration: 0, cover: "" })
+    readonly property var _blankTrack: ({ title: "", artist: "", album: "", trackNumber: 0, duration: 0, cover: "" })
+    readonly property var track: mediaLive ? (Media.trackCount > 0 ? Media.track : _blankTrack)
+                                           : (_tracks[Math.min(trackIndex, _tracks.length - 1)] || _blankTrack)
+
+    function _demoUpNext(index, repeat) {
+        const out = [], n = _tracks.length
+        for (let k = 1; k <= Math.min(5, n - 1); k++) {
+            if (index + k >= n && !repeat) break
+            out.push(Object.assign({ index: (index + k) % n }, _tracks[(index + k) % n]))
+        }
+        return out
+    }
+
+    // browsing: browse(path, offset, count) answers with browsed(...); playFrom plays a list
+    // (hu/services/browse.py has the paths). The demo has a small tree of its own.
+    signal browsed(string path, int offset, string title, int total, var entries)
+    function browse(path, offset, count) {
+        if (mediaLive) { Media.browse(path, offset, count); return }
+        const l = _demoList(path)
+        Qt.callLater(() => sim.browsed(path, offset, l ? l.title : "", l ? l.entries.length : -1,
+                                       l ? l.entries.slice(offset, offset + count) : []))
+    }
+    function playFrom(path, index) {
+        if (mediaLive) { Media.playFrom(path, index); return }
+        const l = _demoList(path)
+        const ts = l ? l.entries.filter(e => e.kind === "track") : []
+        if (!ts.length) return
+        _demoQueueTitle = l.title
+        trackIndex = ts[Math.min(index, ts.length - 1)]._ti; trackPos = 0; playing = true
+    }
+    function _demoList(path) {
+        const enc = encodeURIComponent, parts = path === "" ? [] : path.split("/").map(decodeURIComponent)
+        const listOf = (kind, id, title, ts, sub) => ({ kind: kind, id: id, title: title, count: ts.length,
+            subtitle: sub || (ts.length + (ts.length === 1 ? " track" : " tracks")), cover: "", duration: 0, index: -1 })
+        const tracksOf = (ts) => ts.map((t, i) => ({ kind: "track", id: "", title: t.title, subtitle: t.artist,
+            count: 0, cover: "", duration: t.duration, index: i, _ti: _tracks.indexOf(t) }))
+        const by = (key) => { const g = {}; _tracks.forEach(t => (g[t[key]] = g[t[key]] || []).push(t)); return g }
+        const sorted = (o) => Object.keys(o).sort((x, y) => x.toLowerCase() < y.toLowerCase() ? -1 : 1)
+        if (!parts.length)
+            return { title: mediaSource, entries: [listOf("menu", "folders", "Folders", _tracks), listOf("menu", "artists", "Artists", _tracks),
+                                                   listOf("menu", "albums", "Albums", _tracks), listOf("menu", "tracks", "All tracks", _tracks)] }
+        const albums = by("album"), artists = by("artist")
+        if (parts[0] === "tracks") return { title: "All tracks", entries: tracksOf(_tracks) }
+        if (parts[0] === "folders" && parts.length === 1)
+            return { title: mediaSource, entries: sorted(albums).map(a => listOf("folder", "folders/" + enc(a), a, albums[a])) }
+        if ((parts[0] === "folders" || parts[0] === "albums") && parts.length === 2 && albums[parts[1]])
+            return { title: parts[1], entries: tracksOf(albums[parts[1]]) }
+        if (parts[0] === "albums")
+            return { title: "Albums", entries: sorted(albums).map(a => listOf("album", "albums/" + enc(a), a, albums[a], albums[a][0].artist)) }
+        if (parts[0] === "artists" && parts.length === 1)
+            return { title: "Artists", entries: sorted(artists).map(a => listOf("artist", "artists/" + enc(a), a, artists[a])) }
+        if (parts[0] === "artists" && artists[parts[1]]) {
+            const mine = artists[parts[1]]
+            if (parts.length === 2)
+                return { title: parts[1], entries: [listOf("album", "artists/" + enc(parts[1]) + "/" + enc(mine[0].album), mine[0].album, mine)] }
+            return { title: parts[2], entries: tracksOf(mine) }
+        }
+        return null
+    }
 
     function _pullMedia() {
         if (!mediaLive) return
@@ -201,6 +262,7 @@ QtObject {
         target: Media
         function onChanged() { sim._pullMedia() }
         function onAvailableChanged() { sim._pullMedia() }
+        function onBrowsed(path, offset, title, total, entries) { sim.browsed(path, offset, title, total, entries) }
     }
 
     function nextTrack() {

@@ -10,20 +10,28 @@ and every USB stick udisks2 reports (hu/removable.py, --usb), named after its la
     object     /de/r80/Media
     interface  de.r80.Media1
       properties  PlaybackStatus (s: playing|paused|stopped), Source (s), Gain (d),
-                  Sources (as), TrackIndex (i), TrackCount (i), Scanned (i),
+                  Sources (as), TrackIndex (i), TrackCount (i: the queue),
+                  QueueTitle (s), Queue (s: its browse path), UpNext (aa{sv}: the next
+                  up to 5 tracks in play order), SourceTrackCount (i), Scanned (i),
                   Position (x, microseconds), Metadata (a{sv}),
-                  Playlist (aa{sv}), Shuffle (b), RepeatAll (b),
-                  CanGoNext (b), CanGoPrevious (b)
+                  Shuffle (b), RepeatAll (b), CanGoNext (b), CanGoPrevious (b)
       methods     Play(), Pause(), PlayPause(), Next(), Previous(),
                   SetTrack(i), Seek(x offset_us), SetPosition(x pos_us),
                   SetPlaying(b), SetShuffle(b), SetRepeatAll(b),
                   SetSource(s, one of Sources; else de.r80.Media1.Error.UnknownSource),
-                  SetGain(d gain 0.0..1.0, u fade_ms; set by hu-audiod)
+                  SetGain(d gain 0.0..1.0, u fade_ms; set by hu-audiod),
+                  GetQueue(i offset, i count) -> aa{sv},
+                  Browse(s path, i offset, i count) -> (s title, i total, aa{sv} entries),
+                  PlayFrom(s path, i index): that list's tracks become the queue
+                  (errors: de.r80.Media1.Error.NotFound)
       signal      Seeked(x position)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
-Metadata and each Playlist entry: title, artist, album, trackNumber, duration (s)
-and cover (a file path, or ""). They come from the files' tags, read in the
+What plays is a queue: a list of the browse tree (hu/browse.py: folders, artists,
+albums, all tracks); TrackIndex and TrackCount are about the queue, which a source
+starts with as "All tracks". Shuffle plays the queue in a shuffled order, which UpNext
+follows. Metadata, each UpNext / GetQueue entry: title, artist, album, trackNumber,
+duration (s) and cover (a file path, or ""); a queue entry also has its index. They come from the files' tags, read in the
 background by prerolling each file once (core GStreamer, no extra package); until
 a file is read, and for what its tags lack, the file name (`Artist - Title.ext`)
 and its folder (album) stand in. The cover is the picture embedded in the file,
@@ -32,8 +40,8 @@ else cover/folder/front.jpg|png next to it. What was read is cached in --cache-d
 counts the tracks read so far. Bluetooth A2DP and MPRIS are not wired up yet;
 this is the local-file path from architecture v0.3 section 4.
 
-A stick plugged in while running becomes the source at once and plays (one already in
-at start does not: resume decides); when the playing stick is pulled,
+A stick plugged in while running becomes the source at once and plays (one udisks2
+already lists when mediad starts does not: resume decides); when the playing stick is pulled,
 the Library takes over (paused). Resume: per source (the Library, each stick by its
 filesystem UUID) the track and position are kept, and with the active source and
 whether it played saved to --state on a source change, before a shutdown (as a
@@ -52,7 +60,6 @@ import os
 import random
 import signal
 import sys
-import time
 from pathlib import Path
 
 import dbus
@@ -65,6 +72,7 @@ gi.require_version("GstController", "1.0")
 from gi.repository import GLib, Gst, GstController  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from browse import browse, tracks_of  # noqa: E402
 from removable import RemovableMedia  # noqa: E402
 from saver import register_saver  # noqa: E402
 
@@ -76,7 +84,8 @@ AUDIO_EXT = {".mp3", ".ogg", ".oga", ".flac", ".wav", ".m4a", ".aac", ".opus", "
 LIBRARY = "Library"
 FOLDER_COVERS = ("cover", "folder", "front", "album")
 COVER_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/gif": "gif", "image/bmp": "bmp"}
-INT32_PROPS = {"TrackIndex", "TrackCount", "Scanned"}
+INT32_PROPS = {"TrackIndex", "TrackCount", "Scanned", "SourceTrackCount"}
+UP_NEXT = 5
 TRACK_KEYS = ("title", "artist", "album", "trackNumber", "duration", "cover")
 
 
@@ -307,8 +316,12 @@ class Media(dbus.service.Object):
         self.sources = {LIBRARY: {"key": "library", "dir": music_dir}}   # name -> key, folder
         self.source = LIBRARY
         self.dir = music_dir
-        self.tracks = self.scan()
-        self.list_changed = False      # tags read since the last Playlist update
+        self.library = self.scan()     # every track of the source
+        self.tracks = self.library     # the queue: what plays, in its order
+        self.queue_path, self.queue_title = "tracks", "All tracks"
+        self.order = None              # with shuffle: the play order (queue positions) ...
+        self.opos = 0                  # ... and where in it we are
+        self.list_changed = False      # tags read since the last UpNext update
         self.index = 0
         self.state_file = state
         self.resume = {}               # source key -> {"path", "position" (us)}
@@ -317,7 +330,6 @@ class Media(dbus.service.Object):
         self.status = "stopped"
         self.position = 0          # microseconds
         self.uri = ""
-        self.history = []
         self.props = {}
         self.dirty = set()
 
@@ -355,8 +367,6 @@ class Media(dbus.service.Object):
         GLib.timeout_add(300, self.poll_position)
         GLib.timeout_add(1000, self.publish_scanned)
         self.scanner = Scanner(cache_dir, self.on_scanned)
-        self.started = time.monotonic()
-        self.resume_wait = resume_wait
         self.awaited = None            # (key, play): the stick the last session ended on
         self.restore(resume_wait)
         register_saver(bus, "mediad", self.save_state, log)
@@ -499,7 +509,8 @@ class Media(dbus.service.Object):
         """Note where the active source is, for when it comes back."""
         if self.tracks:
             pos = self.current_time() if self.status == "playing" else self.position
-            self.resume[self.key()] = {"path": self.tracks[self.index]["path"], "position": int(pos)}
+            self.resume[self.key()] = {"path": self.tracks[self.index]["path"], "position": int(pos),
+                                       "queue": self.queue_path}
 
     def use_source(self, name: str, play: bool):
         """Switch to a source and carry on where it was (track and position)."""
@@ -508,19 +519,56 @@ class Media(dbus.service.Object):
         self.stop()
         self.source = name
         self.dir = self.sources[name]["dir"]
-        self.tracks = self.scan()
-        self.history.clear()
+        self.library = self.scan()
         r = self.resume.get(self.key(), {})
+        self.set_queue("tracks", "All tracks", self.library)
+        try:                                       # the list it played, if it is still there
+            title, queue = tracks_of(self.library, self.dir, self.source, r.get("queue", "tracks"))
+            if any(t["path"] == r.get("path") for t in queue):
+                self.set_queue(r["queue"], title, queue)
+        except KeyError:
+            pass
         paths = [t["path"] for t in self.tracks]
         self.index = paths.index(r["path"]) if r.get("path") in paths else 0
-        self.scanner.start(self.tracks, self.index)
+        if self.shuffle:
+            self.shuffle_from(self.index)
+        self.scanner.start(self.library, self.library.index(self.tracks[self.index]) if self.tracks else 0)
         if self.tracks:
             self.load(play)
             if r.get("path") in paths and r.get("position", 0) > 0:
                 self.seek_abs(int(r["position"]))
         self.refresh_props()
         self.save_state()
-        log(f"source {name}: {len(self.tracks)} track(s) in {self.dir}, track {self.index}")
+        log(f"source {name}: {len(self.library)} track(s) in {self.dir}, queue {self.queue_path!r}, track {self.index}")
+
+    # ---- the queue -----------------------------------------------------------
+    def set_queue(self, path: str, title: str, tracks: list):
+        self.queue_path, self.queue_title, self.tracks = path, title, tracks
+        self.order, self.opos = None, 0
+
+    def shuffle_from(self, index: int):
+        """A new shuffled play order that starts with the queue position index."""
+        rest = [i for i in range(len(self.tracks)) if i != index]
+        random.shuffle(rest)
+        self.order, self.opos = [index] + rest, 0
+
+    def play_order(self) -> list:
+        return self.order if self.order is not None else list(range(len(self.tracks)))
+
+    def up_next(self) -> list:
+        order, n = self.play_order(), len(self.tracks)
+        pos = self.opos if self.order is not None else self.index
+        out = []
+        for k in range(1, min(UP_NEXT, n - 1) + 1):
+            if pos + k >= n and not self.repeat_all:
+                break
+            i = order[(pos + k) % n]
+            out.append({**{key: self.tracks[i][key] for key in TRACK_KEYS}, "index": i})
+        return out
+
+    def entry(self, e: dict) -> dict:
+        """A browse entry for D-Bus (without the track object)."""
+        return {k: v for k, v in e.items() if k != "track"}
 
     def restore(self, resume_wait: float):
         try:
@@ -559,7 +607,7 @@ class Media(dbus.service.Object):
         except OSError as e:
             log(f"cannot save {self.state_file}: {e}")
 
-    def on_medium_added(self, key: str, label: str, mount: str):
+    def on_medium_added(self, key: str, label: str, mount: str, initial: bool):
         base = label or "USB"
         name, n = base, 2
         while name in self.sources:
@@ -569,9 +617,10 @@ class Media(dbus.service.Object):
             _key, play = self.awaited
             self.awaited = None
             self.use_source(name, play)
-        elif not self.awaited and time.monotonic() - self.started > self.resume_wait:
-            self.use_source(name, True)                      # plugged in now: play it
-        else:                                                # already in at start: resume wins
+        elif not initial:                                    # plugged in now: play it
+            self.awaited = None
+            self.use_source(name, True)
+        else:                                                # already in at start: resume decides
             self.refresh_props()
 
     def on_medium_removed(self, key: str):
@@ -599,7 +648,7 @@ class Media(dbus.service.Object):
             self.set("Metadata", self.metadata())      # the playing track at once
 
     def publish_scanned(self):
-        # At most once a second: the whole Playlist goes out with every update.
+        # At most once a second, not for every file read.
         if self.list_changed:
             self.list_changed = False
             self.refresh_props()
@@ -715,28 +764,24 @@ class Media(dbus.service.Object):
         self.set("TrackCount", len(self.tracks))
         self.set("Position", self.position)
         self.set("Metadata", self.metadata())
-        self.set("Playlist", [{k: t[k] for k in TRACK_KEYS} for t in self.tracks])
-        self.set("Scanned", sum(1 for t in self.tracks if t["scanned"]))
+        self.set("UpNext", self.up_next())
+        self.set("QueueTitle", self.queue_title)
+        self.set("Queue", self.queue_path)
+        self.set("SourceTrackCount", len(self.library))
+        self.set("Scanned", sum(1 for t in self.library if t["scanned"]))
         self.set("Shuffle", self.shuffle)
         self.set("RepeatAll", self.repeat_all)
-        self.set("CanGoNext", bool(self.tracks) and (self.index < len(self.tracks) - 1 or self.repeat_all))
-        self.set("CanGoPrevious", bool(self.tracks) and (self.index > 0 or self.repeat_all))
+        pos = self.opos if self.order is not None else self.index
+        self.set("CanGoNext", bool(self.tracks) and (pos < len(self.tracks) - 1 or self.repeat_all))
+        self.set("CanGoPrevious", bool(self.tracks) and (pos > 0 or self.repeat_all))
         self.set("Gain", self.gain)
 
     def advance(self, step: int, natural: bool = False):
         if not self.tracks:
             return
         n = len(self.tracks)
-        if self.shuffle and n > 1:
-            if step > 0:
-                self.history.append(self.index)
-                self.index = random.choice([i for i in range(n) if i != self.index])
-            elif self.history:
-                self.index = self.history.pop()
-            self.load(True, fade_out=not natural)
-            return
         last = n - 1
-        nxt = self.index + step
+        nxt = (self.opos if self.order is not None else self.index) + step
         if nxt > last:
             if not self.repeat_all:
                 self.stop(fade=not natural)
@@ -744,7 +789,10 @@ class Media(dbus.service.Object):
             nxt = 0
         elif nxt < 0:
             nxt = last if self.repeat_all else 0
-        self.index = nxt
+        if self.order is not None:
+            self.opos, self.index = nxt, self.order[nxt]
+        else:
+            self.index = nxt
         self.load(True, fade_out=not natural)
 
     def set(self, name, value):
@@ -757,7 +805,7 @@ class Media(dbus.service.Object):
         v = self.props[name]
         if name in INT32_PROPS:
             return dbus.Int32(v)
-        if name == "Playlist":
+        if name == "UpNext":
             return dbus.Array([variant(x) for x in v], signature="a{sv}")
         if name == "Sources":
             return dbus.Array([dbus.String(x) for x in v], signature="s")
@@ -840,8 +888,9 @@ class Media(dbus.service.Object):
     def SetTrack(self, index):
         if not self.tracks:
             return
-        self.history.clear()
         self.index = max(0, min(int(index), len(self.tracks) - 1))
+        if self.shuffle:
+            self.shuffle_from(self.index)
         self.load(True)
 
     @dbus.service.method(IFACE, in_signature="x")
@@ -874,7 +923,46 @@ class Media(dbus.service.Object):
     @dbus.service.method(IFACE, in_signature="b")
     def SetShuffle(self, on):
         self.shuffle = bool(on)
+        if self.shuffle and self.tracks:
+            self.shuffle_from(self.index)
+        elif not self.shuffle:
+            self.order, self.opos = None, 0
         self.refresh_props()
+
+    @dbus.service.method(IFACE, in_signature="ii", out_signature="aa{sv}")
+    def GetQueue(self, offset, count):
+        offset, count = max(0, int(offset)), max(0, int(count))
+        return dbus.Array([variant({**{k: t[k] for k in TRACK_KEYS}, "index": offset + i})
+                           for i, t in enumerate(self.tracks[offset:offset + count])], signature="a{sv}")
+
+    def not_found(self, path):
+        return dbus.exceptions.DBusException(f"no list {str(path)!r} on {self.source}",
+                                             name="de.r80.Media1.Error.NotFound")
+
+    @dbus.service.method(IFACE, in_signature="sii", out_signature="siaa{sv}")
+    def Browse(self, path, offset, count):
+        try:
+            title, entries = browse(self.library, self.dir, self.source, str(path))
+        except KeyError:
+            raise self.not_found(path) from None
+        offset, count = max(0, int(offset)), max(0, int(count))
+        page = [variant(self.entry(e)) for e in entries[offset:offset + count]]
+        return title, dbus.Int32(len(entries)), dbus.Array(page, signature="a{sv}")
+
+    @dbus.service.method(IFACE, in_signature="si")
+    def PlayFrom(self, path, index):
+        try:
+            title, queue = tracks_of(self.library, self.dir, self.source, str(path))
+        except KeyError:
+            raise self.not_found(path) from None
+        if not queue:
+            raise self.not_found(path)
+        self.set_queue(str(path), title, queue)
+        self.index = max(0, min(int(index), len(queue) - 1))
+        if self.shuffle:
+            self.shuffle_from(self.index)
+        self.load(True)
+        self.save_state()
 
     @dbus.service.method(IFACE, in_signature="b")
     def SetRepeatAll(self, on):

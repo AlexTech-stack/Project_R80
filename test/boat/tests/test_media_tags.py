@@ -3,15 +3,16 @@
 title, artist, album, track number and the embedded cover from ID3 tags (one cover
 file per album), else artist and title from the file name, the album from the
 folder and the folder's cover.png; a duration for every track; the documented
-D-Bus types (TrackIndex, TrackCount, Scanned: int32; Playlist: aa{sv}); and an
+D-Bus types (TrackIndex, TrackCount, Scanned: int32; UpNext: aa{sv}); and an
 unknown source refused with de.r80.Media1.Error.UnknownSource."""
 import dbus
 
-from common import MEDIA_IFACE, MEDIA_PATH, MEDIA_SERVICE, check, finish, media, wait_media
+from common import MEDIA_IFACE, MEDIA_PATH, MEDIA_SERVICE, check, finish, media, media_queue, wait_media
 
 ok, p, waited = wait_media(lambda p: p.get("TrackCount", 0) > 0 and p.get("Scanned") == p["TrackCount"], timeout=20.0)
 check(ok, f"all tracks read (Scanned {p.get('Scanned')} of {p.get('TrackCount')} after {waited:.1f} s)")
-by_title = {t["title"]: t for t in p.get("Playlist", [])}
+queue = media_queue()
+by_title = {t["title"]: t for t in queue}
 
 a, b = by_title.get("Kilometer Null"), by_title.get("Red Horizon")
 check(a is not None and b is not None, f"tagged tracks by their tag title (titles: {sorted(by_title)})")
@@ -33,13 +34,13 @@ if c:
 n = by_title.get("Night Drive")
 check(n is not None and n["cover"] == "", f"no cover for a loose untagged file (got {n and n['cover']!r})")
 
-durations = {t["title"]: t["duration"] for t in p.get("Playlist", [])}
+durations = {t["title"]: t["duration"] for t in queue}
 check(durations and all(20 <= d <= 28 for d in durations.values()), f"every duration known before playing (got {durations})")
 
 raw = dbus.SessionBus().get_object(MEDIA_SERVICE, MEDIA_PATH).GetAll(MEDIA_IFACE, dbus_interface="org.freedesktop.DBus.Properties")
 types = {k: type(raw[k]).__name__ for k in ("TrackIndex", "TrackCount", "Scanned")}
 check(all(t == "Int32" for t in types.values()), f"TrackIndex, TrackCount, Scanned are int32 (got {types})")
-check(raw["Playlist"].signature == "a{sv}", f"Playlist is aa{{sv}} (got a{raw['Playlist'].signature})")
+check(raw["UpNext"].signature == "a{sv}", f"UpNext is aa{{sv}} (got a{raw['UpNext'].signature})")
 
 source = p.get("Source")
 try:

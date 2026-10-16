@@ -20,7 +20,7 @@ import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
-from common import DEV, check, finish, media, media_props, wait_media
+from common import DEV, check, finish, media, media_props, media_queue, wait_media
 
 sys.path.insert(0, str(DEV))
 import media_tags  # noqa: E402
@@ -133,7 +133,7 @@ opts = stick.mount_calls[-1] if stick.mount_calls else {}
 check(opts.get("options") == "ro" and bool(opts.get("auth.no_user_interaction")),
       f"mounted read-only, without a password prompt ({opts})")
 ok, p, _ = wait_media(lambda p: p["TrackCount"] == 3 and p["Scanned"] == 3, timeout=10.0)
-titles = [t["title"] for t in p["Playlist"]]
+titles = [t["title"] for t in media_queue()]
 check(ok and titles == ["Stick One", "Stick Two", "Stick Three"], f"the stick's tracks, tags read ({titles})")
 
 m.SetTrack(1)

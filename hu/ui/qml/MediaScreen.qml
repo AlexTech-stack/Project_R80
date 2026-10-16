@@ -1,19 +1,27 @@
 import QtQuick
 import QtQuick.Shapes
 
-// Now playing: cover art, track info, progress, transport controls and queue.
+// Now playing: cover art, track info, progress, transport controls and what comes next;
+// Browse opens the source's folders, artists, albums and tracks (MediaBrowser).
 Item {
     id: root
-    property int sel: 1          // 0 prev, 1 play/pause, 2 next (knob focus)
+    objectName: "mediaScreen"       // run.py --screenshots opens the browser through it
+    property int sel: 1          // 0 prev, 1 play/pause, 2 next, 3 browse (knob focus)
+    property bool browsing: false
     readonly property var sources: Sim.mediaSources     // from hu-mediad: Library and the USB sticks
 
-    function knob(d) { sel = (sel + d + 3) % 3 }
-    function side(d) { knob(d) }
+    function openBrowser() { browser.reset(); browsing = true }
+    function knob(d) { if (browsing) browser.knob(d); else sel = (sel + d + 4) % 4 }
+    function side(d) { if (browsing) browser.side(d); else knob(d) }
     function press() {
-        if (sel === 0) Sim.prevTrack();
+        if (browsing) browser.press();
+        else if (sel === 0) Sim.prevTrack();
         else if (sel === 1) Sim.playing = !Sim.playing;
-        else Sim.nextTrack();
+        else if (sel === 2) Sim.nextTrack();
+        else openBrowser();
     }
+    // main.qml asks before going home: in the browser, back goes up one level
+    function back() { if (!browsing) return false; browser.back(); return true }
 
     Tabs {
         x: Theme.margin
@@ -21,6 +29,17 @@ Item {
         labels: root.sources
         current: Math.max(0, root.sources.indexOf(Sim.mediaSource))
         onSelected: (i) => Sim.mediaSource = root.sources[i]
+    }
+    LineButton {
+        anchors.right: parent.right
+        anchors.rightMargin: Theme.margin
+        y: 12
+        height: 52
+        icon: Icons.list
+        iconSize: 24
+        label: "Browse"
+        highlighted: root.sel === 3
+        onClicked: { root.sel = 3; root.openBrowser() }
     }
 
     // cover art: the track's picture tinted in the accent colour (image://cover, live
@@ -75,7 +94,7 @@ Item {
         // an empty source: nothing to play
         x: cover.x + cover.width + 40
         y: 96
-        visible: Sim.tracks.length === 0
+        visible: Sim.trackCount === 0
         text: "No music on " + Sim.mediaSource
         font.pixelSize: 40
     }
@@ -83,7 +102,7 @@ Item {
     Column {
         x: cover.x + cover.width + 40
         y: 96
-        visible: Sim.tracks.length > 0
+        visible: Sim.trackCount > 0
         width: 850 - x
         spacing: 10
         T { width: parent.width; text: Sim.track.title; font.pixelSize: 40 }
@@ -126,13 +145,19 @@ Item {
         y: 80
         width: parent.width - x - Theme.margin
         spacing: 4
-        T { text: "Up next"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall; bottomPadding: 8 }
+        T {
+            width: parent.width
+            text: "Up next" + (Sim.trackCount ? "  ·  " + Sim.queueTitle : "")
+            color: Theme.accentMid; font.pixelSize: Theme.fontSmall; bottomPadding: 8
+            elide: Text.ElideRight
+        }
         Repeater {
-            // what really comes next: without repeat, only the rest of the list
-            model: Math.max(0, Math.min(5, Sim.tracks.length - 1 - (Sim.repeatAll ? 0 : Sim.trackIndex)))
+            // what really comes next, in play order (shuffle included): from hu-mediad
+            model: Sim.upNext
             Item {
-                readonly property int ti: Sim.tracks.length ? (Sim.trackIndex + 1 + index) % Sim.tracks.length : 0
-                readonly property var next: Sim.tracks.length ? Sim.tracks[ti] : null
+                required property var modelData
+                required property int index
+                readonly property var next: modelData
                 width: parent.width
                 height: 104
                 Row {
@@ -146,8 +171,15 @@ Item {
                     }
                 }
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.accentFaint }
-                MouseArea { anchors.fill: parent; onClicked: { Sim.trackIndex = ti; Sim.trackPos = 0; Sim.playing = true } }
+                MouseArea { anchors.fill: parent; onClicked: { Sim.trackIndex = next.index; Sim.trackPos = 0; Sim.playing = true } }
             }
         }
+    }
+
+    MediaBrowser {
+        id: browser
+        anchors.fill: parent
+        visible: root.browsing
+        onDone: root.browsing = false
     }
 }

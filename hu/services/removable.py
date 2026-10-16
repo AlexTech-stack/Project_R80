@@ -11,7 +11,8 @@ rule must allow that for the HU's user). It is gone when udisks removes it or it
 unmounted.
 
     watcher = RemovableMedia(bus, on_added, on_removed, log)
-    on_added(key, name, mount_path)    key: "usb:<filesystem UUID>", name: its label or ""
+    on_added(key, name, mount_path, initial)    key: "usb:<filesystem UUID>", name: its label or "",
+                                                initial: it was there when udisks2 was first asked
     on_removed(key)
 
 Runs udisks2 on the system bus on the target; the BoAt tests put a stand-in on the
@@ -40,6 +41,7 @@ class RemovableMedia:
         self.objects: dict[str, dict] = {}     # object path -> {interface: {property: value}}
         self.present: dict[str, str] = {}      # object path -> key of a medium in use
         self.mounting: set[str] = set()
+        self.initial: set[str] = set()         # object paths udisks2 listed at our start
         bus.add_signal_receiver(self.on_ifaces_added, "InterfacesAdded", OM, UDISKS, ROOT)
         bus.add_signal_receiver(self.on_ifaces_removed, "InterfacesRemoved", OM, UDISKS, ROOT)
         bus.add_signal_receiver(self.on_props, "PropertiesChanged", PROPS, UDISKS, None, path_keyword="path")
@@ -57,6 +59,7 @@ class RemovableMedia:
 
     def on_objects(self, objects):
         self.objects = {str(p): {str(i): dict(props) for i, props in ifaces.items()} for p, ifaces in objects.items()}
+        self.initial = set(self.objects)
         for path in list(self.objects):
             self.check(path)
 
@@ -120,7 +123,7 @@ class RemovableMedia:
                     self.gone(old)                         # the same medium again, on a new device
                 self.present[path] = key
                 self.log(f"removable medium {key} at {mounts[0]}")
-                self.on_added(key, str(self.objects[path][BLOCK].get("IdLabel", "")), mounts[0])
+                self.on_added(key, str(self.objects[path][BLOCK].get("IdLabel", "")), mounts[0], path in self.initial)
         elif path in self.present:
             self.gone(path)                                # unmounted under us
         elif path not in self.mounting:

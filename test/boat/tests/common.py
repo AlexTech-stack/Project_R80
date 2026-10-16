@@ -141,6 +141,13 @@ def wait_media(cond, timeout=3.0, step=0.05):
     return False, props, time.monotonic() - t0
 
 
+def media_queue() -> list:
+    """The whole play queue (GetQueue), as plain dicts."""
+    m = media()
+    n = int(media_props().get("TrackCount", 0))
+    return [_plain(t) for t in m.GetQueue(0, n)]
+
+
 def media_reset():
     """Known start: no shuffle, repeat on, track 0 playing from the start."""
     m = media()
