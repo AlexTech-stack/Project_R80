@@ -193,19 +193,63 @@ Item {
             }
         }
 
-        // System
+        // System: what runs and how the computer is doing (hu-sysd's Info)
         Column {
+            id: sysPage
             visible: root.cat === 4
-            spacing: 14
+            spacing: 10
             x: 18
-            Logo { width: 150; height: 46 }
-            Item { width: 1; height: 10 }
-            T { text: "R80 Headunit  -  UI mockup v0.3" }
-            T { text: "Qt " + "6 / QML  ·  simulated data"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
-            T { text: "Display 1280 x 768 (5:3)"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
-            T { text: "Fonts: B612 (OFL/EPL), OSP-DIN (OFL)"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
-            T { text: "Icons & line art: drawn for this project"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
-            Item { width: 1; height: 16 }
+            readonly property var i: Sim.systemInfo
+            function days(s) {
+                if (s === undefined || s < 0) return "--";
+                const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+                return (d ? d + " d " : "") + (d || h ? h + " h " : "") + m + " min";
+            }
+            readonly property var rows: {
+                const i = sysPage.i;
+                const up = (i.services_up || []).length, missing = i.services_missing || [];
+                return [
+                    ["System", i.os + "  ·  " + i.kernel],
+                    ["Uptime", days(i.uptime_s)],
+                    ["CPU", (i.cpu_temp_c >= 0 ? i.cpu_temp_c.toFixed(1) + " °C" : "--")
+                            + "  ·  load " + (i.load >= 0 ? i.load.toFixed(2) : "--")],
+                    ["Memory", i.mem_total_mb > 0 ? (i.mem_total_mb - i.mem_available_mb) + " of " + i.mem_total_mb + " MB used" : "--"],
+                    ["Storage", i.disk_free_mb >= 0 ? (i.disk_free_mb / 1024).toFixed(1) + " GB free" : "--"],
+                    ["Services", up + " of " + (up + missing.length) + " running"
+                                 + (missing.length ? "  ·  missing " + missing.map(n => n.replace("de.r80.", "")).join(", ") : "")],
+                    ["Phone", Sim.navPhone.connected ? Sim.navPhone.device + " (companion app)" : "not connected"],
+                    ["Bluetooth", i.bt_name ? i.bt_name + "  ·  " + (i.bt_powered ? "on" : "off") + "  ·  " + i.bt_address
+                                            : "no adapter"]
+                ];
+            }
+            readonly property var cells: {
+                const o = [];
+                for (const r of rows) { o.push(r[0]); o.push(r[1]); }
+                return o;
+            }
+            Row {
+                spacing: 24
+                Logo { width: 150; height: 46; anchors.verticalCenter: parent.verticalCenter }
+                T { text: "R80 Headunit  ·  " + sysPage.i.version; anchors.verticalCenter: parent.verticalCenter }
+            }
+            Item { width: 1; height: 6 }
+            Grid {
+                columns: 2
+                columnSpacing: 30
+                rowSpacing: 9
+                Repeater {
+                    model: sysPage.cells
+                    T {
+                        text: modelData
+                        width: index % 2 === 0 ? 150 : 560
+                        color: index % 2 === 0 ? Theme.accentMid : Theme.accent
+                        font.pixelSize: Theme.fontSmall + 2
+                    }
+                }
+            }
+            Item { width: 1; height: 4 }
+            T { text: "Fonts B612 (OFL/EPL), OSP-DIN (OFL)  ·  icons and line art drawn for R80"
+                width: 700; wrapMode: Text.WordWrap; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
             SettingRow { label: "Simulate incoming call"; idx: 0; x: -18
                 LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.phone; label: "Ring"; iconSize: 22; onClicked: Sim.simulateIncomingCall() } }
         }

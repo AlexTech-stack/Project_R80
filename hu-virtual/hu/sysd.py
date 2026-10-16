@@ -11,6 +11,10 @@ saves them as state, so they survive a restart.
                   Schema (a{sv}): per setting {type, default, min, max | choices}
                   DisplayBrightness (d): what the display shows, 0..1 (D12: by day the user's
                                     brightness; at night the car's dimmer shifted by it)
+                  Info (a{sv}): Settings -> System, refreshed every [info] refresh_s: version, os,
+                                kernel, host, uptime_s, cpu_temp_c, load, mem_total_mb, mem_available_mb,
+                                disk_free_mb, services_up / services_missing (as, of [info] services),
+                                bt_name, bt_address, bt_powered (BlueZ adapter; bt_name "" = none)
                   Shutdown (a{sv}): state (idle|saving|acked|cancelled), savers (as), waiting (as),
                                     last_saved (as), last_timed_out (as), last_ms (u), last_cancelled (b)
       methods     Set(s name, v value)   checked against system.ini; errors:
@@ -75,7 +79,20 @@ def load_config(extra: str | None = None) -> dict:
     settings = {}
     shutdown = {}
     brightness = {}
+    info = {}
     for section in cp.sections():
+        if section == "info":
+            unknown = set(cp.options(section)) - {"refresh_s", "services"}
+            if unknown:
+                raise ConfigError(f"[info] unknown key(s): {', '.join(sorted(unknown))}")
+            try:
+                info["refresh_s"] = float(cp.get(section, "refresh_s"))
+                info["services"] = [x.strip() for x in cp.get(section, "services").split(",") if x.strip()]
+            except (configparser.Error, ValueError) as e:
+                raise ConfigError(f"[info] {e}") from None
+            if not 1 <= info["refresh_s"] <= 600:
+                raise ConfigError(f"[info] refresh_s = {info['refresh_s']} is outside 1..600")
+            continue
         if section == "brightness":
             unknown = set(cp.options(section)) - {"night_min", "night_max", "floor"}
             if unknown:
@@ -139,10 +156,12 @@ def load_config(extra: str | None = None) -> dict:
         raise ConfigError("[shutdown] is missing")
     if not brightness:
         raise ConfigError("[brightness] is missing")
+    if not info:
+        raise ConfigError("[info] is missing")
     for need, t in (("brightness", "number"), ("night_dimming", "bool")):
         if settings.get(need, {}).get("type") != t:
             raise ConfigError(f"[setting {need}] ({t}) is needed for the display brightness")
-    return {"settings": settings, "shutdown": shutdown, "brightness": brightness}
+    return {"settings": settings, "shutdown": shutdown, "brightness": brightness, "info": info}
 
 
 def display_brightness(cfg: dict, values: dict, night: bool, dim_level: float) -> float:
@@ -206,6 +225,57 @@ class Settings:
 
     def reset_all(self) -> bool:
         return any([self.reset(n) for n in self.schema])
+
+
+def system_info(repo: Path) -> dict:
+    """Settings -> System: facts about this computer from standard Linux sources (no
+    hardware-specific tools). Missing values are -1 / "unknown"."""
+    def read(p, default=""):
+        try:
+            return Path(p).read_text().strip()
+        except OSError:
+            return default
+
+    info = {"version": "unknown", "os": "unknown", "kernel": os.uname().release, "host": os.uname().nodename,
+            "uptime_s": -1, "cpu_temp_c": -1.0, "load": -1.0, "mem_total_mb": -1, "mem_available_mb": -1,
+            "disk_free_mb": -1}
+    try:
+        info["version"] = subprocess.run(["git", "-C", str(repo), "describe", "--always", "--dirty"],
+                                         capture_output=True, text=True, timeout=3).stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if info["version"] == "unknown":           # no git program (e.g. a minimal image): read the commit
+        head = read(repo / ".git" / "HEAD")
+        ref = head[5:] if head.startswith("ref: ") else ""
+        sha = read(repo / ".git" / ref) if ref else head
+        if not sha and ref:
+            sha = next((ln.split()[0] for ln in read(repo / ".git" / "packed-refs").splitlines()
+                        if ln.endswith(" " + ref)), "")
+        if sha:
+            info["version"] = sha[:7]
+    for line in read("/etc/os-release").splitlines():
+        if line.startswith("PRETTY_NAME="):
+            info["os"] = line.split("=", 1)[1].strip('"')
+    up = read("/proc/uptime").split()
+    if up:
+        info["uptime_s"] = int(float(up[0]))
+    zones = sorted(Path("/sys/class/thermal").glob("thermal_zone*"))
+    cpu = [z for z in zones if any(k in read(z / "type").lower() for k in ("cpu", "x86_pkg", "soc"))] or zones[:1]
+    if cpu:
+        info["cpu_temp_c"] = round(int(read(cpu[0] / "temp", "0")) / 1000, 1)
+    load = read("/proc/loadavg").split()
+    if load:
+        info["load"] = float(load[0])
+    mem = {ln.split(":")[0]: int(ln.split()[1]) for ln in read("/proc/meminfo").splitlines() if ln.split()[1:2]}
+    if "MemTotal" in mem:
+        info["mem_total_mb"] = mem["MemTotal"] // 1024
+        info["mem_available_mb"] = mem.get("MemAvailable", 0) // 1024
+    try:
+        st = os.statvfs(str(repo))
+        info["disk_free_mb"] = st.f_bavail * st.f_frsize // (1024 * 1024)
+    except OSError:
+        pass
+    return info
 
 
 class Shutdown:
@@ -312,10 +382,50 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             self.display = display_brightness(cfg, self.settings.values, self.night, self.dim_level)
             bus.add_signal_receiver(self.on_vehicle, "PropertiesChanged", PROPS, None, VEHICLE[1])
             GLib.idle_add(self.read_vehicle)
+            self.repo = Path(__file__).resolve().parents[2]
+            self.sys_bus = None
+            self.info = {}
+            self.refresh_info()
+            GLib.timeout_add(int(cfg["info"]["refresh_s"] * 1000), self.refresh_info)
             bus.add_signal_receiver(self.on_owner, "NameOwnerChanged", "org.freedesktop.DBus",
                                     "org.freedesktop.DBus", "/org/freedesktop/DBus")
 
         # ---- shutdown (D12) -------------------------------------------------------
+        # ---- system information (Settings -> System) ------------------------------
+        def bluetooth(self) -> dict:
+            try:
+                if self.sys_bus is None:
+                    self.sys_bus = dbus.SystemBus()
+                objs = self.sys_bus.get_object("org.bluez", "/").GetManagedObjects(
+                    dbus_interface="org.freedesktop.DBus.ObjectManager", timeout=1.0)
+                for _path, ifaces in sorted(objs.items()):
+                    a = ifaces.get("org.bluez.Adapter1")
+                    if a:
+                        return {"bt_name": str(a.get("Alias", a.get("Name", ""))), "bt_address": str(a.get("Address", "")),
+                                "bt_powered": bool(a.get("Powered", False))}
+            except dbus.DBusException:
+                pass
+            return {"bt_name": "", "bt_address": "", "bt_powered": False}
+
+        def refresh_info(self):
+            info = system_info(self.repo)
+            names = cfg["info"]["services"]
+            up = [n for n in names if n == BUS_NAME or self.bus.name_has_owner(n)]
+            info.update(services_up=up, services_missing=[n for n in names if n not in up], **self.bluetooth())
+            if info != self.info:
+                self.info = info
+                self.PropertiesChanged(IFACE, dbus.Dictionary({"Info": self.info_v()}, signature="sv"),
+                                       dbus.Array([], signature="s"))
+            return True
+
+        def info_v(self):
+            out = {}
+            for k, v in self.info.items():
+                out[k] = (dbus.Array(v, signature="s") if isinstance(v, list) else dbus.Boolean(v) if isinstance(v, bool)
+                          else dbus.Double(v) if isinstance(v, float) else dbus.Int64(v) if isinstance(v, int)
+                          else dbus.String(v))
+            return dbus.Dictionary(out, signature="sv")
+
         # ---- display brightness (D12) ------------------------------------------
         def read_vehicle(self):
             self.bus.call_async(VEHICLE[0], VEHICLE[1], PROPS, "GetAll", "s", (VEHICLE[2],),
@@ -483,12 +593,15 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 return self.shutdown_v()
             if name == "DisplayBrightness":
                 return dbus.Double(self.display)
+            if name == "Info":
+                return self.info_v()
             raise dbus.exceptions.DBusException(f"no property {name}", name="org.freedesktop.DBus.Error.UnknownProperty")
 
         @dbus.service.method(PROPS, in_signature="s", out_signature="a{sv}")
         def GetAll(self, iface):
             return dbus.Dictionary({"Settings": self.settings_v(), "Schema": self.schema_v(),
-                                    "Shutdown": self.shutdown_v(), "DisplayBrightness": dbus.Double(self.display)},
+                                    "Shutdown": self.shutdown_v(), "DisplayBrightness": dbus.Double(self.display),
+                                    "Info": self.info_v()},
                                    signature="sv")
 
         @dbus.service.signal(PROPS, signature="sa{sv}as")

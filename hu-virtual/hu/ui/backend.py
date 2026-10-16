@@ -539,6 +539,7 @@ class System(QObject):
         self._available = False
         self._settings = {}
         self._display = 0.9
+        self._info = {}
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
         self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, SYS_PATH)
@@ -565,6 +566,8 @@ class System(QObject):
             self._settings = {str(k): _py(v) for k, v in changed["Settings"].items()}
         if "DisplayBrightness" in changed:
             self._display = float(changed["DisplayBrightness"])
+        if "Info" in changed:
+            self._info = {str(k): _py(v) for k, v in changed["Info"].items()}
         if not self._available:
             self._available = True
             self.availableChanged.emit()
@@ -573,6 +576,7 @@ class System(QObject):
     available = Property(bool, lambda self: self._available, notify=availableChanged)
     settings = Property("QVariantMap", lambda self: dict(self._settings), notify=changed)
     displayBrightness = Property(float, lambda self: self._display, notify=changed)
+    info = Property("QVariantMap", lambda self: dict(self._info), notify=changed)
 
     @Slot(str, "QVariant")
     def set(self, name, value):

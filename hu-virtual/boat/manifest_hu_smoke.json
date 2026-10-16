@@ -31,6 +31,7 @@
     { "id": "TC_HU_024", "name": "Settings: set, check, reset, keep", "file": "python3 tests/test_settings.py", "timeout_s": 30 },
     { "id": "TC_HU_025", "name": "Audio tone controls in audiod", "file": "python3 tests/test_audio_tone.py", "timeout_s": 30 },
     { "id": "TC_HU_026", "name": "Shutdown: savers, timeout, cancel", "file": "python3 tests/test_shutdown.py", "timeout_s": 90 },
-    { "id": "TC_HU_027", "name": "Display brightness: day, night, dimmer, floor", "file": "python3 tests/test_display_brightness.py", "timeout_s": 60 }
+    { "id": "TC_HU_027", "name": "Display brightness: day, night, dimmer, floor", "file": "python3 tests/test_display_brightness.py", "timeout_s": 60 },
+    { "id": "TC_HU_028", "name": "System information for Settings -> System", "file": "python3 tests/test_system_info.py", "timeout_s": 40 }
   ]
 }

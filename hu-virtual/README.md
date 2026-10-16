@@ -320,6 +320,12 @@ sysd waits for all of them but at most `save_timeout_s` (`[shutdown]` in
 `hu/system.ini`), saves its own settings, syncs and lets vehicled acknowledge to the
 MCU (`ShutdownReady`). With `after_ack = poweroff` (target) Linux then powers off; the
 bench keeps `none`. If the ignition comes back first, nothing is acknowledged.
+**System information.** Property `Info` for Settings → System, refreshed every
+`refresh_s` (`[info]` in `hu/system.ini`): software version (`git describe` of the
+checkout), OS, kernel, uptime, CPU temperature (the CPU's thermal zone) and load,
+memory, free storage, which of the HU services in `[info] services` are on the bus,
+and the Bluetooth adapter from BlueZ. Standard Linux sources only, no board tools.
+
 **Display brightness.** sysd publishes `DisplayBrightness` (0..1): by day the
 user's brightness setting; at night (lights on, "dim at night" on) the car's dimmer
 (`DimLevel` from the MCU) gives the base between `night_min` and `night_max`, and the
@@ -371,6 +377,7 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_025 | tone controls in audiod: bass/treble in whole dB within the range, balance, loudness; refusals change nothing; saved with the volumes; old values fall back (audiod's logic) |
 | TC_HU_026 | shutdown (D12): bus sleep -> sysd asks audiod/tripd to save -> acknowledgement -> MCU off, settings on disk; a saver that never answers delays it by `save_timeout_s` at most; ignition back during saving cancels (MCU stays on); a saver whose process ended is not waited for |
 | TC_HU_027 | display brightness (D12) from LightState over the bus: by day the user's brightness; at night the car's dimmer shifted by the user's setting; dim at night off; floor (sysd's formula and `system.ini`) |
+| TC_HU_028 | system information (Settings → System): all HU services of `[info] services` reported running, version / OS / uptime / memory / storage plausible, refreshed every `refresh_s`, Bluetooth fields present |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./hu-virtual.sh test` does that).

@@ -41,7 +41,7 @@ def main():
         out = Path(args.screenshots)
         out.mkdir(parents=True, exist_ok=True)
         shots = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media", "radio", "phone", "vehicle",
-                 "cluster", "clock", "settings", "call", "volume", "audio", "trip", "warning", "warnings"]
+                 "cluster", "clock", "settings", "call", "volume", "audio", "system", "trip", "warning", "warnings"]
         state = {"i": 0, "images": []}
 
         def step():
@@ -77,6 +77,10 @@ def main():
                 win.setProperty("demoWarnings", False)
                 win.setProperty("current", "vehicle")
                 QTimer.singleShot(300, lambda: win.findChild(QObject, "vehicleScreen").setProperty("tab", 1))
+            elif name == "system":
+                win.setProperty("demoVolume", False)
+                win.setProperty("current", "settings")
+                QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 4))
             elif name == "audio":
                 win.setProperty("demoVolume", False)
                 win.setProperty("current", "settings")

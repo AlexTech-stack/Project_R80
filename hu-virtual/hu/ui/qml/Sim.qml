@@ -292,6 +292,18 @@ QtObject {
         const l = Object.assign({}, _local); l[name] = value; _local = l;
     }
 
+    // ---- system information (Settings -> System): hu-sysd's Info; without it demo values ------
+    readonly property date _bootTime: new Date(now.getTime() - 3 * 3600 * 1000 - 12 * 60 * 1000)
+    readonly property var _fakeInfo: ({
+        version: "mockup", os: "simulated", kernel: "-", host: "r80-mockup",
+        uptime_s: Math.floor((now - _bootTime) / 1000), cpu_temp_c: 48.5, load: 0.42,
+        mem_total_mb: 905, mem_available_mb: 512, disk_free_mb: 6900,
+        services_up: ["de.r80.Vehicle", "de.r80.Media", "de.r80.Audio", "de.r80.Warnings", "de.r80.Trip",
+                      "de.r80.Nav", "de.r80.System"],
+        services_missing: [], bt_name: "R80", bt_address: "B8:27:EB:00:00:00", bt_powered: true
+    })
+    readonly property var systemInfo: settingsLive && System.info.version !== undefined ? System.info : _fakeInfo
+
     // ---- tone (D9): kept by hu-audiod; without it local values ------------------------------
     readonly property bool toneLive: Audio.available && Audio.tone.bass !== undefined
     property var _tone: ({ bass: 0, treble: 0, balance: 0, loudness: true })

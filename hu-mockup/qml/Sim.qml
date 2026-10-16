@@ -181,6 +181,17 @@ QtObject {
         else if (name === "units") units_metric = value === "metric";
     }
 
+    // ---- system information (Settings -> System; hu-sysd's Info in hu-virtual) ---------------
+    readonly property date _bootTime: new Date(now.getTime() - 3 * 3600 * 1000 - 12 * 60 * 1000)
+    readonly property var systemInfo: ({
+        version: "mockup", os: "simulated", kernel: "-", host: "r80-mockup",
+        uptime_s: Math.floor((now - _bootTime) / 1000), cpu_temp_c: 48.5, load: 0.42,
+        mem_total_mb: 905, mem_available_mb: 512, disk_free_mb: 6900,
+        services_up: ["de.r80.Vehicle", "de.r80.Media", "de.r80.Audio", "de.r80.Warnings", "de.r80.Trip",
+                      "de.r80.Nav", "de.r80.System"],
+        services_missing: [], bt_name: "R80", bt_address: "B8:27:EB:00:00:00", bt_powered: true
+    })
+
     // ---- tone (D9: hu-audiod keeps it; applied once the DSP amplifier is chosen) ------------
     property int toneBass: 0
     property int toneTreble: 0
