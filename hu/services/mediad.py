@@ -928,11 +928,23 @@ def main():
                   usb_bus, a.resume_wait)
     loop = GLib.MainLoop()
 
-    def terminate():
-        media.save_state()          # stopped by systemd (restart, poweroff): keep the resume point
+    def terminate(*_):
+        # Stopped by systemd (restart, poweroff): keep the resume point. systemd ends the
+        # session bus at the same moment, so losing it must not end mediad before this.
+        media.save_state()
+        media.scanner.stop()
+        media.player.set_state(Gst.State.NULL)     # a running pipeline would block the exit
         loop.quit()
         return False
-    GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, terminate)
+    for b in {bus, usb_bus} - {None}:
+        b.set_exit_on_disconnect(False)
+    bus.add_signal_receiver(terminate, "Disconnected", "org.freedesktop.DBus.Local")
+    try:
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLibUnix
+        GLibUnix.signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, terminate)
+    except (ImportError, ValueError):                # GLib before 2.80
+        GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, terminate)
     loop.run()
 
 
