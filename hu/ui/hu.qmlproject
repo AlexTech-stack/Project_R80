@@ -1,8 +1,8 @@
 import QmlProject
 
-// Qt Design Studio project for the UI mockup (made for Design Studio 4.8).
-// Open this file in Design Studio. It uses the simulated data from qml/Sim.qml;
-// no D-Bus or hu-virtual needed. run.py and hu-virtual do not use this file.
+// Qt Design Studio project for the headunit UI (made for Design Studio 4.8).
+// Open this file in Design Studio. It runs on the demo data of qml/Sim.qml (as ./r80 demo);
+// no services or D-Bus needed. run.py and ./r80 do not use this file.
 Project {
     mainFile: "qml/main.qml"
     // demo stand-ins for the R80.Backend singletons, so Sim.qml runs on demo data

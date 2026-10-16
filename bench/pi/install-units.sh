@@ -11,7 +11,7 @@ set -euo pipefail
 DESKTOP=""
 [[ "${1:-}" == --desktop ]] && { DESKTOP=1; shift; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-REPO="$(dirname "$HERE")"
+REPO="$(cd "$HERE/../.." && pwd -P)"
 USER_NAME="$(id -un)"
 USER_ID="$(id -u)"
 [[ "$USER_NAME" != root ]] || { echo "run as the user the HU should run as, not root (sudo is used inside)"; exit 1; }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start / stop the virtual R80 headunit environment.
+# Start / stop the virtual R80 headunit environment. Usually run as ./r80 virtual <command>.
 #
 #   ./hu-virtual.sh up          buses, BoAt gateway, MCU emulator, hu-vehicled, hu-mediad, hu-audiod, hu-warnd, hu-tripd, hu-navd, hu-sysd
 #   ./hu-virtual.sh drive       ... plus the BoAt restbus playing the drive cycle
@@ -11,7 +11,7 @@
 #   ./hu-virtual.sh test        run the BoAt test suite (env must be up; stops restbus, panels, phone and tunnel)
 #   ./hu-virtual.sh status | logs | down
 #
-# Env overrides: BOAT_ROOT (~/BoAt), BOAT_PORT (50061), R80_MOCKUP (the UI dir, default hu/ui),
+# Env overrides: BOAT_ROOT (~/BoAt), BOAT_PORT (50061), UI_ARGS (extra hu/ui/run.py arguments, e.g. --fullscreen),
 #                HU_DUT=external (up starts only buses + gateway; the DUT, i.e. MCU emulator,
 #                vehicled, mediad, audiod, warnd, tripd, navd and sysd, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
 #                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort),
@@ -108,7 +108,7 @@ case "${1:-status}" in
   up) up ;;
   drive) up; stop panel; start restbus python3 "$REPO/test/boat/restbus.py" --address "localhost:$BOAT_PORT" --drive ${RESTBUS_ARGS:-} ;;
   restbus) start restbus python3 "$REPO/test/boat/restbus.py" --address "localhost:$BOAT_PORT" ${RESTBUS_ARGS:-} ;;
-  ui) start ui python3 "$REPO/hu/ui/run_hu.py" ${UI_ARGS:-} ;;
+  ui) start ui python3 "$REPO/hu/ui/run.py" ${UI_ARGS:-} ;;
   # shellcheck disable=SC2086  # PHONE_ARGS is a list of flags
   phone) start phone python3 "$HERE/phone_emu/phone_emu.py" --socket "$RUN/companion.sock" ${PHONE_ARGS:-} ;;
   phonepanel) stop phone; start phonepanel python3 "$HERE/phone_emu/phone_panel.py" --target "$RUN/companion.sock" ;;
