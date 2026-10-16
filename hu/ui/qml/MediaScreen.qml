@@ -180,6 +180,6 @@ Item {
         id: browser
         anchors.fill: parent
         visible: root.browsing
-        onDone: root.browsing = false
+        onDone: (played) => { root.browsing = false; if (played) root.sel = 1 }   // knob back on play/pause
     }
 }

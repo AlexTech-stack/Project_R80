@@ -13,7 +13,7 @@ Item {
     property int sel: 0
     property bool loading: false
     readonly property int pageSize: 60
-    signal done()                   // a track plays or back left the top: close
+    signal done(bool played)        // a track plays (true) or back left the top (false): close
 
     function open(p) {
         if (path !== "" || stack.length || entries.length)
@@ -26,7 +26,7 @@ Item {
         Sim.browse(p, 0, pageSize)
     }
     function back() {
-        if (!stack.length) { done(); return }
+        if (!stack.length) { done(false); return }
         const up = stack[stack.length - 1]
         stack = stack.slice(0, -1)
         load(up.path, up.sel)
@@ -44,7 +44,7 @@ Item {
     function press() {
         const e = entries[sel]
         if (!e) return
-        if (e.kind === "track") { Sim.playFrom(path, e.index); done() }
+        if (e.kind === "track") { Sim.playFrom(path, e.index); done(true) }
         else open(e.id)
     }
 
