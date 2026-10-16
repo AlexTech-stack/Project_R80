@@ -942,9 +942,10 @@ def main():
     try:
         gi.require_version("GLibUnix", "2.0")
         from gi.repository import GLibUnix
-        GLibUnix.signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, terminate)
-    except (ImportError, ValueError):                # GLib before 2.80
-        GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, terminate)
+        signal_add = GLibUnix.signal_add             # GLib 2.80 and newer
+    except (ImportError, ValueError, AttributeError):  # e.g. Debian 13 (the Pi): only the old name
+        signal_add = GLib.unix_signal_add
+    signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, terminate)
     loop.run()
 
 
