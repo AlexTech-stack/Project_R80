@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# R80 headunit: one entry point for the three run modes.
+#
+#   ./r80 demo                         the UI with fake data (no services, no D-Bus)
+#   ./r80 demo screenshots [DIR]       every screen to PNG (default: docs/screenshots)
+#
+#   ./r80 virtual <command>            the headunit on this PC, BoAt restbus and tests (dev/hu-virtual.sh):
+#                                      up | drive | restbus | panel | phone | phonepanel | tunnel | ui | test | status | logs | down
+#
+#   ./r80 bench <command>              the Raspberry Pi bench (docs/bench-pi.md)
+#     on the Pi:  install [--desktop] [PC_IP]   install the systemd units for this checkout
+#                 start | stop | restart        the HU (the desktop unit if installed, else the kiosk unit)
+#                 status | logs                 unit status, follow the service logs
+#                 update                        git pull, then restart the HU
+#                 run                           the kiosk in the foreground (one session bus)
+#     on the PC:  tunnel                        CAN tunnel to the Pi (PI_IP; virtual up/drive start it too)
+#                 share-internet <if> [<net>]   share this PC's internet with the Pi on the cable
+set -euo pipefail
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PY="${R80_PYTHON:-python3}"
+
+usage() { sed -n '2,/^set /p' "${BASH_SOURCE[0]}" | sed -e '$d' -e 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+hu_unit() {  # the HU unit this Pi uses: the desktop one (user) when installed, else the kiosk one
+  if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/r80-hu-desktop.service" ]]; then
+    echo user r80-hu-desktop
+  else
+    echo system r80-hu
+  fi
+}
+
+hu_ctl() {  # start|stop|restart|status [options]
+  read -r scope unit < <(hu_unit)
+  if [[ $scope == user ]]; then systemctl --user "$@" "$unit"; else sudo systemctl "$@" "$unit"; fi
+}
+
+bench() {
+  local cmd="${1:-}"; shift || true
+  case "$cmd" in
+    install) exec "$REPO/bench/pi/install-units.sh" "$@" ;;
+    start|stop|restart) hu_ctl "$cmd" ;;
+    status) hu_ctl status --no-pager || true; systemctl status r80-can --no-pager || true ;;
+    logs) exec tail -n 20 -F /tmp/r80-*.log ;;
+    update) git -C "$REPO" pull --ff-only && hu_ctl restart ;;
+    run) exec dbus-run-session -- "$REPO/bench/pi/r80-kiosk.sh" ;;
+    tunnel) exec "$REPO/dev/hu-virtual.sh" tunnel ;;
+    share-internet) exec "$REPO/bench/pi/pc-share-internet.sh" "$@" ;;
+    *) echo "unknown bench command: '$cmd'" >&2; usage 2 ;;
+  esac
+}
+
+mode="${1:-}"; shift || true
+case "$mode" in
+  demo)
+    case "${1:-}" in
+      "") exec "$PY" "$REPO/hu/ui/run.py" --demo ;;
+      screenshots) exec "$PY" "$REPO/hu/ui/run.py" --screenshots "${2:-$REPO/docs/screenshots}" ;;
+      *) exec "$PY" "$REPO/hu/ui/run.py" --demo "$@" ;;    # e.g. ./r80 demo --fullscreen
+    esac ;;
+  virtual) [[ $# -gt 0 ]] || usage 2; exec "$REPO/dev/hu-virtual.sh" "$@" ;;
+  bench) bench "$@" ;;
+  -h|--help|help|"") usage ;;
+  *) echo "unknown mode: '$mode'" >&2; usage 2 ;;
+esac

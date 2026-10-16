@@ -41,7 +41,7 @@ sim_log() {
 
 screenshots() {
   local shots="$OUT/screenshots"
-  "$PY" hu-mockup/run.py --screenshots "$shots" || return 1
+  "$PY" hu/ui/run.py --screenshots "$shots" || return 1
   local n; n=$(find "$shots" -name '*.png' -size +1k | wc -l)
   echo "   $n screenshots in $shots"
   [[ $n -ge 11 ]] || { echo "   expected 11 PNGs (10 screens + overview.png)"; return 1; }

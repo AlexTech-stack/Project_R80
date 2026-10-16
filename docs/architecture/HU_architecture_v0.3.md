@@ -1,7 +1,7 @@
 # R80 Headunit – Architecture (v0.3)
 
 Status: v0.3, last updated 2026-10-16 with Alex's decisions D1 to D12 (see §0). §4 to §6 say what is built
-in `hu-virtual/` (runs on a PC and on the Raspberry Pi bench) and what is still a proposal.
+in `hu/` (runs on a PC and on the Raspberry Pi bench, started with `./r80`) and what is still a proposal.
 
 ## 0. Decisions so far (2026-09-28)
 
@@ -21,7 +21,7 @@ in `hu-virtual/` (runs on a PC and on the Raspberry Pi bench) and what is still 
 | D12 | System and settings | Agreed 2026-10-15: a system service (`sysd`) keeps the user's settings and saves them, so they survive a restart; what each setting may be (type, range, default) lives in a file, not in code. It also coordinates the shutdown: when the MCU announces off, the services save their state, then the MCU gets its acknowledgement, and on the target Linux powers off cleanly before the MCU cuts the power (off on the bench). Display brightness at night follows the car's dimmer as the base, with the user's brightness setting on top (like modern devices). English only, no language setting, at least until feature complete. The HU always starts on Home. Logging and software updates come later. |
 
 Car: Audi A3 Sportback 8PA, 2005 (PQ35 platform), heavily modified.
-Starting point: the QML mockup v0.3 in `hu-mockup/`.
+Starting point: the QML mockup v0.3 (now the UI in `hu/ui/`).
 
 Connector details in §3 describe a stock 2005 8P and are still to be checked on the car.
 
@@ -171,10 +171,12 @@ native support, and each service can be restarted or tested on its own.
 Done as planned:
 
 1. **Every screen and the Theme stayed.** They are the HMI.
-2. **A backend replaces the simulated data**: `hu-virtual/hu/ui/qml/Sim.qml` keeps the
+2. **A backend replaces the simulated data**: `hu/ui/qml/Sim.qml` keeps the
    mockup's property names and fills them from the D-Bus services (`hu/ui/backend.py`).
-3. **`hu-mockup/qml/Sim.qml` stays the simulation**, so the UI runs on any PC without the
-   services; where a service is missing, hu-virtual falls back to the simulated values.
+3. **The simulation stays in the same Sim.qml**: where a service is missing, Sim falls
+   back to its simulated values. The demo mode (`./r80 demo`, Qt Design Studio) loads
+   stand-ins for the backends (`hu/ui/qml-demo/`) that are never available, so the UI
+   runs on any PC without the services.
 4. **Knob and keys** arrive from the MCU as the same events as the keyboard.
 
 Still open: a small C++ launcher instead of PySide6 boots faster and saves RAM on a small

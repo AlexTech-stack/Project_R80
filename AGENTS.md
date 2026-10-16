@@ -9,14 +9,16 @@ If a rule here conflicts with what you think is best, follow the rule and tell t
 - Project R80 builds a new headunit (hardware and software) and centre console
   for one heavily modified 2005 Audi A3 Sportback (8PA, PQ35 platform).
 - The owner is Alex (GitHub: `AlexTech-stack`).
-- The project is at an early stage:
-  - `hu-mockup/` is a clickable UI mockup. All its data is fake.
-  - `hu-can/` holds a made-up test CAN database. There is no real one yet.
-  - `docs/architecture/` holds the architecture draft (v0.3).
-  - `hu-virtual/` runs the headunit software on a PC without target hardware, and on
-    the Raspberry Pi bench (`r80_pi_testbench/`, `docs/bench-pi.md`).
-  - `companion-android/` is the R80 Companion app on the driver's phone (D11).
-  - `hardware/` is an empty placeholder.
+- The project is at an early stage. There is one headunit software (`hu/`) with
+  three run modes, all started with `./r80`:
+  - `demo`: only the UI, on fake data. No services, no D-Bus.
+  - `virtual`: the whole headunit on a PC without target hardware; `dev/` stands in
+    for the MCU and the phone, BoAt for the car (`test/boat/`).
+  - `bench`: the headunit on the Raspberry Pi bench (`bench/pi/`, `docs/bench-pi.md`).
+- `hu-can/` holds a made-up test CAN database. There is no real one yet.
+- `docs/architecture/` holds the architecture draft (v0.3).
+- `companion-android/` is the R80 Companion app on the driver's phone (D11).
+- `hardware/` is an empty placeholder.
 
 ## 2. Repository layout
 
@@ -29,7 +31,7 @@ CLAUDE.md                         extra notes for Claude; imports this file
 .github/workflows/canary.yml      nightly BoAt canary (BoAt master + latest release), not blocking
 ci/check_static.sh                static checks (py_compile, repo rules, DBC, simulator, screenshots)
 ci/check_rules.py                 checks the rules of this file that a script can check
-ci/run_boat_sil.sh                BoAt smoke tests of hu-virtual/ (--install: pinned BoAt release)
+ci/run_boat_sil.sh                BoAt smoke tests of the virtual mode (--install: pinned BoAt release)
 ci/boat.version                   the BoAt release CI tests against
 ci/dut/                           emulated aarch64 DUT for CI: Dockerfile, start script, private bus config
 ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
@@ -38,26 +40,13 @@ ci/build_android.sh               builds and unit-tests the companion app (compa
 docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D12
 docs/companion-protocol.md        phone (R80 Companion app) <-> HU link protocol (D11)
 docs/companion-protocol-examples.jsonl  protocol examples both sides test against
+docs/bench-pi.md                  the Raspberry Pi bench: setup and operation
+docs/screenshots/                 every UI screen, rendered by ./r80 demo screenshots
+docs/ui/, docs/images/            UI vision and car reference; pictures for the READMEs
 companion-android/                R80 Companion, the Android app on the driver's phone (D11, Kotlin)
-hu-mockup/                        Qt 6 / QML UI mockup, launched with PySide6
-  run.py                          launcher, also renders screenshots headless
-  hu-mockup.qmlproject            Qt Design Studio project (open this in Design Studio)
-  qml/main.qml                    window, screen switching, knob/key handling
-  qml/Theme.qml                   all colours, fonts and sizes
-  qml/Sim.qml                     fake vehicle/media/radio/phone/nav data
-  qml/Icons.qml                   self-drawn line icons as SVG path data
-  qml/ManeuverIcon.qml            navigation maneuver arrows, drawn in code (D11)
-  qml/*Screen.qml                 one file per screen
-  qml/Logo.qml                    the placeholder "R80" brand mark
-  fonts/                          B612 and OSP-DIN with their licence files
-hu-can/
-  r80_test.dbc                    test CAN database (generated, do not hand-edit)
-  tools/make_dbc.py               generates r80_test.dbc from one table
-  tools/r80_can_sim.py            drive-cycle simulator (candump log or live CAN)
-  sample_drive_60s.log            60 s sample drive, candump format
-hu-virtual/
-  hu-virtual.sh                   up | drive | restbus | panel | ui | test | status | logs | down
-  hu/                             target software (runs unchanged on the Pi)
+r80                               the one entry point: ./r80 demo | virtual <cmd> | bench <cmd>
+hu/                               the headunit software (target software: runs unchanged on the Pi)
+  services/                       the services, each with its config file
     mcu_link.py                   MCU <-> Linux UART protocol (placeholder)
     dbc.py                        small DBC decoder, no dependencies
     vehicled.py                   vehicle service, publishes D-Bus de.r80.Vehicle
@@ -69,11 +58,30 @@ hu-virtual/
     navd.py, nav.ini              navigation service (D11), D-Bus de.r80.Nav, and its timing
     sysd.py, system.ini           system and settings service (D12), D-Bus de.r80.System, and the settings' schema
     saver.py                      a service's part in the shutdown: register with sysd, save, report
-    ui/run_hu.py, ui/backend.py   UI launcher and QML backend over D-Bus
-    ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
-  mcu_emu/                        MCU emulator and its control client (PC only)
-  phone_emu/                      phone emulator and phone panel (GUI): companion app stand-ins (PC only)
-  boat/                           BoAt restbus node, tester panel and the BoAt tests (PC only; list in hu-virtual/README.md)
+  ui/                             Qt 6 / QML UI, launched with PySide6
+    run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
+    backend.py                    the R80.Backend QML singletons, one per service, over D-Bus
+    hu.qmlproject                 Qt Design Studio project (open this in Design Studio)
+    qml/main.qml                  window, screen switching, knob/key handling
+    qml/Theme.qml                 all colours, fonts and sizes
+    qml/Sim.qml                   the data the screens show: from R80.Backend, or fake when a backend is unavailable
+    qml/Icons.qml                 self-drawn line icons as SVG path data
+    qml/ManeuverIcon.qml          navigation maneuver arrows, drawn in code (D11)
+    qml/*Screen.qml               one file per screen
+    qml/Logo.qml                  the placeholder "R80" brand mark
+    qml-demo/R80/Backend/         demo stand-ins for the backend.py singletons (available: false)
+    fonts/                        B612 and OSP-DIN with their licence files
+hu-can/
+  r80_test.dbc                    test CAN database (generated, do not hand-edit)
+  tools/make_dbc.py               generates r80_test.dbc from one table
+  tools/r80_can_sim.py            drive-cycle simulator (candump log or live CAN)
+  sample_drive_60s.log            60 s sample drive, candump format
+dev/                              PC stand-ins for the virtual mode (PC only)
+  hu-virtual.sh                   up | drive | restbus | panel | phone | phonepanel | tunnel | ui | test | status | logs | down
+  mcu_emu/                        MCU emulator and its control client
+  phone_emu/                      phone emulator and phone panel (GUI): companion app stand-ins
+test/boat/                        BoAt restbus node, tester panel and the BoAt tests (PC only; list in dev/README.md)
+bench/pi/                         Raspberry Pi bench: kiosk script, systemd units, CAN tunnel, PC helpers
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```
 
@@ -85,11 +93,13 @@ Install Python dependencies once:
 python3 -m pip install PySide6 cantools python-can
 ```
 
-UI mockup:
+All run modes go through `./r80` (`./r80 --help`).
+
+UI on fake data (demo mode):
 
 ```bash
-python3 hu-mockup/run.py                           # window, 1280 x 768
-python3 hu-mockup/run.py --screenshots /tmp/shots  # render every screen to PNG, then exit
+./r80 demo                         # window, 1280 x 768
+./r80 demo screenshots /tmp/shots  # render every screen to PNG, then exit (default: docs/screenshots)
 ```
 
 - Use `--screenshots` to check any UI change. Open the PNGs and look at them.
@@ -107,13 +117,15 @@ python3 hu-can/tools/r80_can_sim.py --log drive.log  # write a candump log
 Virtual headunit (only on Alex's PC; needs BoAt, vcan and sudo):
 
 ```bash
-cd hu-virtual
-./hu-virtual.sh drive   # buses, BoAt gateway, MCU emulator, vehicled, drive cycle
-./hu-virtual.sh ui      # UI window on top
-./hu-virtual.sh up && ./hu-virtual.sh panel   # tester panel instead of the drive cycle
-./hu-virtual.sh up && ./hu-virtual.sh test   # run the BoAt tests
-./hu-virtual.sh down
+./r80 virtual drive   # buses, BoAt gateway, MCU emulator, the services, drive cycle
+./r80 virtual ui      # UI window on top (live)
+./r80 virtual up && ./r80 virtual panel   # tester panel instead of the drive cycle
+./r80 virtual up && ./r80 virtual test    # run the BoAt tests
+./r80 virtual down
 ```
+
+Raspberry Pi bench (`docs/bench-pi.md`): `./r80 bench install|start|stop|restart|status|logs|update`
+on the Pi, `./r80 bench tunnel` on the PC.
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) runs on every push to every branch.
 It runs the static checks on x86_64 and on aarch64 in Debian 13 (like the Pi bench),
@@ -127,7 +139,7 @@ SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 
 CI also runs the BoAt tests with the BoAt release pinned in `ci/boat.version`
 (`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
-A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`, `hu/warnd.py`, `hu/tripd.py`, `hu/navd.py`, `hu/sysd.py`) in a
+A second job runs them with the DUT (`dev/mcu_emu/` and the services in `hu/services/`) in a
 Debian 13 container per CPU, arm64 (QEMU-emulated, like the Pi) and amd64, while BoAt
 stays on the x86 host (`ci/run_boat_sil.sh --install --dut-arch=arm64`; needs docker,
 and qemu-user-static for arm64).
@@ -139,10 +151,11 @@ The companion app has JVM unit tests (`ci/build_android.sh`, CI job `android`; n
 Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side yet. Before you commit:
 
 1. Run `ci/check_static.sh`, or at least `python3 -m py_compile` on every Python file you changed.
-2. If you changed QML, run `run.py --screenshots` and check the images.
+2. If you changed QML, run `./r80 demo screenshots <dir>` and check the images. If the screens
+   changed, also update `docs/screenshots` (`./r80 demo screenshots`).
 3. If you changed `hu-can/tools/make_dbc.py`, regenerate `r80_test.dbc` and commit both.
-4. If you changed anything in `hu-virtual/` and you can run BoAt, run `ci/run_boat_sil.sh`
-   (or `./hu-virtual.sh test`). If you cannot run it, say so and check the `boat-sil` CI job instead.
+4. If you changed anything in `hu/`, `dev/` or `test/boat/` and you can run BoAt, run `ci/run_boat_sil.sh`
+   (or `./r80 virtual test`). If you cannot run it, say so and check the `boat-sil` CI job instead.
 
 ## 4. Git rules
 
@@ -180,7 +193,7 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
 ## 7. BoAt (Alex's test framework)
 
 - BoAt is a separate project by Alex. On Alex's PC it lives at `~/BoAt`
-  (`/home/testuser/BoAt`). `hu-virtual/` uses it for the restbus and the tests.
+  (`/home/testuser/BoAt`). The virtual mode (`dev/`, `test/boat/`) uses it for the restbus and the tests.
 - BoAt (gateway, restbus, tester panel, tests) runs on the test PC (x86_64) only.
   It never runs on the Raspberry Pi or the final headunit: those are the DUT.
 - NEVER change, patch or "fix" anything in BoAt. Not even a one-line fix.
@@ -202,20 +215,20 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
   Development is benched on a Raspberry Pi 3B+ or 4.
 - Keep all software portable. Put hardware-specific code in a thin, separate layer.
   No Pi-specific code outside that layer. No x86-only dependencies.
-- Code under `hu-virtual/hu/` is target software. It must not import BoAt,
-  `mcu_emu/`, `phone_emu/` or `boat/`.
+- Code under `hu/` is target software. It must not import BoAt, `dev/` (`mcu_emu/`,
+  `phone_emu/`) or `test/boat/`.
 - The CAN database is a made-up test DBC. Rules for it: classic CAN only (no CAN FD),
   one signal per message, 11-bit standard IDs plus one 29-bit extended ID (`0x18FF0100`).
 - Edit the DBC through `hu-can/tools/make_dbc.py`, never by hand.
 - The car has three CAN networks: Motor, Infotainment, Comfort. The headunit sits on
   Infotainment; the MCU's second channel listens only (decision D8). The HU must never
   send on Motor or Comfort.
-- The MCU link protocol in `hu-virtual/hu/mcu_link.py` is a placeholder. Keep all
+- The MCU link protocol in `hu/services/mcu_link.py` is a placeholder. Keep all
   framing in that one file. Do not treat it as final.
 - No Android Auto and no CarPlay. Do not add them.
 - Navigation: the phone navigates, the HU only displays its guidance (D11). Do not add
   offline routing or a map renderer on the HU without asking Alex. Keep the companion
-  link format in `hu/companion_link.py`, `companion-android/.../Protocol.kt` and
+  link format in `hu/services/companion_link.py`, `companion-android/.../Protocol.kt` and
   `docs/companion-protocol.md` in step; both sides test against
   `docs/companion-protocol-examples.jsonl`.
 - The companion app: Android 14+ (minSdk 34), no Google Play services, only open-source
@@ -228,12 +241,13 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
 ## 9. Code conventions
 
 - UI: Qt 6 QML (6.5 or newer), launched with PySide6. Design size is 1280 x 768.
-- Put colours, fonts and sizes in `hu-mockup/qml/Theme.qml`. Do not hard-code colours in screens.
+- Put colours, fonts and sizes in `hu/ui/qml/Theme.qml`. Do not hard-code colours in screens.
 - Visual style: black background, monochrome line art in the accent colour (red by default).
-  See `hu-mockup/docs/UI_vision_V01.png`.
-- `hu-virtual/hu/ui/qml/Sim.qml` must keep the same property names as
-  `hu-mockup/qml/Sim.qml`. If you add or rename a property in one, update the other
-  and `hu-virtual/hu/ui/backend.py`.
+  See `docs/ui/UI_vision_V01.png`.
+- The screens read their data only from `hu/ui/qml/Sim.qml`. Sim takes it from the
+  R80.Backend singletons and falls back to its fake data when a backend is unavailable.
+  When you add or rename a Property, Signal or Slot in `hu/ui/backend.py`, add it to its
+  demo stand-in in `hu/ui/qml-demo/R80/Backend/` too (`ci/check_rules.py` checks this).
 - D-Bus property names in `vehicled.py` are the DBC signal names.
 - Python: 3.9+, standard library first, type hints welcome, match the style of the file you edit.
 - Keep changes small and focused. Do not reformat files you did not need to change.

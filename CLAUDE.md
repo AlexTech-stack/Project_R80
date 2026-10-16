@@ -13,8 +13,8 @@ same rules. Change shared rules there, not here. This file only adds notes for C
 - Two kinds of sessions:
   - **Cloud sessions** have this repo but no BoAt, no vcan and no display. There you can
     run `py_compile`, `make_dbc.py`, `r80_can_sim.py --log` and
-    `hu-mockup/run.py --screenshots` (after the apt packages in AGENTS.md section 3).
-    You cannot run `hu-virtual.sh`; say so instead of claiming the BoAt tests pass.
+    `./r80 demo screenshots <dir>` (after the apt packages in AGENTS.md section 3).
+    You cannot run `./r80 virtual`; say so instead of claiming the BoAt tests pass.
     The `boat-sil` CI job runs them on every push: push to your branch and report
     that job's result (`gh run list --branch <branch>`).
   - **Remote Control sessions** run on Alex's PC (`~/Project_R80`, BoAt at

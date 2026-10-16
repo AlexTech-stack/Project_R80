@@ -34,3 +34,6 @@ CMakeLists.txt.user*
 .idea/
 *.swp
 .DS_Store
+
+# BoAt runtime databases (wherever the gateway / boat CLI ran)
+boat_*.db*

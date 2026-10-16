@@ -3,10 +3,10 @@
 
     python3 ci/check_rules.py
 
-- hu-virtual/hu/ (target software) does not import BoAt, mcu_emu/, phone_emu/ or boat/   (AGENTS.md 8)
+- hu/ (target software) does not import BoAt, mcu_emu/, phone_emu/ or boat/            (AGENTS.md 8)
 - no OpenStreetMap data is committed                                       (AGENTS.md 6)
-- every property, function and signal of hu-mockup/qml/Sim.qml also exists
-  in hu-virtual/hu/ui/qml/Sim.qml                                         (AGENTS.md 9)
+- every Property, Signal and Slot of each class in hu/ui/backend.py also     (AGENTS.md 9)
+  exists in its demo stand-in hu/ui/qml-demo/R80/Backend/<Class>.qml
 - no hard-coded colours in QML outside Theme.qml: hex, named ("black") or  (AGENTS.md 9)
   Qt.rgba() with literal numbers; "transparent" is allowed
 
@@ -26,8 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PC_ONLY_MODULES = {"boat", "boat_cli", "mcu_emu", "mcuctl", "phone_emu", "restbus", "restbus_panel"}
 PC_ONLY_PATHS = ("mcu_emu", "phone_emu", "boat")
 OSM_PATTERNS = ("*.osm", "*.osm.pbf", "*.pbf", "*.mbtiles", "*.pmtiles")
-SIM_MOCKUP = ROOT / "hu-mockup/qml/Sim.qml"
-SIM_VIRTUAL = ROOT / "hu-virtual/hu/ui/qml/Sim.qml"
+BACKEND = ROOT / "hu/ui/backend.py"
+STAND_INS = ROOT / "hu/ui/qml-demo/R80/Backend"
 HEX_COLOUR = re.compile(r"[\"']#[0-9a-fA-F]{3,8}[\"']")
 # A quoted word on the right of a colour property (color, fillColor, border.color, ...).
 COLOUR_PROP = re.compile(r"\b\w*[cC]olou?r\s*:(.*)")
@@ -45,7 +45,7 @@ def tracked(*patterns: str) -> list[Path]:
 
 
 def check_target_imports() -> None:
-    for f in tracked("hu-virtual/hu/*.py"):
+    for f in tracked("hu/services/*.py", "hu/ui/*.py"):
         rel = f.relative_to(ROOT)
         tree = ast.parse(f.read_text(encoding="utf-8"), str(rel))
         for node in ast.walk(tree):
@@ -71,17 +71,42 @@ def check_osm() -> None:
             errors.append(f"{f.relative_to(ROOT)}: map tiles must not be committed")
 
 
-def sim_names(path: Path) -> set[str]:
+def qml_names(path: Path) -> set[str]:
     text = re.sub(r"//.*", "", path.read_text(encoding="utf-8"))
-    names = set(re.findall(r"^\s*(?:readonly\s+)?property\s+[\w<>.]+\s+(\w+)", text, re.M))
+    props = set(re.findall(r"^\s*(?:readonly\s+)?property\s+[\w<>.]+\s+(\w+)", text, re.M))
+    names = props | {p + "Changed" for p in props}      # QML adds <prop>Changed itself
     names |= set(re.findall(r"^\s*(?:function|signal)\s+(\w+)", text, re.M))
+    return names
+
+
+def backend_names(cls: ast.ClassDef) -> set[str]:
+    """The names QML can see on a backend class: Property, Signal and @Slot members."""
+    names = set()
+    for node in cls.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            f = node.value.func
+            if isinstance(f, ast.Name) and f.id in ("Property", "Signal"):
+                names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+        elif isinstance(node, ast.FunctionDef):
+            for d in node.decorator_list:
+                d = d.func if isinstance(d, ast.Call) else d
+                if isinstance(d, ast.Name) and d.id == "Slot":
+                    names.add(node.name)
     return {n for n in names if not n.startswith("_")}
 
 
-def check_sim_parity() -> None:
-    missing = sorted(sim_names(SIM_MOCKUP) - sim_names(SIM_VIRTUAL))
-    for n in missing:
-        errors.append(f"{SIM_VIRTUAL.relative_to(ROOT)}: missing '{n}' (exists in {SIM_MOCKUP.relative_to(ROOT)})")
+def check_stand_ins() -> None:
+    tree = ast.parse(BACKEND.read_text(encoding="utf-8"))
+    for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
+        api = backend_names(cls)
+        if not api:
+            continue
+        qml = STAND_INS / f"{cls.name}.qml"
+        if not qml.exists():
+            errors.append(f"{qml.relative_to(ROOT)}: missing (demo stand-in for backend.py {cls.name})")
+            continue
+        for n in sorted(api - qml_names(qml)):
+            errors.append(f"{qml.relative_to(ROOT)}: missing '{n}' (exists in backend.py {cls.name})")
 
 
 def check_qml_colours() -> None:
@@ -97,7 +122,7 @@ def check_qml_colours() -> None:
 
 
 def main() -> int:
-    for check in (check_target_imports, check_osm, check_sim_parity, check_qml_colours):
+    for check in (check_target_imports, check_osm, check_stand_ins, check_qml_colours):
         before = len(errors)
         check()
         print(f"  {'ok  ' if len(errors) == before else 'FAIL'} {check.__name__}")

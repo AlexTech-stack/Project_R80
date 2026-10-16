@@ -1,0 +1,8 @@
+module R80.Backend
+singleton Vehicle 1.0 Vehicle.qml
+singleton Media 1.0 Media.qml
+singleton Audio 1.0 Audio.qml
+singleton Warnings 1.0 Warnings.qml
+singleton Trip 1.0 Trip.qml
+singleton Nav 1.0 Nav.qml
+singleton System 1.0 System.qml
