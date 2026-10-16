@@ -61,6 +61,7 @@ hu/                               the headunit software (target software: runs u
   ui/                             Qt 6 / QML UI, launched with PySide6
     run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
     backend.py                    the R80.Backend QML singletons, one per service, over D-Bus
+    covers.py                     cover art tinted in the accent colour (image://cover)
     hu.qmlproject                 Qt Design Studio project (open this in Design Studio)
     qml/main.qml                  window, screen switching, knob/key handling
     qml/Theme.qml                 all colours, fonts and sizes
@@ -80,6 +81,7 @@ dev/                              PC stand-ins for the virtual mode (PC only)
   hu-virtual.sh                   up | drive | restbus | panel | phone | phonepanel | tunnel | ui | test | status | logs | down
   mcu_emu/                        MCU emulator and its control client
   phone_emu/                      phone emulator and phone panel (GUI): companion app stand-ins
+  media_tags.py                   test media: ID3 tags with generated covers, the test library
 test/boat/                        BoAt restbus node, tester panel and the BoAt tests (PC only; list in dev/README.md)
 bench/pi/                         Raspberry Pi bench: kiosk script, systemd units, CAN tunnel, PC helpers
 hardware/                         hardware designs later; CERN-OHL-P-2.0

@@ -211,7 +211,7 @@ class Media(QObject):
         if "Metadata" in changed:
             self._meta = changed["Metadata"]
         if "Playlist" in changed:
-            self._tracks = list(changed["Playlist"])
+            self._tracks = list(changed["Playlist"])     # cover: a file path ("" = none), see covers.py
         if "TrackIndex" in changed:
             self._v["trackIndex"] = int(changed["TrackIndex"])
         if "TrackCount" in changed:

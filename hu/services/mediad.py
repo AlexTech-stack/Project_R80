@@ -8,21 +8,27 @@ playback state on D-Bus for the UI and the other services:
     object     /de/r80/Media
     interface  de.r80.Media1
       properties  PlaybackStatus (s: playing|paused|stopped), Source (s), Gain (d),
-                  Sources (as), TrackIndex (i), TrackCount (i),
+                  Sources (as), TrackIndex (i), TrackCount (i), Scanned (i),
                   Position (x, microseconds), Metadata (a{sv}),
                   Playlist (aa{sv}), Shuffle (b), RepeatAll (b),
                   CanGoNext (b), CanGoPrevious (b)
       methods     Play(), Pause(), PlayPause(), Next(), Previous(),
                   SetTrack(i), Seek(x offset_us), SetPosition(x pos_us),
                   SetPlaying(b), SetShuffle(b), SetRepeatAll(b),
-                  SetSource(s), SetGain(d gain 0.0..1.0, u fade_ms; set by hu-audiod)
+                  SetSource(s; error de.r80.Media1.Error.UnknownSource),
+                  SetGain(d gain 0.0..1.0, u fade_ms; set by hu-audiod)
       signal      Seeked(x position)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
-Metadata comes from the file name (`Artist - Title.ext`, album = folder) and
-the duration is learned once GStreamer has prerolled the track. Bluetooth A2DP
-and MPRIS are not wired up yet; this is the local-file path from architecture
-v0.3 section 4.
+Metadata and each Playlist entry: title, artist, album, trackNumber, duration (s)
+and cover (a file path, or ""). They come from the files' tags, read in the
+background by prerolling each file once (core GStreamer, no extra package); until
+a file is read, and for what its tags lack, the file name (`Artist - Title.ext`)
+and its folder (album) stand in. The cover is the picture embedded in the file,
+else cover/folder/front.jpg|png next to it. What was read is cached in --cache-dir
+(the HU's own storage, never the medium), keyed by path, size and mtime; Scanned
+counts the tracks read so far. Bluetooth A2DP and MPRIS are not wired up yet;
+this is the local-file path from architecture v0.3 section 4.
 
 Runs unchanged on the bench (--system --music-dir /media/usb) and in the virtual
 environment (session bus, --demo tones when there is no music yet).
@@ -30,6 +36,8 @@ environment (session bus, --demo tones when there is no music yet).
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import math
 import os
 import random
@@ -53,6 +61,10 @@ IFACE = "de.r80.Media1"
 PROPS_IFACE = "org.freedesktop.DBus.Properties"
 AUDIO_EXT = {".mp3", ".ogg", ".oga", ".flac", ".wav", ".m4a", ".aac", ".opus", ".wma"}
 SOURCES = ["USB", "SD card"]
+FOLDER_COVERS = ("cover", "folder", "front", "album")
+COVER_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/gif": "gif", "image/bmp": "bmp"}
+INT32_PROPS = {"TrackIndex", "TrackCount", "Scanned"}
+TRACK_KEYS = ("title", "artist", "album", "trackNumber", "duration", "cover")
 
 
 def log(*a):
@@ -87,6 +99,192 @@ def parse_name(path: Path) -> dict:
         artist, title = stem.split(" - ", 1)
         artist, title = artist.strip(), title.strip()
     return {"title": title or path.stem, "artist": artist, "album": path.parent.name}
+
+
+def folder_cover(folder: Path) -> str:
+    """cover.jpg, folder.png, ... next to the tracks (any case), or ""."""
+    try:
+        for p in sorted(folder.iterdir()):
+            if p.stem.lower() in FOLDER_COVERS and p.suffix.lower() in (".jpg", ".jpeg", ".png"):
+                return str(p)
+    except OSError:
+        pass
+    return ""
+
+
+class Scanner:
+    """Reads the tags of one file after the other in the background and caches them.
+
+    One reused playbin with fake sinks prerolls each file (PAUSED): the tags arrive as
+    TAG messages, the duration once it is prerolled. Images go to cache_dir/covers,
+    named by their hash, so an album's tracks share one file.
+    """
+    TIMEOUT_MS = 5000
+
+    def __init__(self, cache_dir: Path, on_track):
+        self.dir = cache_dir
+        self.covers = cache_dir / "covers"
+        self.covers.mkdir(parents=True, exist_ok=True)
+        self.file = cache_dir / "library.json"
+        try:
+            self.cache = json.loads(self.file.read_text())
+        except (OSError, ValueError):
+            self.cache = {}
+        self.on_track = on_track       # called with the track dict once it is read
+        self.queue = []
+        self.current = None
+        self.tags = None
+        self.timer = None
+        self.dirty = False
+        self.pipe = Gst.ElementFactory.make("playbin", "scanner")
+        self.pipe.set_property("flags", 0x2)                       # audio only
+        self.pipe.set_property("audio-sink", Gst.ElementFactory.make("fakesink", None))
+        self.pipe.set_property("video-sink", Gst.ElementFactory.make("fakesink", None))
+        bus = self.pipe.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message", self.on_bus)
+        GLib.timeout_add_seconds(5, self.save)
+
+    @staticmethod
+    def key(path: str) -> str | None:
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        return f"{st.st_size}:{int(st.st_mtime)}"
+
+    def cached(self, track: dict) -> bool:
+        """Fill the track from the cache; False if it has to be read."""
+        hit = self.cache.get(track["path"])
+        if not hit or hit.get("key") != self.key(track["path"]) or (hit["cover"] and not os.path.exists(hit["cover"])):
+            return False
+        track.update({k: hit[k] for k in TRACK_KEYS})
+        track["scanned"] = True
+        return True
+
+    def start(self, tracks: list, first: int = 0) -> None:
+        """Read every track not in the cache, beginning with tracks[first]."""
+        self.stop()
+        order = tracks[first:] + tracks[:first]
+        self.queue = [t for t in order if not self.cached(t)]
+        if self.queue:
+            log(f"reading tags of {len(self.queue)} track(s)")
+        self.next()
+
+    def stop(self) -> None:
+        self.queue = []
+        self.current = None
+        if self.timer:
+            GLib.source_remove(self.timer)
+            self.timer = None
+        self.pipe.set_state(Gst.State.NULL)
+
+    def next(self) -> bool:
+        self.pipe.set_state(Gst.State.NULL)
+        if self.timer:
+            GLib.source_remove(self.timer)
+            self.timer = None
+        if not self.queue:
+            self.current = None
+            self.save()
+            return False
+        self.current = self.queue.pop(0)
+        self.tags = Gst.TagList.new_empty()
+        self.pipe.set_property("uri", Path(self.current["path"]).as_uri())
+        self.pipe.set_state(Gst.State.PAUSED)
+        self.timer = GLib.timeout_add(self.TIMEOUT_MS, self.give_up)
+        return False
+
+    def give_up(self) -> bool:
+        self.timer = None
+        if self.current:
+            log(f"no tags from {self.current['path']} within {self.TIMEOUT_MS} ms")
+            self.done()
+        return False
+
+    def on_bus(self, _bus, msg):
+        if not self.current:
+            return True
+        t = msg.type
+        if t == Gst.MessageType.TAG:
+            self.tags = self.tags.merge(msg.parse_tag(), Gst.TagMergeMode.KEEP)
+        elif t == Gst.MessageType.ASYNC_DONE:
+            self.done()
+        elif t == Gst.MessageType.ERROR:
+            err, _dbg = msg.parse_error()
+            log(f"cannot read {self.current['path']}: {err.message if err else '?'}")
+            self.done()
+        return True
+
+    def done(self) -> None:
+        t, tags = self.current, self.tags
+        ok, dur = self.pipe.query_duration(Gst.Format.TIME)
+
+        def text(name):
+            found, v = tags.get_string(name)
+            return v.strip() if found and v else ""
+
+        t["title"] = text("title") or t["title"]
+        t["artist"] = text("artist") or text("album-artist") or t["artist"]
+        t["album"] = text("album") or t["album"]
+        found, n = tags.get_uint("track-number")
+        t["trackNumber"] = int(n) if found else 0
+        if ok and dur > 0:
+            t["duration"] = int(round(dur / 1_000_000_000))
+        else:
+            # MP3 without a Xing/VBRI header: no duration before it plays; estimate it
+            # from the size and the bitrate (exact for CBR, the player corrects it later)
+            for name in ("bitrate", "nominal-bitrate"):
+                found, rate = tags.get_uint(name)
+                ok, size = self.pipe.query_duration(Gst.Format.BYTES)
+                if found and rate and ok and size > 0:
+                    t["duration"] = int(round(size * 8 / rate))
+                    break
+        t["cover"] = self.save_image(tags) or folder_cover(Path(t["path"]).parent)
+        t["scanned"] = True
+        self.cache[t["path"]] = {"key": self.key(t["path"]), **{k: t[k] for k in TRACK_KEYS}}
+        self.dirty = True
+        self.current = None
+        self.on_track(t)
+        GLib.idle_add(self.next)
+
+    def save_image(self, tags) -> str:
+        """The embedded picture (front cover first) as a file in the cache, or ""."""
+        best = None
+        for i in range(tags.get_tag_size("image")):
+            found, sample = tags.get_sample_index("image", i)
+            if not found:
+                continue
+            info = sample.get_info()
+            kind = info.get_value("image-type") if info and info.has_field("image-type") else None
+            front = kind is not None and int(kind) == 1              # GST_TAG_IMAGE_TYPE_FRONT_COVER
+            if best is None or front:
+                best = sample
+            if front:
+                break
+        if best is None:
+            return ""
+        buf = best.get_buffer()
+        found, mapped = buf.map(Gst.MapFlags.READ)
+        if not found:
+            return ""
+        data = bytes(mapped.data)
+        buf.unmap(mapped)
+        caps = best.get_caps()
+        mime = caps.get_structure(0).get_name() if caps and caps.get_size() else ""
+        ext = COVER_EXT.get(mime, "img")
+        f = self.covers / f"{hashlib.sha1(data).hexdigest()[:16]}.{ext}"
+        if not f.exists():
+            f.write_bytes(data)
+        return str(f)
+
+    def save(self) -> bool:
+        if self.dirty:
+            tmp = self.file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.cache))
+            tmp.replace(self.file)
+            self.dirty = False
+        return True
 
 
 def _wav_rate_is(path: Path, rate: int) -> bool:
@@ -147,10 +345,11 @@ def make_demo(music_dir: Path, count: int = 4) -> list:
 
 
 class Media(dbus.service.Object):
-    def __init__(self, bus, music_dir: Path, sink: str | None = None, buffer_ms: int = 60):
+    def __init__(self, bus, music_dir: Path, cache_dir: Path, sink: str | None = None, buffer_ms: int = 60):
         super().__init__(bus, OBJ_PATH)
         self.dir = music_dir
         self.tracks = self.scan()
+        self.list_changed = False      # tags read since the last Playlist update
         self.index = 0
         self.source = SOURCES[0]
         self.shuffle = False
@@ -176,6 +375,7 @@ class Media(dbus.service.Object):
         self.fade_in_next = False    # the next new segment starts at 0 and ramps up
         self.pending = None          # timer of a fade-out in progress ...
         self.pending_actions = []    # ... and what runs once it has been heard
+        self.deferred_seek = None    # ns: a seek asked for before the new track prerolled
         self.player.set_property("audio-sink", self.make_output(sink, buffer_ms))
         # Every change is a short linear ramp, interpolated per sample, so it does not click.
         self.ramp = GstController.InterpolationControlSource()
@@ -193,6 +393,9 @@ class Media(dbus.service.Object):
 
         GLib.timeout_add(100, self.flush)
         GLib.timeout_add(300, self.poll_position)
+        GLib.timeout_add(1000, self.publish_scanned)
+        self.scanner = Scanner(cache_dir, self.on_scanned)
+        self.scanner.start(self.tracks)
         self.refresh_props()
 
     # ---- output and gain --------------------------------------------------
@@ -320,13 +523,25 @@ class Media(dbus.service.Object):
             return []
         files = sorted((p for p in self.dir.rglob("*") if p.suffix.lower() in AUDIO_EXT),
                        key=lambda p: str(p).lower())
-        return [dict(path=str(p), duration=0, **parse_name(p)) for p in files]
+        return [dict(path=str(p), duration=0, trackNumber=0, cover="", scanned=False, **parse_name(p)) for p in files]
 
     def metadata(self):
         if not self.tracks:
-            return {"title": "", "artist": "", "album": "", "duration": 0}
+            return {"title": "", "artist": "", "album": "", "trackNumber": 0, "duration": 0, "cover": ""}
         t = self.tracks[self.index]
-        return {k: t[k] for k in ("title", "artist", "album", "duration")}
+        return {k: t[k] for k in TRACK_KEYS}
+
+    def on_scanned(self, track):
+        self.list_changed = True
+        if self.tracks and track is self.tracks[self.index]:
+            self.set("Metadata", self.metadata())      # the playing track at once
+
+    def publish_scanned(self):
+        # At most once a second: the whole Playlist goes out with every update.
+        if self.list_changed:
+            self.list_changed = False
+            self.refresh_props()
+        return True
 
     # ---- GStreamer -------------------------------------------------------
     def load(self, start: bool, fade_out: bool = True):
@@ -343,6 +558,7 @@ class Media(dbus.service.Object):
 
         def switch():
             self.uri = uri
+            self.deferred_seek = None            # the new track starts at 0
             self.fade_in_next = True
             self.player.set_state(Gst.State.NULL)
             self.player.set_property("uri", uri)
@@ -407,6 +623,9 @@ class Media(dbus.service.Object):
                 self.set("PlaybackStatus", self.status)
         elif t == Gst.MessageType.DURATION_CHANGED:
             self.learn_duration()
+        elif t == Gst.MessageType.ASYNC_DONE and self.deferred_seek is not None:
+            ns, self.deferred_seek = self.deferred_seek, None
+            self.do_seek(ns)
         return True
 
     def learn_duration(self):
@@ -434,7 +653,8 @@ class Media(dbus.service.Object):
         self.set("TrackCount", len(self.tracks))
         self.set("Position", self.position)
         self.set("Metadata", self.metadata())
-        self.set("Playlist", [{k: t[k] for k in ("title", "artist", "album", "duration")} for t in self.tracks])
+        self.set("Playlist", [{k: t[k] for k in TRACK_KEYS} for t in self.tracks])
+        self.set("Scanned", sum(1 for t in self.tracks if t["scanned"]))
         self.set("Shuffle", self.shuffle)
         self.set("RepeatAll", self.repeat_all)
         self.set("CanGoNext", bool(self.tracks) and (self.index < len(self.tracks) - 1 or self.repeat_all))
@@ -470,9 +690,20 @@ class Media(dbus.service.Object):
             self.props[name] = value
             self.dirty.add(name)
 
+    def prop(self, name):
+        """A property as the D-Bus type the interface documents."""
+        v = self.props[name]
+        if name in INT32_PROPS:
+            return dbus.Int32(v)
+        if name == "Playlist":
+            return dbus.Array([variant(x) for x in v], signature="a{sv}")
+        if name == "Sources":
+            return dbus.Array([dbus.String(x) for x in v], signature="s")
+        return variant(v)
+
     def flush(self):
         if self.dirty:
-            changed = {k: variant(self.props[k]) for k in self.dirty}
+            changed = {k: self.prop(k) for k in self.dirty}
             self.dirty.clear()
             self.PropertiesChanged(IFACE, dbus.Dictionary(changed, signature="sv"),
                                    dbus.Array([], signature="s"))
@@ -481,11 +712,11 @@ class Media(dbus.service.Object):
     # ---- D-Bus properties ------------------------------------------------
     @dbus.service.method(PROPS_IFACE, in_signature="ss", out_signature="v")
     def Get(self, iface, name):
-        return variant(self.props[name])
+        return self.prop(name)
 
     @dbus.service.method(PROPS_IFACE, in_signature="s", out_signature="a{sv}")
     def GetAll(self, iface):
-        return dbus.Dictionary({k: variant(v) for k, v in self.props.items()}, signature="sv")
+        return dbus.Dictionary({k: self.prop(k) for k in self.props}, signature="sv")
 
     @dbus.service.signal(PROPS_IFACE, signature="sa{sv}as")
     def PropertiesChanged(self, iface, changed, invalidated):
@@ -565,12 +796,18 @@ class Media(dbus.service.Object):
 
         def seek():
             self.fade_in_next = self.status == "playing"
-            self.player.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
-                                    max(0, position_us) * 1000)
+            # Right after a track switch the pipeline is still on its way to PLAYING and
+            # drops a seek; keep it for when the track has prerolled (ASYNC_DONE).
+            _ret, state, pending = self.player.get_state(0)
+            if pending != Gst.State.VOID_PENDING or state < Gst.State.PAUSED or not self.do_seek(position_us * 1000):
+                self.deferred_seek = max(0, position_us) * 1000
         self.fade_out_then(seek)
         self.position = max(0, position_us)
         self.set("Position", self.position)
         self.Seeked(self.position)
+
+    def do_seek(self, ns: int) -> bool:
+        return self.player.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT, max(0, ns))
 
     @dbus.service.method(IFACE, in_signature="b")
     def SetShuffle(self, on):
@@ -590,6 +827,9 @@ class Media(dbus.service.Object):
     @dbus.service.method(IFACE, in_signature="s")
     def SetSource(self, source):
         # Only local files are wired up; Bluetooth A2DP comes later.
+        if str(source) not in SOURCES:
+            raise dbus.exceptions.DBusException(f"unknown source {str(source)!r} (one of {', '.join(SOURCES)})",
+                                                name="de.r80.Media1.Error.UnknownSource")
         self.source = str(source)
         self.refresh_props()
 
@@ -604,6 +844,8 @@ def main():
     ap.add_argument("--buffer-ms", type=int, default=60,
                     help="audio sink buffer; smaller makes volume changes audible sooner (default 60)")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
+    ap.add_argument("--cache-dir", default=str(Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "r80" / "media"),
+                    help="where the tags read and the covers are kept (default ~/.cache/r80/media)")
     a = ap.parse_args()
 
     music_dir = Path(a.music_dir).expanduser()
@@ -614,7 +856,7 @@ def main():
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
-    media = Media(bus, music_dir, a.sink, a.buffer_ms)
+    media = Media(bus, music_dir, Path(a.cache_dir).expanduser(), a.sink, a.buffer_ms)
     log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, "
         f"{len(media.tracks)} track(s) in {music_dir}")
     GLib.MainLoop().run()

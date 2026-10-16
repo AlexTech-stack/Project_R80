@@ -212,6 +212,9 @@ def main():
     backends = None if demo else register_backends(a.system)
 
     engine = QQmlApplicationEngine()
+    if not demo:
+        from covers import CoverProvider            # register_backends put HERE on sys.path
+        engine.addImageProvider("cover", CoverProvider())
     if demo:
         engine.addImportPath(str(HERE / "qml-demo"))      # demo stand-ins for R80.Backend
     engine.load(QUrl.fromLocalFile(str(HERE / "qml" / "main.qml")))

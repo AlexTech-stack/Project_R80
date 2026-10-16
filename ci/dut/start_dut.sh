@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs inside the DUT container: the MCU stand-in, the vehicle, media, audio, warning, trip, navigation and system service,
-# like bench/pi/r80-kiosk.sh on the Pi (without the UI). mediad plays the demo
-# tones into $MEDIA_ARGS (the caller passes --sink fakesink).
+# like bench/pi/r80-kiosk.sh on the Pi (without the UI). mediad plays the test library
+# (dev/media_tags.py) into $MEDIA_ARGS (the caller passes --sink fakesink).
 #   start_dut.sh <path to the repo>
 # Needs XDG_RUNTIME_DIR (shared with the host: UART link, MCU control socket, companion link socket) and
 # DBUS_SESSION_BUS_ADDRESS (the host's bus, so the BoAt tests see vehicled).
@@ -12,8 +12,10 @@ rm -f "$XDG_RUNTIME_DIR/r80-mcu-uart"
 python3 "$R/dev/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 "${MCU_CAN2:-vcan_motor}" --can2-bus "${MCU_CAN2_BUS:-motor}" &
 for _ in $(seq 150); do [[ -e "$XDG_RUNTIME_DIR/r80-mcu-uart" ]] && break; sleep 0.2; done
 python3 "$R/hu/services/vehicled.py" &
+python3 "$R/dev/media_tags.py" library "$XDG_RUNTIME_DIR/r80-hu/test-music"
 # shellcheck disable=SC2086  # MEDIA_ARGS is a list of flags
-python3 "$R/hu/services/mediad.py" --music-dir "$XDG_RUNTIME_DIR/r80-hu/music" --demo ${MEDIA_ARGS:-} &
+python3 "$R/hu/services/mediad.py" --music-dir "$XDG_RUNTIME_DIR/r80-hu/test-music" \
+  --cache-dir "$XDG_RUNTIME_DIR/r80-hu/media-cache" ${MEDIA_ARGS:-} &
 python3 "$R/hu/services/audiod.py" --state "$XDG_RUNTIME_DIR/r80-hu/audio-state.json" &
 # shellcheck disable=SC2086  # WARN_ARGS is a list of flags
 python3 "$R/hu/services/warnd.py" ${WARN_ARGS:-} &

@@ -23,7 +23,10 @@ Item {
         onSelected: (i) => Sim.mediaSource = root.sources[i]
     }
 
-    // cover art (drawn: sunset over water, like the vision sheet)
+    // cover art: the track's picture tinted in the accent colour (image://cover, live
+    // only, hu/ui/covers.py); without one, the drawn sunset over water from the vision sheet
+    readonly property string coverUrl: Sim.track && Sim.track.cover
+        ? "image://cover/" + Theme.accent.toString().slice(1) + "/" + encodeURIComponent(Sim.track.cover) : ""
     Rectangle {
         id: cover
         x: Theme.margin
@@ -32,11 +35,23 @@ Item {
         color: Theme.bg
         border.color: Theme.accent
         border.width: 2
+        Image {
+            id: coverImage
+            anchors.fill: parent
+            anchors.margins: 14
+            source: root.coverUrl
+            sourceSize.width: width
+            sourceSize.height: height
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            visible: status === Image.Ready
+        }
         Item {
             id: art
             anchors.centerIn: parent
             width: 200; height: 200
             clip: true
+            visible: coverImage.status !== Image.Ready
             Rectangle {
                 width: 200; height: 200; radius: 100
                 color: Theme.accent
@@ -103,7 +118,8 @@ Item {
         spacing: 4
         T { text: "Up next"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall; bottomPadding: 8 }
         Repeater {
-            model: 5
+            // what really comes next: without repeat, only the rest of the list
+            model: Math.max(0, Math.min(5, Sim.tracks.length - 1 - (Sim.repeatAll ? 0 : Sim.trackIndex)))
             Item {
                 readonly property int ti: Sim.tracks.length ? (Sim.trackIndex + 1 + index) % Sim.tracks.length : 0
                 readonly property var next: Sim.tracks.length ? Sim.tracks[ti] : null
@@ -116,7 +132,7 @@ Item {
                     Column {
                         width: 280
                         T { width: parent.width; text: next ? next.title : ""; font.pixelSize: Theme.fontSmall + 2 }
-                        T { width: parent.width; text: next ? (next.artist + "  ·  " + Sim.fmtTime(next.duration)) : ""; color: Theme.accentMid; font.pixelSize: Theme.fontSmall - 1 }
+                        T { width: parent.width; text: next ? ((next.artist ? next.artist + "  ·  " : "") + Sim.fmtTime(next.duration)) : ""; color: Theme.accentMid; font.pixelSize: Theme.fontSmall - 1 }
                     }
                 }
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.accentFaint }

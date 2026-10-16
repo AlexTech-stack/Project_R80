@@ -82,6 +82,7 @@ ignition off) and "long-term", each with its own Reset.
 ```
 run.py                 launcher: live, --demo, --screenshots
 backend.py             R80.Backend singletons (Vehicle, Media, Audio, Warnings, Trip, Nav, System) over D-Bus
+covers.py              image://cover: a track's cover tinted in the accent colour (live only)
 hu.qmlproject          Qt Design Studio project
 qml/main.qml           window, header, screen switching, knob/key handling
 qml/Theme.qml          colours, fonts, sizes (single place to restyle)
@@ -106,5 +107,6 @@ fonts/                 B612 (OFL/EPL) and OSP-DIN (OFL) with licence files
 - New backend Property, Signal or Slot in `backend.py`: add it to its stand-in in
   `qml-demo/R80/Backend/` too, and the fake value to `qml/Sim.qml`.
 - The brand mark is a placeholder ("R80"). Swap `qml/Logo.qml` if you want something else.
-- No third-party icon sets or images: icons, car drawings, maneuver arrows and cover art
-  are drawn in code.
+- No third-party icon sets or images: icons, car drawings, maneuver arrows and the
+  placeholder cover art are drawn in code. A track's own cover (live) is shown tinted
+  in the accent colour, so the screen stays monochrome.
