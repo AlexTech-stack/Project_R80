@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# BoAt smoke tests of the virtual headunit (hu-virtual/), the same way locally and in CI.
+# BoAt tests of the virtual headunit (dev/hu-virtual.sh), the same way locally and in CI.
 #
 #   ci/run_boat_sil.sh              use the BoAt you have (BOAT_ROOT, default ~/BoAt; `boat` on PATH)
 #   ci/run_boat_sil.sh --dut-arch=arm64|amd64
@@ -90,7 +90,7 @@ env_in_use() {
   fi
   ((${#busy[@]} == 0)) && return 1
   echo "An R80 environment is already running here (${busy[*]}; $RUN)."
-  echo "Not touching it. Stop it first (hu-virtual/hu-virtual.sh down) if it is yours to stop."
+  echo "Not touching it. Stop it first (dev/hu-virtual.sh down) if it is yours to stop."
 }
 env_in_use && exit 2
 
@@ -106,7 +106,7 @@ rm -rf "$RUN/reports" "$OUT/reports" "$OUT/logs"
 run_local_dut() {
   # A private session bus, so vehicled never talks to (or collides with) a desktop session.
   dbus-run-session -- bash -c '
-    cd "$1/hu-virtual"
+    cd "$1/dev"
     trap "./hu-virtual.sh down" EXIT
     ./hu-virtual.sh up && ./hu-virtual.sh test
   ' _ "$ROOT"
@@ -132,17 +132,17 @@ run_container_dut() {
   mkdir -p "$OUT/logs"
   docker logs "$name" >"$OUT/logs/dut-$DUT_ARCH.log" 2>&1 || true
   docker rm -f "$name" >/dev/null 2>&1 || true
-  (cd "$ROOT/hu-virtual" && ./hu-virtual.sh down) || true
+  (cd "$ROOT/dev" && ./hu-virtual.sh down) || true
   kill "$bus_pid" 2>/dev/null || true
   return $rc
 }
 
 container_dut_session() {
   local rt=$1 image=$2 name=$3
-  (cd "$ROOT/hu-virtual" && HU_DUT=external ./hu-virtual.sh up) || return 1
+  (cd "$ROOT/dev" && HU_DUT=external ./hu-virtual.sh up) || return 1
   docker run -d --name "$name" --platform "linux/$DUT_ARCH" --network host --user "$(id -u):$(id -g)" \
     -e HOME=/tmp -e XDG_RUNTIME_DIR="$rt" -e DBUS_SESSION_BUS_ADDRESS -e MEDIA_ARGS -e WARN_ARGS \
-    -v "$rt:$rt" -v "$ROOT:$ROOT:ro" "$image" "$ROOT/ci/dut/start_dut.sh" "$ROOT/hu-virtual" >/dev/null
+    -v "$rt:$rt" -v "$ROOT:$ROOT:ro" "$image" "$ROOT/ci/dut/start_dut.sh" "$ROOT" >/dev/null
   echo "== waiting for the DUT (de.r80.Vehicle with the MCU link up, de.r80.Media, de.r80.Audio, de.r80.Warnings, de.r80.Trip, de.r80.Nav, de.r80.System)"
   python3 - <<'PY' || { docker logs "$name" | tail -20; return 1; }
 import time, dbus
@@ -160,7 +160,7 @@ while time.monotonic() < deadline:
 raise SystemExit("DUT did not come up within 120 s")
 PY
   docker logs "$name" 2>&1 | grep '^DUT:' | sed 's/^/   /'
-  (cd "$ROOT/hu-virtual" && ./hu-virtual.sh test)
+  (cd "$ROOT/dev" && ./hu-virtual.sh test)
 }
 
 set +e

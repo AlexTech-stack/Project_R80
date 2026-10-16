@@ -3,10 +3,10 @@
 
     python3 ci/check_rules.py
 
-- hu-virtual/hu/ (target software) does not import BoAt, mcu_emu/, phone_emu/ or boat/   (AGENTS.md 8)
+- hu/ (target software) does not import BoAt, mcu_emu/, phone_emu/ or boat/            (AGENTS.md 8)
 - no OpenStreetMap data is committed                                       (AGENTS.md 6)
-- every property, function and signal of hu-mockup/qml/Sim.qml also exists
-  in hu-virtual/hu/ui/qml/Sim.qml                                         (AGENTS.md 9)
+- every property, function and signal of hu/ui/qml/Sim.qml also exists
+  in hu/ui/live/Sim.qml                                         (AGENTS.md 9)
 - no hard-coded colours in QML outside Theme.qml: hex, named ("black") or  (AGENTS.md 9)
   Qt.rgba() with literal numbers; "transparent" is allowed
 
@@ -26,8 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PC_ONLY_MODULES = {"boat", "boat_cli", "mcu_emu", "mcuctl", "phone_emu", "restbus", "restbus_panel"}
 PC_ONLY_PATHS = ("mcu_emu", "phone_emu", "boat")
 OSM_PATTERNS = ("*.osm", "*.osm.pbf", "*.pbf", "*.mbtiles", "*.pmtiles")
-SIM_MOCKUP = ROOT / "hu-mockup/qml/Sim.qml"
-SIM_VIRTUAL = ROOT / "hu-virtual/hu/ui/qml/Sim.qml"
+SIM_MOCKUP = ROOT / "hu/ui/qml/Sim.qml"
+SIM_VIRTUAL = ROOT / "hu/ui/live/Sim.qml"
 HEX_COLOUR = re.compile(r"[\"']#[0-9a-fA-F]{3,8}[\"']")
 # A quoted word on the right of a colour property (color, fillColor, border.color, ...).
 COLOUR_PROP = re.compile(r"\b\w*[cC]olou?r\s*:(.*)")
@@ -45,7 +45,7 @@ def tracked(*patterns: str) -> list[Path]:
 
 
 def check_target_imports() -> None:
-    for f in tracked("hu-virtual/hu/*.py"):
+    for f in tracked("hu/services/*.py", "hu/ui/*.py"):
         rel = f.relative_to(ROOT)
         tree = ast.parse(f.read_text(encoding="utf-8"), str(rel))
         for node in ast.walk(tree):

@@ -1,0 +1,19 @@
+# Template: install-units.sh fills in @USER@, @UID@ and @REPO@.
+[Unit]
+Description=R80 headunit kiosk UI
+After=systemd-user-sessions.service r80-can.service
+Wants=r80-can.service
+RequiresMountsFor=@REPO@
+
+[Service]
+User=@USER@
+SupplementaryGroups=video render input audio bluetooth
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@ R80_REPO=@REPO@
+ExecStart=/usr/bin/dbus-run-session -- @REPO@/bench/pi/r80-kiosk.sh
+Restart=on-failure
+RestartSec=3
+TTYPath=/dev/tty1
+StandardInput=tty
+
+[Install]
+WantedBy=multi-user.target
