@@ -44,6 +44,7 @@ The ready-made files live in `bench/pi/`:
 | `r80-can.service` | Pi | systemd unit for `r80-can.sh` |
 | `r80-kiosk.sh` | Pi | starts mcu emu + vehicled + mediad + audiod + warnd + tripd + navd + sysd + the UI |
 | `r80-hu.service` | Pi | systemd unit for `r80-kiosk.sh` (eglfs kiosk) |
+| `r80-media.rules` | Pi | polkit rule: the HU may mount USB sticks (and set up test-stick images) |
 | `r80-bench.conf.example` | Pi | `PC_IP`/ports for the can service |
 | `install-units.sh` | Pi | installs both units (and with `--desktop` the desktop unit) for the current user and checkout; `./r80 bench install` |
 | `pc-share-internet.sh` | test PC | shares the PC's internet with the Pi over the cable (NAT) |
@@ -166,8 +167,28 @@ ln -s /mnt/r80/Music ~/Music
 ## 5. Music and 3.5 mm audio
 
 ```bash
-mkdir -p ~/Music                    # copy mp3/ogg/flac/wav here (or a link to the USB stick)
+mkdir -p ~/Music                    # the Library: copy mp3/ogg/flac/wav here
 ```
+
+USB sticks are a second source: mediad (`--usb system`) sees them through udisks2,
+mounts them read-only, names them after their label and plays one as soon as it is
+plugged in. The HU runs outside the desktop session, so udisks2 needs the polkit rule
+`r80-media.rules`, installed by `./r80 bench install` (section 9). The bench's own
+storage stick (`/mnt/r80`, in `/etc/fstab`) is never a source.
+
+Without a spare stick, a disk image attached by the bench user plays the stick
+(`sudo apt install dosfstools mtools` once):
+
+```bash
+truncate -s 64M /mnt/r80/teststick.img && /usr/sbin/mkfs.vfat -n R80STICK /mnt/r80/teststick.img
+mcopy -i /mnt/r80/teststick.img ~/Music/*.mp3 ::/       # some music onto it
+udisksctl loop-setup -f /mnt/r80/teststick.img           # "plug in" (the desktop mounts it)
+udisksctl unmount -b /dev/loopN && udisksctl loop-delete -b /dev/loopN   # "pull"
+```
+
+Which source played, where in which track, and whether it played is kept in
+`~/.local/state/r80/media.json` (saved on a source change, before a shutdown and when
+systemd stops the HU) and restored at start; a stick is waited for 15 s.
 
 `dtparam=audio=on` in `/boot/firmware/config.txt` (the default) gives the jack as
 ALSA card `bcm2835 Headphones`. The HU's services play through PipeWire's default
@@ -368,7 +389,7 @@ the foreground, for debugging.
   track and position advances.
 - `/tmp/r80-navd.log` says "companion service registered with BlueZ"; with the
   app connected, "phone hello: <phone model>".
-- `/tmp/r80-sysd.log` says "saver registered: audiod / tripd"; Settings → System on
+- `/tmp/r80-sysd.log` says "saver registered: audiod / tripd / mediad"; Settings → System on
   the HU lists 7 of 7 services running. The settings are kept in
   `~/.local/state/r80/settings.json`.
 - `vcgencmd measure_temp` under load; add cooling if it throttles.

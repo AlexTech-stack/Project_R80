@@ -58,6 +58,7 @@ hu/                               the headunit software (target software: runs u
     navd.py, nav.ini              navigation service (D11), D-Bus de.r80.Nav, and its timing
     sysd.py, system.ini           system and settings service (D12), D-Bus de.r80.System, and the settings' schema
     saver.py                      a service's part in the shutdown: register with sysd, save, report
+    removable.py                  USB sticks for mediad through udisks2 (mount read-only, gone)
   ui/                             Qt 6 / QML UI, launched with PySide6
     run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
     backend.py                    the R80.Backend QML singletons, one per service, over D-Bus

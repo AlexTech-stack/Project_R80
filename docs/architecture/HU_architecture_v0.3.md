@@ -154,7 +154,7 @@ All open source, in line with the project rule:
 |---|---|---|
 | vehicle | own code | Reads the MCU link, publishes named signals (`speed`, `coolantTemp`, …). The CAN message mapping lives in a DBC-style file, not in code. |
 | audio | own code (`audiod`, D9); PipeWire as the output | Built: master and per-source volumes, mute, ducking for navigation prompts and chimes, call rules; tone controls stored until the DSP (D3) is chosen. |
-| media | own code (`mediad`), GStreamer | Built: music folder / USB library, playback, gain from audiod, tags and covers (cached on the HU, shown tinted). Planned (2026-10-16): USB hotplug, an internal library instead of an SD card, resume, browsing; BT A2DP with the phone service; AUX only if the DSP has an input. |
+| media | own code (`mediad`), GStreamer | Built: the Library (the HU's own music folder) and USB sticks via udisks2 (read-only, plugged in = plays), resume per source at start, playback, gain from audiod, tags and covers (cached on the HU, shown tinted). Planned (2026-10-16): browsing; BT A2DP with the phone service; AUX only if the DSP has an input. No SD card slot (an internal library instead). |
 | vehicle info | own code (`warnd`, `tripd`, D10) | Built: warnings with chimes, trip computer. |
 | phone | BlueZ + oFono or PipeWire's HFP | Planned: hands-free (HFP), contacts and call list (PBAP), echo cancellation. |
 | radio | own driver for the tuner module | Planned: FM/DAB+, RDS/DLS text, presets (tuner not chosen). |

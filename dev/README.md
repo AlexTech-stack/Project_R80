@@ -90,8 +90,10 @@ MCU link is not there, so `hu/ui/run.py` also works on its own.
 
 ## Media (hu-mediad)
 
-`hu/services/mediad.py` is the Linux media service: it scans a folder for audio files
-(the USB / SD-card source) and plays them with GStreamer `playbin`, publishing
+`hu/services/mediad.py` is the Linux media service: it plays the audio files of its
+sources with GStreamer `playbin`: the Library (`--music-dir`, the HU's own music) and
+every USB stick udisks2 reports (`hu/services/removable.py`, `--usb system|session`).
+It publishes
 on D-Bus `de.r80.Media` at `/de/r80/Media` (interface `de.r80.Media1`):
 
 - properties `PlaybackStatus`, `Source`, `Sources`, `TrackIndex`, `TrackCount`,
@@ -106,7 +108,18 @@ on D-Bus `de.r80.Media` at `/de/r80/Media` (interface `de.r80.Media1`):
 written by `dev/media_tags.py library` (short tones: an album with ID3 tags and an
 embedded cover, a folder with `cover.png` and untagged files, a loose file; the tests
 expect it). Point it at your own library with `MUSIC_DIR`, or pass extra flags
-with `MEDIA_ARGS`:
+with `MEDIA_ARGS`. Sticks: by default mediad watches a udisks2 stand-in on the session
+bus (the tests bring one, TC_HU_030); `MEDIA_USB=system` uses this PC's real sticks
+(and mounts them read-only).
+
+A stick is mounted read-only (or used where it already is mounted), named after its
+label (`USB`, `USB 2` without one), and plays as soon as it is plugged in; pulling the
+playing stick falls back to the Library, paused. A stick already in at start does not
+take over: resume decides. Each source keeps its track and position; the active source,
+whether it played and those resume points are saved to `--state`
+(`$XDG_RUNTIME_DIR/r80-hu/media-state.json` here) on a source change, before a
+shutdown (mediad is a saver of hu-sysd) and on SIGTERM, and restored at start.
+
 
 ```bash
 MUSIC_DIR=~/Music ./r80 virtual up
@@ -392,6 +405,7 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_027 | display brightness (D12) from LightState over the bus: by day the user's brightness; at night the car's dimmer shifted by the user's setting; dim at night off; floor (sysd's formula and `system.ini`) |
 | TC_HU_028 | system information (Settings → System): all HU services of `[info] services` reported running, version / OS / uptime / memory / storage plausible, refreshed every `refresh_s`, Bluetooth fields present |
 | TC_HU_029 | media tags: title, artist, album, track number and embedded cover (one file per album) from ID3; name, folder and `cover.png` without a tag; durations before playing; int32 / `aa{sv}` types; unknown source refused |
+| TC_HU_030 | media sources: a udisks2 stand-in plugs in a stick (an fstab disk is ignored), read-only mount without a prompt, named after its label, plays at once; resume per source Library <-> stick; state file; a stick without a label is `USB`; pulling the playing stick -> Library, paused |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).
