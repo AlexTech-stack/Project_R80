@@ -549,6 +549,8 @@ class Media(dbus.service.Object):
     def save_state(self):
         self.remember()
         st = {"source": self.key(), "playing": self.status == "playing", "resume": self.resume}
+        if self.awaited:                       # still waiting at start for the last session's stick
+            st["source"], st["playing"] = self.awaited
         try:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.state_file.with_suffix(".tmp")
