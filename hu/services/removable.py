@@ -3,7 +3,9 @@
 Watches udisks2's objects. A filesystem counts as removable media when udisks does not
 mark it as a system or ignored device, it is not in /etc/fstab (the bench's own
 storage stick is), and udisks would mount it automatically (HintAuto) or its drive is
-on USB. Such a filesystem is used where it is mounted, or mounted read-only first
+on USB. A disk image a user (not root) attached with `udisksctl loop-setup` counts as
+a stick too, although udisks marks every loop device as a system device (the bench's
+test stick, docs/bench-pi.md). Such a filesystem is used where it is mounted, or mounted read-only first
 (Filesystem.Mount with options=ro, without a password prompt; on the target a polkit
 rule must allow that for the HU's user). It is gone when udisks removes it or it is
 unmounted.
@@ -23,7 +25,7 @@ UDISKS = "org.freedesktop.UDisks2"
 ROOT = "/org/freedesktop/UDisks2"
 OM = "org.freedesktop.DBus.ObjectManager"
 PROPS = "org.freedesktop.DBus.Properties"
-BLOCK, FS, DRIVE = UDISKS + ".Block", UDISKS + ".Filesystem", UDISKS + ".Drive"
+BLOCK, FS, DRIVE, LOOP = UDISKS + ".Block", UDISKS + ".Filesystem", UDISKS + ".Drive", UDISKS + ".Loop"
 
 
 def _path(mount_point) -> str:
@@ -90,10 +92,14 @@ class RemovableMedia:
     def candidate(self, path: str) -> bool:
         obj = self.objects.get(path, {})
         block, fs = obj.get(BLOCK), obj.get(FS)
-        if block is None or fs is None or block.get("HintSystem") or block.get("HintIgnore"):
+        if block is None or fs is None or block.get("HintIgnore"):
             return False
         if any(str(kind) == "fstab" for kind, _details in block.get("Configuration", [])):
             return False                                   # mounted by the system, e.g. /mnt/r80
+        if LOOP in obj:
+            return int(obj[LOOP].get("SetupByUID", 0)) != 0      # a user's disk image: a test stick
+        if block.get("HintSystem"):
+            return False
         drive = self.objects.get(str(block.get("Drive", "/")), {}).get(DRIVE, {})
         return bool(block.get("HintAuto")) or str(drive.get("ConnectionBus", "")) == "usb"
 
