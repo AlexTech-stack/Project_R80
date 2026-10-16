@@ -11,7 +11,7 @@ import kotlinx.serialization.json.jsonObject
 
 /**
  * Companion link protocol v1, the phone's side (docs/companion-protocol.md).
- * The HU's side is hu-virtual/hu/companion_link.py; both are checked against
+ * The HU's side is hu/services/companion_link.py; both are checked against
  * docs/companion-protocol-examples.jsonl. One JSON object per line, UTF-8, "\n".
  */
 object Protocol {

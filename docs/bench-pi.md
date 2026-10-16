@@ -6,7 +6,8 @@ only the CAN buses are tunnelled to the Pi with
 [cannelloni](https://github.com/mguentner/cannelloni) (GPL-2.0). BoAt itself
 never runs on the Pi.
 
-Everything the Pi runs under `hu/` is target software; `mcu_emu/` stands in for
+This is the `bench` run mode (`./r80 bench <command>`, `./r80 --help`).
+Everything the Pi runs under `hu/` is target software; `dev/mcu_emu/` stands in for
 the not-yet-existing vehicle MCU. The restbus and the tester panel stay on the
 test PC. The driver's phone pairs with the Pi over Bluetooth and sends its
 navigation guidance with the R80 Companion app (decision D11).
@@ -20,21 +21,21 @@ navigation guidance with the R80 Companion app (decision D11).
  │ (the gateway writes frames)   │   (UDP, LAN)     │   |                          │
  └───────────────────────────────┘                  │ mcu_emu.py (MCU stand-in)    │
         ▲ panel + tests = PC only                    │   | (mcu_link UART)          │
-        │                                            │ hu/vehicled.py -> D-Bus      │
-        │                                            │ hu/mediad.py   -> D-Bus      │
-        │                                            │ hu/audiod.py   -> D-Bus      │
-        │                                            │ hu/warnd.py    -> D-Bus      │
-        │                                            │ hu/tripd.py    -> D-Bus      │
-        │                                            │ hu/sysd.py     -> D-Bus      │
-        │                                            │ hu/navd.py     -> D-Bus      │◄── Bluetooth ── phone
-                                                     │ hu/ui/run_hu.py (eglfs)      │    (R80 Companion app)
+        │                                            │ vehicled.py    -> D-Bus      │
+        │                                            │ mediad.py      -> D-Bus      │
+        │                                            │ audiod.py      -> D-Bus      │
+        │                                            │ warnd.py       -> D-Bus      │
+        │                                            │ tripd.py       -> D-Bus      │
+        │                                            │ sysd.py        -> D-Bus      │
+        │                                            │ navd.py        -> D-Bus      │◄── Bluetooth ── phone
+                                                     │ hu/ui/run.py (eglfs)         │    (R80 Companion app)
                                                      └──────────────────────────────┘
 ```
 
 Ports are UDP and the same on both ends: `vcan_info` 20000, `vcan_motor` 20001,
 `vcan_comfort` 20002 (`-t 1000`, i.e. 1 ms aggregation, for a snappier UI).
 
-The ready-made files live in `r80_pi_testbench/`:
+The ready-made files live in `bench/pi/`:
 
 | File | Runs on | Purpose |
 |---|---|---|
@@ -44,7 +45,7 @@ The ready-made files live in `r80_pi_testbench/`:
 | `r80-kiosk.sh` | Pi | starts mcu emu + vehicled + mediad + audiod + warnd + tripd + navd + sysd + the UI |
 | `r80-hu.service` | Pi | systemd unit for `r80-kiosk.sh` (eglfs kiosk) |
 | `r80-bench.conf.example` | Pi | `PC_IP`/ports for the can service |
-| `install-units.sh` | Pi | installs both units for the current user and checkout |
+| `install-units.sh` | Pi | installs both units (and with `--desktop` the desktop unit) for the current user and checkout; `./r80 bench install` |
 | `pc-share-internet.sh` | test PC | shares the PC's internet with the Pi over the cable (NAT) |
 
 ## 1. Hardware
@@ -73,7 +74,7 @@ internet over the cable.
 
 ```bash
 # test PC (once; persistent; undo: see the script's header)
-r80_pi_testbench/pc-share-internet.sh enp0s31f6 200.200.0.0/24
+./r80 bench share-internet enp0s31f6 200.200.0.0/24
 # Pi: gateway = the PC, public DNS, Wi-Fi off
 sudo nmcli con modify <cable connection> ipv4.gateway 200.200.0.101 ipv4.dns "1.1.1.1 8.8.8.8" ipv4.ignore-auto-dns yes
 sudo nmcli dev reapply eth0
@@ -146,11 +147,10 @@ Sanity checks:
 ```bash
 git clone git@github.com:AlexTech-stack/Project_R80.git ~/Project_R80
 cd ~/Project_R80
-git checkout Navigation             # until it is merged; then master
 ```
 
-`Navigation` contains everything: it builds on `Vehicle_Info` (warnings, trip
-computer), and `master` has media and audio. Once both are merged, use `master`.
+Use `master`. To update later: `./r80 bench update` (`git pull`, then restart the HU).
+After a change to the units or to paths, run `./r80 bench install --desktop` again.
 
 Optional, a USB stick for repo, venv and music (saves the SD card; on a Pi 3B it
 is not faster, USB and Ethernet share one USB 2.0 bus). Format it ext4, mount it
@@ -187,19 +187,19 @@ While the HU plays, `wpctl status` lists a `python` stream going to
 
 ## 6. CAN tunnel (test PC)
 
-Keep the normal PC environment running (`./hu-virtual.sh drive` brings up the
+Keep the normal PC environment running (`./r80 virtual drive` brings up the
 gateway and the three vcans, plus the restbus). Then start the tunnel:
 
 Put the Pi's address into `~/.config/r80/hu-virtual.env` once; from then on
-`hu-virtual.sh up` / `drive` also start the tunnel (`tunnel` in `status`), and
-`down` stops it. `./hu-virtual.sh test` and `ci/run_boat_sil.sh` keep it off, so
+`./r80 virtual up` / `drive` also start the tunnel (`tunnel` in `status`), and
+`down` stops it. `./r80 virtual test` and `ci/run_boat_sil.sh` keep it off, so
 the Pi's headunit cannot answer on the test buses.
 
 ```bash
 mkdir -p ~/.config/r80 && echo "PI_IP=<raspberry-ip>" >> ~/.config/r80/hu-virtual.env
-cd ~/Project_R80/hu-virtual
-./hu-virtual.sh drive                                  # your usual PC env, plus the tunnel
-./hu-virtual.sh tunnel                                 # or only the tunnel, on a running env
+cd ~/Project_R80
+./r80 virtual drive                                    # your usual PC env, plus the tunnel
+./r80 bench tunnel                                     # or only the tunnel, on a running env
 candump -a vcan_info                                   # frames the Pi should see
 ```
 
@@ -214,7 +214,7 @@ fills in user, UID and repo path, and creates `/etc/r80-bench.conf` with `PC_IP`
 (the PC's address on the link to the Pi) if it does not exist yet:
 
 ```bash
-~/Project_R80/r80_pi_testbench/install-units.sh <PC_IP>
+~/Project_R80/r80 bench install <PC_IP>
 ```
 
 To bring the tunnel up manually first:
@@ -239,9 +239,9 @@ Only Infotainment and the MCU's CAN 2 are consumed by `mcu_emu`; the third bus i
 tunnelled for completeness and later use.
 
 ```bash
-cd ~/Project_R80/hu-virtual
-~/r80-venv/bin/python mcu_emu/mcu_emu.py --can1 vcan_info --can2 vcan_motor --can2-bus motor &
-~/r80-venv/bin/python hu/vehicled.py &
+cd ~/Project_R80
+~/r80-venv/bin/python dev/mcu_emu/mcu_emu.py --can1 vcan_info --can2 vcan_motor --can2-bus motor &
+~/r80-venv/bin/python hu/services/vehicled.py &
 gdbus call --session -d de.r80.Vehicle -o /de/r80/Vehicle \
   -m org.freedesktop.DBus.Properties.Get de.r80.Vehicle1 VehicleSpeed
 ```
@@ -251,14 +251,14 @@ gdbus call --session -d de.r80.Vehicle -o /de/r80/Vehicle \
 Validate before the kiosk, so the desktop owns the display:
 
 ```bash
-cd ~/Project_R80/hu-virtual
-~/r80-venv/bin/python hu/mediad.py --music-dir ~/Music &
-~/r80-venv/bin/python hu/audiod.py &
-~/r80-venv/bin/python hu/warnd.py &
-~/r80-venv/bin/python hu/tripd.py &
-~/r80-venv/bin/python hu/sysd.py &
-~/r80-venv/bin/python hu/navd.py --bluetooth system &
-~/r80-venv/bin/python hu/ui/run_hu.py
+cd ~/Project_R80
+~/r80-venv/bin/python hu/services/mediad.py --music-dir ~/Music &
+~/r80-venv/bin/python hu/services/audiod.py &
+~/r80-venv/bin/python hu/services/warnd.py &
+~/r80-venv/bin/python hu/services/tripd.py &
+~/r80-venv/bin/python hu/services/sysd.py &
+~/r80-venv/bin/python hu/services/navd.py --bluetooth system &
+~/r80-venv/bin/python hu/ui/run.py
 ```
 
 Without a monitor (VNC, section 2), the same as one command that survives logging
@@ -267,7 +267,7 @@ instead of eglfs:
 
 ```bash
 systemd-run --user --unit=r80-hu-window --collect -E QT_QPA_PLATFORM=wayland -E WAYLAND_DISPLAY=wayland-0 \
-  dbus-run-session -- ~/Project_R80/r80_pi_testbench/r80-kiosk.sh
+  dbus-run-session -- ~/Project_R80/bench/pi/r80-kiosk.sh
 systemctl --user stop r80-hu-window      # stop it again; logs in /tmp/r80-*.log
 ```
 
@@ -275,15 +275,16 @@ To start it with the desktop at every boot (the Pi logs in automatically), insta
 it once as a user service with an autostart entry, and enable the tunnel:
 
 ```bash
-~/Project_R80/r80_pi_testbench/install-units.sh --desktop
+~/Project_R80/r80 bench install --desktop
 sudo systemctl enable --now r80-can.service
-systemctl --user status r80-hu-desktop                 # restarts the HU if it crashes
+./r80 bench status                                     # the unit restarts the HU if it crashes
+./r80 bench restart | stop | start | logs
 ```
 
 Expected: live Vehicle/Drive screens (from the tunnel), real media playback, and
 Navigation saying "No phone connected" until the phone is paired and connected
 (section 10). navd prints "companion service registered with BlueZ" at start.
-Headless check: `run_hu.py --screenshot /tmp/hu.png`.
+Headless check: `hu/ui/run.py --screenshot /tmp/hu.png`.
 
 ## 10. Phone (R80 Companion app)
 
@@ -317,8 +318,8 @@ Pair once; afterwards the app connects by itself whenever it is started.
      -m org.freedesktop.DBus.Properties.Get de.r80.Nav1 Phone
    ```
 
-Without a phone: the phone panel on the PC (`hu-virtual/hu-virtual.sh phonepanel`,
-see `hu-virtual/README.md`) reaches the Pi's navd over the cable once navd has a TCP
+Without a phone: the phone panel on the PC (`./r80 virtual phonepanel`,
+see `dev/README.md`) reaches the Pi's navd over the cable once navd has a TCP
 port. For the desktop service: `systemctl --user edit r80-hu-desktop`, add
 `[Service]` / `Environment="R80_NAV_ARGS=--tcp 47800"` (with the quotes), restart it, then connect the
 panel to `tcp:<pi-ip>:47800` (no authentication: only on the cable to the PC).
@@ -356,7 +357,8 @@ sudo systemctl enable --now r80-can.service r80-hu.service
 
 Edit the paths in `r80-kiosk.sh` and the units if the repo, venv or music live
 somewhere other than `~/Project_R80`, `~/r80-venv` and `~/Music`; `r80-kiosk.sh`
-also honours `R80_HU`, `R80_VENV` and `R80_MUSIC`.
+also honours `R80_REPO`, `R80_VENV` and `R80_MUSIC`. `./r80 bench run` starts it in
+the foreground, for debugging.
 
 ## 12. Verify
 
@@ -383,7 +385,7 @@ also honours `R80_HU`, `R80_VENV` and `R80_MUSIC`.
 - **Tunnel one-way or empty:** `cannelloni -d cut`, check firewall/ports, and that
   `ip -br link` shows the vcans `UP`.
 - **No sound:** `gst-inspect-1.0 | grep -E 'alsa|pulse|pipewire'`; force the sink
-  with `~/r80-venv/bin/python hu/mediad.py --sink alsasink`.
+  with `~/r80-venv/bin/python hu/services/mediad.py --sink alsasink`.
 - **navd: "BlueZ refused the companion service":** add the user to the
   `bluetooth` group (`sudo usermod -aG bluetooth $USER`, log in again) and check
   `systemctl status bluetooth`.

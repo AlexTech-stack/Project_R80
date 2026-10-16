@@ -24,16 +24,16 @@ finding as `path:line` with a one-line explanation and a severity
   (section 5).
 - **Style**: colours/fonts/sizes only from `Theme.qml`, no hard-coded colours in
   screens; icons and car art stay code-drawn (sections 6 and 9).
-- **Sim parity**: any add/rename in `hu-mockup/qml/Sim.qml` is mirrored in
-  `hu-virtual/hu/ui/qml/Sim.qml` and `hu-virtual/hu/ui/backend.py` (section 9).
+- **Demo stand-ins**: any Property/Signal/Slot added or renamed in `hu/ui/backend.py`
+  is mirrored in `hu/ui/qml-demo/R80/Backend/` and has a fake value in `hu/ui/qml/Sim.qml` (section 9).
 - **DBC**: `hu-can/r80_test.dbc` is edited only via `make_dbc.py`; classic CAN,
   one signal per message, 11-bit IDs plus one 29-bit ID (section 8).
 - **CAN safety**: the HU never sends on Motor or Comfort (section 8, D8).
 - **Licences**: only open-source or self-written assets; no closed SDKs, no
   imported icon sets, no committed OSM data (section 6).
 - **Portability**: no Pi-only or x86-only code outside the thin hardware layer;
-  `hu-virtual/hu/` imports no BoAt, `mcu_emu/` or `boat/` (section 8).
-- **Decisions**: nothing contradicts D1-D8; if it does, say which decision.
+  `hu/` imports no BoAt, `dev/` or `test/boat/` (section 8).
+- **Decisions**: nothing contradicts D1-D12; if it does, say which decision.
 - **Secrets**: no tokens, keys or personal data.
 
 Never modify the repo or `~/BoAt`. Do not restate the diff; review it. If there

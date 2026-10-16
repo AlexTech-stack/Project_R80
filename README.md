@@ -10,16 +10,29 @@ system settings, under the line-art UI. The car is simulated with a made-up test
 database and [BoAt](https://github.com/AlexTech-stack/BoAt); CI runs the BoAt tests on
 every push. Real bus logs and the hardware designs come later.
 
+## One headunit, three run modes
+
+All of them start with [`./r80`](r80) (`./r80 --help`):
+
+| Mode | What runs | Where |
+|---|---|---|
+| `./r80 demo` | only the UI, on fake data; no services | any PC with PySide6, Qt Design Studio |
+| `./r80 virtual <cmd>` | the whole headunit; the MCU and the phone are emulated, BoAt plays the car | a Linux PC with vcan and BoAt |
+| `./r80 bench <cmd>` | the whole headunit on a Raspberry Pi; CAN tunnelled from the PC | the Pi bench, see [`docs/bench-pi.md`](docs/bench-pi.md) |
+
+![All screens](docs/screenshots/overview.png)
+
 ## Folders
 
 | Folder | What is in it |
 |---|---|
-| [`hu-mockup/`](hu-mockup/) | Qt 6 / QML UI mockup (v0.3, runs via PySide6), 1280 x 768, all data simulated. See its README to run it. |
+| [`hu/`](hu/) | The headunit software, the same in every mode: the D-Bus services (`hu/services/`: `vehicled`, `mediad`, `audiod`, `warnd`, `tripd`, `navd`, `sysd`) and the Qt 6 / QML UI (`hu/ui/`, 1280 x 768, PySide6). See [`hu/ui/README.md`](hu/ui/README.md). |
 | [`hu-can/`](hu-can/) | Test CAN database (`r80_test.dbc`, classic CAN, 22 messages), generator and drive simulator, sample candump log. |
-| [`docs/architecture/`](docs/architecture/) | Headunit architecture (v0.3) and the decisions D1 to D12: vehicle MCU + Linux module, CAN channels, power states, services. |
-| [`hu-virtual/`](hu-virtual/) | Virtual HU test environment: BoAt restbus on vcan, MCU emulator, `vehicled`, `mediad`, `audiod`, `warnd`, `tripd`, `navd` and `sysd` D-Bus services driving the UI, phone emulator and phone panel, BoAt tests. |
+| [`dev/`](dev/) | PC stand-ins for the virtual mode: MCU emulator, phone emulator and phone panel, and `hu-virtual.sh`. See [`dev/README.md`](dev/README.md). |
+| [`test/boat/`](test/boat/) | BoAt restbus node, tester panel and the BoAt tests. |
+| [`bench/pi/`](bench/pi/) | Raspberry Pi 3B bench files: cannelloni CAN tunnel, kiosk launcher, systemd units and their installer, internet sharing from the test PC. |
 | [`companion-android/`](companion-android/) | R80 Companion, the Android app on the driver's phone: sends the phone's navigation guidance to the HU (decision D11). |
-| [`r80_pi_testbench/`](r80_pi_testbench/) | Raspberry Pi 3B bench files: cannelloni CAN tunnel, kiosk launcher, systemd units and their installer, internet sharing from the test PC. See [`docs/bench-pi.md`](docs/bench-pi.md). |
+| [`docs/`](docs/) | [Architecture](docs/architecture/) (v0.3, decisions D1 to D12), [bench guide](docs/bench-pi.md), [companion protocol](docs/companion-protocol.md), [screenshots](docs/screenshots/). |
 | [`ci/`](ci/) | CI scripts. GitHub Actions runs them on every push; run `ci/check_static.sh` locally for the same checks. |
 | [`hardware/`](hardware/) | Placeholder for hardware designs (PCBs, console). Licensed CERN-OHL-P-2.0. |
 
@@ -31,8 +44,8 @@ Rules for AI coding agents are in [`AGENTS.md`](AGENTS.md); [`CLAUDE.md`](CLAUDE
 
 ```bash
 python3 -m pip install PySide6 cantools python-can
-python3 hu-mockup/run.py                          # UI mockup in a window
-python3 hu-mockup/run.py --screenshots /tmp/shots # render every screen headless
+./r80 demo                                        # the UI in a window, fake data
+./r80 demo screenshots /tmp/shots                 # render every screen headless
 python3 hu-can/tools/r80_can_sim.py --log drive.log
 ```
 
@@ -41,8 +54,8 @@ python3 hu-can/tools/r80_can_sim.py --log drive.log
 - **Software** (everything outside `hardware/`): MIT, see [`LICENSE`](LICENSE).
 - **Hardware designs** (`hardware/`: schematics, PCB layouts, console CAD):
   CERN Open Hardware Licence v2 Permissive, see [`hardware/LICENSE`](hardware/LICENSE).
-- **Fonts** in `hu-mockup/fonts/` keep their own licences (B612: OFL/EPL, OSP-DIN: OFL),
+- **Fonts** in `hu/ui/fonts/` keep their own licences (B612: OFL/EPL, OSP-DIN: OFL),
   see the licence files next to them.
 - Map data (OpenStreetMap, ODbL) is not stored in this repository.
 
-The brand mark in the UI is a placeholder ("R80"). Swap `hu-mockup/qml/Logo.qml` if you want something else.
+The brand mark in the UI is a placeholder ("R80"). Swap `hu/ui/qml/Logo.qml` if you want something else.

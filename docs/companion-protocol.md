@@ -4,7 +4,7 @@ How the R80 Companion app on the driver's Android phone talks to the headunit
 (decision D11). The phone's navigation app does the routing; the companion app
 sends its turn-by-turn guidance to the HU, which shows it in its own style.
 
-The Python side is `hu-virtual/hu/companion_link.py`. Keep it and this document in
+The Python side is `hu/services/companion_link.py`. Keep it and this document in
 step; the Android app (`companion-android/`, later) implements the same rules.
 
 ## Transport

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TC_HU_023: the phone over Bluetooth (hu-navd, D11). A stand-in for BlueZ
-(org.bluez.ProfileManager1 on the session bus; hu-virtual starts navd with
+(org.bluez.ProfileManager1 on the session bus; dev/hu-virtual.sh starts navd with
 --bluetooth session) checks how navd registers the companion service: RFCOMM server,
 the protocol's UUID, only paired (authenticated) phones. It then hands navd a
 connection the way bluetoothd does (Profile1.NewConnection with a file descriptor),

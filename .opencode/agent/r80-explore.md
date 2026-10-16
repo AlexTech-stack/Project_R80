@@ -1,5 +1,5 @@
 ---
-description: Use for read-only exploration of the Project R80 repo across the whole stack (hu-mockup, hu-can, hu-virtual, docs, hardware). Maps where a feature, signal, screen or service is implemented and returns file:line references. Use when the answer spans several files. Does not edit anything.
+description: Use for read-only exploration of the Project R80 repo across the whole stack (hu, hu-can, dev, test/boat, bench, companion-android, docs, hardware). Maps where a feature, signal, screen or service is implemented and returns file:line references. Use when the answer spans several files. Does not edit anything.
 mode: subagent
 permission:
   edit: deny
@@ -11,11 +11,11 @@ You map the R80 repository and answer one focused question at a time. R80 is a
 headunit project whose data flows through several layers, so trace the whole
 path when relevant:
 
-- `hu-can/tools/make_dbc.py` -> `hu-can/r80_test.dbc` -> `hu-virtual/hu/vehicled.py`
-  -> `hu-virtual/hu/ui/backend.py` -> `hu-mockup/qml/Sim.qml` (overridden by
-  `hu-virtual/hu/ui/qml/Sim.qml`) -> `hu-mockup/qml/*Screen.qml`.
-- Media follows `hu-virtual/hu/mediad.py` -> `R80.Backend.Media` -> the same Sim.qml overlay.
-- The MCU/UART framing lives only in `hu-virtual/hu/mcu_link.py`.
+- `hu-can/tools/make_dbc.py` -> `hu-can/r80_test.dbc` -> `hu/services/vehicled.py`
+  -> `hu/ui/backend.py` -> `hu/ui/qml/Sim.qml` (demo: `hu/ui/qml-demo/` stand-ins)
+  -> `hu/ui/qml/*Screen.qml`.
+- Media follows `hu/services/mediad.py` -> `R80.Backend.Media` -> the same Sim.qml.
+- The MCU/UART framing lives only in `hu/services/mcu_link.py`.
 
 Rules:
 

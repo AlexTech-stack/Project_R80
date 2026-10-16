@@ -1,35 +1,36 @@
-# hu-virtual: the R80 headunit without target hardware
+# Virtual mode: the R80 headunit without target hardware
 
-Runs the headunit software on a Linux PC, with the car simulated by BoAt on
+`./r80 virtual <command>` (`dev/hu-virtual.sh`) runs the headunit software (`hu/`) on a Linux PC, with the car simulated by BoAt on
 virtual CAN buses and the vehicle MCU replaced by an emulator process.
 
 ```
  BoAt (gateway :50061)                      "the headunit"
  ┌──────────────────────┐   vcan_info    ┌───────────────┐  UART (pty)  ┌──────────────┐  D-Bus   ┌────────────┐
- │ restbus.py  (R80 DBC)├───────────────►│ mcu_emu.py    ├─────────────►│ hu/vehicled  ├─────────►│ UI mockup  │
- │ tests/*.py           │   vcan_motor   │ power, knob,  │◄─────────────┤ DBC decode   │          │ (Sim.qml   │
- │ boat test run        │  (CAN 2, listen│ dimming, CAN  │              │ de.r80.Vehicle│         │  overlay)  │
+ │ restbus.py  (R80 DBC)├───────────────►│ mcu_emu.py    ├─────────────►│ vehicled     ├─────────►│ hu/ui      │
+ │ tests/*.py           │   vcan_motor   │ power, knob,  │◄─────────────┤ DBC decode   │          │ (live      │
+ │ boat test run        │  (CAN 2, listen│ dimming, CAN  │              │ de.r80.Vehicle│         │  backends) │
  └──────────────────────┘   only)        └───────────────┘              └──────────────┘          └────────────┘
           ▲  mcuctl.py (knob, buttons, dim override) ────┘
  
- hu/mediad.py (GStreamer) ── D-Bus de.r80.Media ─────────────────────────────────►│ Media screen │
+ mediad.py (GStreamer)    ── D-Bus de.r80.Media ─────────────────────────────────►│ Media screen │
  ```
 
 | Part | Real car / bench | Virtual |
 |---|---|---|
 | CAN buses | Motor, Infotainment, Comfort | `vcan_motor`, `vcan_info`, `vcan_comfort` (SocketCAN) |
-| Rest of the car | real ECUs | BoAt gateway + `boat/restbus.py` playing `../hu-can/r80_test.dbc` |
-| Vehicle MCU, CAN 1 active on Infotainment, CAN 2 listen-only (D8) | MCU on the HU board | `mcu_emu/mcu_emu.py` (same UART protocol), CAN 2 on `vcan_motor` by default |
+| Rest of the car | real ECUs | BoAt gateway + `test/boat/restbus.py` playing `hu-can/r80_test.dbc` |
+| Vehicle MCU, CAN 1 active on Infotainment, CAN 2 listen-only (D8) | MCU on the HU board | `dev/mcu_emu/mcu_emu.py` (same UART protocol), CAN 2 on `vcan_motor` by default |
 | MCU ↔ Linux | UART, e.g. `/dev/ttyAMA0` | pty, symlinked at `$XDG_RUNTIME_DIR/r80-mcu-uart` |
-| Knob / buttons | MCU pins | `mcu_emu/mcuctl.py` over a control socket |
-| Linux vehicle service | `hu/vehicled.py --system --uart /dev/ttyAMA0` | `hu/vehicled.py` (session bus) |
-| Linux media service | `hu/mediad.py --system --music-dir /media/usb` (GStreamer) | `hu/mediad.py` (session bus, demo tones unless `MUSIC_DIR` is set) |
+| Knob / buttons | MCU pins | `dev/mcu_emu/mcuctl.py` over a control socket |
+| Linux vehicle service | `hu/services/vehicled.py --system --uart /dev/ttyAMA0` | `hu/services/vehicled.py` (session bus) |
+| Linux media service | `hu/services/mediad.py --system --music-dir /media/usb` (GStreamer) | `hu/services/mediad.py` (session bus, demo tones unless `MUSIC_DIR` is set) |
 | Other HU services | `audiod` (audio, D9), `warnd` and `tripd` (D10), `navd` (D11), `sysd` (system and settings, D12), all with `--system` | the same files on the session bus |
-| Driver's phone | R80 Companion app over Bluetooth (D11) | `phone_emu/`: a route player and the phone panel |
-| UI | Qt 6 / QML | `../hu-mockup`, with `hu/ui/qml/Sim.qml` swapped in |
+| Driver's phone | R80 Companion app over Bluetooth (D11) | `dev/phone_emu/`: a route player and the phone panel |
+| UI | Qt 6 / QML, `hu/ui/run.py` (live) | the same |
 
 Everything under `hu/` is target software and has no BoAt dependency; it runs
-unchanged on the Pi. `mcu_emu/`, `phone_emu/` and `boat/` exist only for the PC.
+unchanged on the Pi. `dev/` and `test/boat/` exist only for the PC. Paths in this
+file are from the repo root; run the commands there.
 
 ## Run it
 
@@ -38,24 +39,23 @@ dbus-python, PyGObject and the GStreamer 1.0 bindings (`python3-gi` + `gst-plugi
 and `sudo` once to create the vcan buses. No cantools or python-can.
 
 ```bash
-cd hu-virtual
-./hu-virtual.sh drive      # buses, gateway, MCU emulator, all HU services, restbus drive cycle
-./hu-virtual.sh ui         # the UI window on top (UI_ARGS="--fullscreen" etc.)
-./hu-virtual.sh status
-./hu-virtual.sh down
+./r80 virtual drive      # buses, gateway, MCU emulator, all HU services, restbus drive cycle
+./r80 virtual ui         # the UI window on top (UI_ARGS="--fullscreen" etc.)
+./r80 virtual status
+./r80 virtual down
 ```
 
 ### Tester panel
 
 ```bash
-./hu-virtual.sh up
-./hu-virtual.sh panel      # instead of `drive`: the panel is the restbus
-./hu-virtual.sh ui
+./r80 virtual up
+./r80 virtual panel      # instead of `drive`: the panel is the restbus
+./r80 virtual ui
 ```
 
-![Restbus panel](docs/restbus_panel.png)
+![Restbus panel](../docs/images/restbus_panel.png)
 
-`boat/restbus_panel.py` sends every message of `../hu-can/r80_test.dbc` through
+`test/boat/restbus_panel.py` sends every message of `hu-can/r80_test.dbc` through
 the BoAt gateway at its cycle time, like `restbus.py`, and lets a tester:
 
 - set any signal live: slider or spin box on the signal's own resolution, enums
@@ -73,24 +73,24 @@ whose min/max are wrong up to BoAt v0.1.1; AlexTech-stack/BoAt#11, fixed on mast
 Poke it from the command line while it runs:
 
 ```bash
-python3 mcu_emu/mcuctl.py knob 1           # turn (-1 = back)
-python3 mcu_emu/mcuctl.py push
-python3 mcu_emu/mcuctl.py button NAV       # HOME BACK NAV MEDIA RADIO PHONE CAR SETUP VOL_UP VOL_DOWN MUTE
-python3 mcu_emu/mcuctl.py dim 30           # or "auto"
-python3 mcu_emu/mcuctl.py status
+python3 dev/mcu_emu/mcuctl.py knob 1           # turn (-1 = back)
+python3 dev/mcu_emu/mcuctl.py push
+python3 dev/mcu_emu/mcuctl.py button NAV       # HOME BACK NAV MEDIA RADIO PHONE CAR SETUP VOL_UP VOL_DOWN MUTE
+python3 dev/mcu_emu/mcuctl.py dim 30           # or "auto"
+python3 dev/mcu_emu/mcuctl.py status
 gdbus call --session -d de.r80.Vehicle -o /de/r80/Vehicle \
   -m org.freedesktop.DBus.Properties.GetAll de.r80.Vehicle1
 candump -a vcan_info
-RESTBUS_ARGS="--lights LowBeam" ./hu-virtual.sh restbus   # night mode (stop the drive one first)
-MCU_CAN2=vcan_comfort MCU_CAN2_BUS=comfort ./hu-virtual.sh up   # CAN 2 on Comfort instead of Motor
+RESTBUS_ARGS="--lights LowBeam" ./r80 virtual restbus   # night mode (stop the drive one first)
+MCU_CAN2=vcan_comfort MCU_CAN2_BUS=comfort ./r80 virtual up   # CAN 2 on Comfort instead of Motor
 ```
 
 The UI falls back to the mockup's own fake data whenever hu-vehicled or the
-MCU link is not there, so `run_hu.py` also works on its own.
+MCU link is not there, so `hu/ui/run.py` also works on its own.
 
 ## Media (hu-mediad)
 
-`hu/mediad.py` is the Linux media service: it scans a folder for audio files
+`hu/services/mediad.py` is the Linux media service: it scans a folder for audio files
 (the USB / SD-card source) and plays them with GStreamer `playbin`, publishing
 on D-Bus `de.r80.Media` at `/de/r80/Media` (interface `de.r80.Media1`):
 
@@ -102,13 +102,13 @@ on D-Bus `de.r80.Media` at `/de/r80/Media` (interface `de.r80.Media1`):
   `SetGain(gain, fade_ms)` (the playback level, set by hu-audiod)
 - signals `Seeked` and `PropertiesChanged`
 
-`./hu-virtual.sh up` starts it on a demo folder of short WAV tones. Point it at
+`./r80 virtual up` starts it on a demo folder of short WAV tones. Point it at
 your own library with `MUSIC_DIR` (then no tones are written), or pass extra
 flags with `MEDIA_ARGS`:
 
 ```bash
-MUSIC_DIR=~/Music ./hu-virtual.sh up
-MEDIA_ARGS="--music-dir /media/usb --sink fakesink" ./hu-virtual.sh up
+MUSIC_DIR=~/Music ./r80 virtual up
+MEDIA_ARGS="--music-dir /media/usb --sink fakesink" ./r80 virtual up
 gdbus call --session -d de.r80.Media -o /de/r80/Media -m de.r80.Media1.Next
 gdbus call --session -d de.r80.Media -o /de/r80/Media \
   -m org.freedesktop.DBus.Properties.Get de.r80.Media1 Metadata
@@ -118,11 +118,11 @@ Title / artist come from the file name (`Artist - Title.ext`), the album from
 the folder, and the duration is learned once GStreamer prerolls the track.
 Bluetooth A2DP and MPRIS are not wired up yet. `hu/ui/qml/Sim.qml` binds the
 Media screen to this service and falls back to the mockup's own playlist when
-`hu-mediad` is not on the bus, so `run_hu.py` still works alone.
+`hu-mediad` is not on the bus, so `hu/ui/run.py` still works alone.
 
 ## Audio (hu-audiod)
 
-`hu/audiod.py` owns volume and mute (decision D9), on D-Bus `de.r80.Audio` at
+`hu/services/audiod.py` owns volume and mute (decision D9), on D-Bus `de.r80.Audio` at
 `/de/r80/Audio` (interface `de.r80.Audio1`):
 
 - properties `Max`, `Master`, `Muted`, `StartupCap`, `Volumes` (per source:
@@ -147,7 +147,7 @@ tones, but only in a folder that holds nothing else. The MCU's VOL_UP / VOL_DOWN
 while the HU is off); the UI only shows the master volume and asks audiod to
 change it.
 
-The numbers are in `hu/audio.ini` (overridden by `/etc/r80/audio.ini`, then
+The numbers are in `hu/services/audio.ini` (overridden by `/etc/r80/audio.ini`, then
 `--config`); audiod refuses to start on a bad value. The volumes themselves are
 state: `hu-virtual.sh` keeps them in `$XDG_RUNTIME_DIR/r80-hu/audio-state.json`
 (default elsewhere: `~/.local/state/r80/audio.json`), and the master volume is
@@ -179,18 +179,18 @@ changes back to audiod.
 
 Tone controls (Settings → Audio: bass, treble, balance, loudness) also belong to
 audiod (D9, moved from the UI with D12): property `Tone`, method `SetTone(name,
-value)`, limits and defaults in `[tone]` of `hu/audio.ini`, saved with the
+value)`, limits and defaults in `[tone]` of `hu/services/audio.ini`, saved with the
 volumes. They take effect once the DSP amplifier (D3) is chosen.
 
 ## Warnings (hu-warnd)
 
-`hu/warnd.py` raises vehicle warnings (decision D10) from the signals hu-vehicled
+`hu/services/warnd.py` raises vehicle warnings (decision D10) from the signals hu-vehicled
 publishes, on D-Bus `de.r80.Warnings` at `/de/r80/Warnings` (interface
 `de.r80.Warnings1`): property `Active` (one dict per warning: id, severity,
 text, value, since, acknowledged; most severe first), methods `Acknowledge(id)`
 and `AcknowledgeAll()`, signal `Raised(id, severity, text)`.
 
-The rules are in `hu/warnings.ini` (overridden by `/etc/r80/warnings.ini`, then
+The rules are in `hu/services/warnings.ini` (overridden by `/etc/r80/warnings.ini`, then
 `--config`, or `WARN_ARGS` for `hu-virtual.sh`); warnd refuses a bad file.
 **The numbers there are placeholders, not the real car's.** Rule kinds:
 threshold with hysteresis (`below` / `above`, `clear_above` / `clear_below`, a
@@ -220,29 +220,29 @@ is acknowledged (OK or knob press → `Acknowledge`); a notice shows for 5 s; th
 header has a warning count; Vehicle → Warnings lists all of them.
 
 ```bash
-python3 hu/warnd.py --check            # check warnings.ini and list every rule
+python3 hu/services/warnd.py --check            # check warnings.ini and list every rule
 gdbus call --session -d de.r80.Warnings -o /de/r80/Warnings \
   -m org.freedesktop.DBus.Properties.Get de.r80.Warnings1 Active
 ```
 
 ## Trip computer (hu-tripd)
 
-`hu/tripd.py` keeps two trips (decision D10) on D-Bus `de.r80.Trip` at
+`hu/services/tripd.py` keeps two trips (decision D10) on D-Bus `de.r80.Trip` at
 `/de/r80/Trip` (interface `de.r80.Trip1`): properties `SinceStart` and
 `LongTerm` (distance km, driving time s, average and maximum speed, and the
 car's own `AvgConsumption`, the same for both), method `Reset(since_start |
 long_term)`. Distance comes from odometer steps (a step over
 `max_odometer_jump_km` is ignored), driving time counts while the HU is on.
 "Since start" starts over when the ignition was off longer than
-`auto_reset_h` (`hu/trip.ini`, 2 h); the switch-off time is saved with the
+`auto_reset_h` (`hu/services/trip.ini`, 2 h); the switch-off time is saved with the
 trips (`$XDG_RUNTIME_DIR/r80-hu/trip-state.json` under hu-virtual.sh), and if
 the HU lost power while driving, the last save counts as switch-off. The
 Vehicle → Trip tab shows both trips side by side, each with its own Reset.
 
 ## Navigation (hu-navd, phone emulator)
 
-The phone navigates, the HU displays (decision D11). `hu/navd.py` runs the HU's
-side of the companion link (`hu/companion_link.py`,
+The phone navigates, the HU displays (decision D11). `hu/services/navd.py` runs the HU's
+side of the companion link (`hu/services/companion_link.py`,
 [`../docs/companion-protocol.md`](../docs/companion-protocol.md)) and publishes
 on D-Bus `de.r80.Nav` at `/de/r80/Nav` (interface `de.r80.Nav1`):
 
@@ -254,17 +254,17 @@ on D-Bus `de.r80.Nav` at `/de/r80/Nav` (interface `de.r80.Nav1`):
 One phone at a time; a new connection replaces the old one. A phone that sends
 nothing for `link_timeout_s` is dropped. The last guidance then stays, marked
 `stale`, for `keep_after_loss_s`, so a quick reconnect continues seamlessly
-(`hu/nav.ini`). Here the link is a local socket
+(`hu/services/nav.ini`). Here the link is a local socket
 (`$XDG_RUNTIME_DIR/r80-hu/companion.sock`), plus Bluetooth: navd registers the
 companion service with BlueZ (RFCOMM, UUID in `companion_link.py`, paired phones
 only) and BlueZ hands over each connection. `hu-virtual.sh` points that at the
-tests' BlueZ stand-in on the session bus; `NAV_BLUETOOTH=system ./hu-virtual.sh up`
+tests' BlueZ stand-in on the session bus; `NAV_BLUETOOTH=system ./r80 virtual up`
 uses this PC's real Bluetooth (pair the phone with the PC first). For the real app
 on a phone in the same Wi-Fi, `NAV_ARGS="--tcp 47800"` also opens a TCP port (development only: no
 authentication; see [`../companion-android/README.md`](../companion-android/README.md)).
 
-`phone_emu/phone_emu.py` stands in for the R80 Companion app. As a program
-(`./hu-virtual.sh phone`) it plays `phone_emu/route_demo.json`: the distance to
+`dev/phone_emu/phone_emu.py` stands in for the R80 Companion app. As a program
+(`./r80 virtual phone`) it plays `dev/phone_emu/route_demo.json`: the distance to
 the next maneuver counts down with `VehicleSpeed` (with `drive`) or
 `--speed-kmh`, rounded like a navigation app, and the route starts over after
 arriving. The tests use its `Phone` class.
@@ -276,19 +276,19 @@ no phone. The Home tile and the Drive screen show the next maneuver too.
 Without navd the UI falls back to the mockup's fake guidance.
 
 ```bash
-./hu-virtual.sh drive && ./hu-virtual.sh phone
+./r80 virtual drive && ./r80 virtual phone
 gdbus call --session -d de.r80.Nav -o /de/r80/Nav \
   -m org.freedesktop.DBus.Properties.Get de.r80.Nav1 Guidance
 ```
 
 ### Phone panel
 
-`./hu-virtual.sh phonepanel` opens a window that plays the phone by hand, for
+`./r80 virtual phonepanel` opens a window that plays the phone by hand, for
 testing the HU without a real phone, Google Maps or fake GPS:
 
 - link: connect, disconnect with `bye`, drop without a word, go silent (no
   heartbeats: navd drops the link and keeps the guidance as stale),
-- route: play `phone_emu/*.json` at a set speed or at the HU's vehicle speed,
+- route: play `dev/phone_emu/*.json` at a set speed or at the HU's vehicle speed,
   pause, jump anywhere,
 - by hand: any maneuver, direction, roundabout exit, distance, street, text and
   remaining distance/time; presets for edge cases (rerouting, long signpost,
@@ -299,14 +299,14 @@ It also reaches the Pi bench over the cable: give the Pi's navd a TCP port
 (`R80_NAV_ARGS="--tcp 47800"` for `r80-kiosk.sh`, see `docs/bench-pi.md`) and
 connect to `tcp:<pi-ip>:47800`. Connecting replaces a connected phone.
 
-![Phone panel](docs/phone_panel.png)
+![Phone panel](../docs/images/phone_panel.png)
 
 ## System and settings (hu-sysd)
 
-`hu/sysd.py` keeps the user's settings (decision D12) on D-Bus `de.r80.System` at
+`hu/services/sysd.py` keeps the user's settings (decision D12) on D-Bus `de.r80.System` at
 `/de/r80/System` (interface `de.r80.System1`): property `Settings` (every value),
 `Schema` (type, range or choices, default per setting), methods `Set(name, value)`,
-`Reset(name)`, `ResetAll()`. What a setting may be is described in `hu/system.ini`
+`Reset(name)`, `ResetAll()`. What a setting may be is described in `hu/services/system.ini`
 (`[setting <name>]` sections); a wrong type, a value out of range or an unknown
 name is refused (`de.r80.System1.Error.InvalidValue` / `UnknownSetting`). The values
 are saved to `$XDG_RUNTIME_DIR/r80-hu/settings.json` under hu-virtual.sh half a
@@ -317,13 +317,13 @@ it keeps them locally like the mockup. The HU always starts on Home.
 
 **Shutdown.** When the MCU announces off, vehicled reports `Power = shutdown` and
 sysd coordinates: it sends `PrepareForShutdown`, every registered saver
-(`hu/saver.py`; audiod: volumes and tone, tripd: trips) saves and answers `Saved`,
+(`hu/services/saver.py`; audiod: volumes and tone, tripd: trips) saves and answers `Saved`,
 sysd waits for all of them but at most `save_timeout_s` (`[shutdown]` in
-`hu/system.ini`), saves its own settings, syncs and lets vehicled acknowledge to the
+`hu/services/system.ini`), saves its own settings, syncs and lets vehicled acknowledge to the
 MCU (`ShutdownReady`). With `after_ack = poweroff` (target) Linux then powers off; the
 bench keeps `none`. If the ignition comes back first, nothing is acknowledged.
 **System information.** Property `Info` for Settings → System, refreshed every
-`refresh_s` (`[info]` in `hu/system.ini`): software version (`git describe` of the
+`refresh_s` (`[info]` in `hu/services/system.ini`): software version (`git describe` of the
 checkout), OS, kernel, uptime, CPU temperature (the CPU's thermal zone) and load,
 memory, free storage, which of the HU services in `[info] services` are on the bus,
 and the Bluetooth adapter from BlueZ. Standard Linux sources only, no board tools.
@@ -332,22 +332,22 @@ and the Bluetooth adapter from BlueZ. Standard Linux sources only, no board tool
 user's brightness setting; at night (lights on, "dim at night" on) the car's dimmer
 (`DimLevel` from the MCU) gives the base between `night_min` and `night_max`, and the
 user's setting shifts it (at its default the display follows the dimmer exactly), never
-below `floor` (`[brightness]` in `hu/system.ini`). The UI fades to it.
+below `floor` (`[brightness]` in `hu/services/system.ini`). The UI fades to it.
 
 Property `Shutdown` shows the state, the savers and the outcome of the last shutdown
 (saved, no answer, duration, cancelled). Without sysd vehicled acknowledges after 1 s
 as before.
 
 ```bash
-python3 hu/sysd.py --check              # check system.ini and list the settings
+python3 hu/services/sysd.py --check              # check system.ini and list the settings
 gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set accent "<'amber'>"
 ```
 
 ## Tests (BoAt)
 
 ```bash
-./hu-virtual.sh up
-./hu-virtual.sh test       # boat test run boat/manifest_hu_smoke.json, reports in $XDG_RUNTIME_DIR/r80-hu/reports
+./r80 virtual up
+./r80 virtual test       # boat test run test/boat/manifest_hu_smoke.json, reports in $XDG_RUNTIME_DIR/r80-hu/reports
 ```
 
 | ID | Checks |
@@ -382,23 +382,23 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_028 | system information (Settings → System): all HU services of `[info] services` reported running, version / OS / uptime / memory / storage plausible, refreshed every `refresh_s`, Bluetooth fields present |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
-so stop the drive-cycle node first (`./hu-virtual.sh test` does that).
+so stop the drive-cycle node first (`./r80 virtual test` does that).
 
-CI runs these tests on every push (job `boat-sil`) with `../ci/run_boat_sil.sh --install`:
-the BoAt release pinned in `../ci/boat.version`, a private D-Bus session, and
+CI runs these tests on every push (job `boat-sil`) with `ci/run_boat_sil.sh --install`:
+the BoAt release pinned in `ci/boat.version`, a private D-Bus session, and
 reports plus logs uploaded as the `boat-reports` artifact. Run the same thing
-locally with `../ci/run_boat_sil.sh` (your BoAt) or with `--install` (the pinned
+locally with `ci/run_boat_sil.sh` (your BoAt) or with `--install` (the pinned
 one, under `build/ci-boat/`). The verdict is the exit code of `boat test run`;
 BoAt's `report.junit.xml` is empty for script tests (AlexTech-stack/BoAt#50).
-`BOAT_VERSION=master ../ci/run_boat_sil.sh --install` tests against BoAt master
+`BOAT_VERSION=master ci/run_boat_sil.sh --install` tests against BoAt master
 (gateway from BoAt's CI image); the nightly `boat-canary` workflow does that too.
 BoAt runs on the x86_64 test PC only; on the bench the Raspberry Pi is the DUT and
-runs `mcu_emu/` and `hu/` (see `../docs/bench-pi.md`), so `--install` refuses other machines.
+runs `dev/mcu_emu/` and `hu/` (see `docs/bench-pi.md`), so `--install` refuses other machines.
 
-`../ci/run_boat_sil.sh --dut-arch=arm64` keeps that split on one x86 machine: BoAt on
-the host (`HU_DUT=external ./hu-virtual.sh up` starts only the buses and the gateway),
-the DUT (`mcu_emu/`, `vehicled`, `mediad`) in an aarch64 Debian 13 container under QEMU
-(`../ci/dut/`). `--dut-arch=amd64` does the same with an x86 container, in case the final
+`ci/run_boat_sil.sh --dut-arch=arm64` keeps that split on one x86 machine: BoAt on
+the host (`HU_DUT=external ./r80 virtual up` starts only the buses and the gateway),
+the DUT (`dev/mcu_emu/`, `vehicled`, `mediad`) in an aarch64 Debian 13 container under QEMU
+(`ci/dut/`). `--dut-arch=amd64` does the same with an x86 container, in case the final
 hardware is x86. Both share the host's vcan buses, `$XDG_RUNTIME_DIR` and a private
 session bus, so the tests run unchanged. CI runs both as the job `boat-sil-dut`.
 `run_boat_sil.sh` passes `MEDIA_ARGS=--sink fakesink`, so test runs stay silent.
@@ -409,44 +409,28 @@ against, or shuts down, a session someone is using.
 ## Files
 
 ```
-hu-virtual.sh            start/stop everything, run tests
-build/                   git-ignored; the BoAt PDU database made from ../hu-can/r80_test.dbc
-                         (tools/dbc2boatjson.py --bus Infotainment), rebuilt when the DBC changes
-hu/mcu_link.py           MCU <-> Linux UART protocol (framing, message types)
-hu/dbc.py                small DBC decoder/encoder, no dependencies
-hu/vehicled.py           Linux vehicle service: UART -> DBC -> D-Bus de.r80.Vehicle
-hu/mediad.py             Linux media service: GStreamer playbin -> D-Bus de.r80.Media
-hu/audiod.py             Linux audio service: volume, mute -> D-Bus de.r80.Audio, gain to mediad
-hu/audio.ini             audiod's numbers (scale, startup cap, defaults, curve)
-hu/warnd.py              Linux warning service: rules on vehicled's signals -> D-Bus de.r80.Warnings
-hu/warnings.ini          warnd's rules (placeholder thresholds)
-hu/tripd.py              Linux trip computer: odometer / speed -> D-Bus de.r80.Trip
-hu/trip.ini              tripd's settings (auto reset after 2 h, ...)
-hu/companion_link.py     companion app <-> HU protocol (D11, ../docs/companion-protocol.md)
-hu/navd.py               Linux navigation service: phone guidance -> D-Bus de.r80.Nav
-hu/nav.ini               navd's timing (heartbeat, link timeout, how long stale guidance stays)
-hu/sysd.py               Linux system and settings service -> D-Bus de.r80.System
-hu/system.ini            the settings' schema: type, range or choices, default
-hu/saver.py              a service's part in the shutdown (register with sysd, save, report)
-hu/ui/run_hu.py          UI launcher: mockup + Sim.qml overlay + MCU key input + power blanking
-hu/ui/backend.py         QML singletons `Vehicle`, `Media`, `Audio`, `Warnings`, `Trip`, `Nav` (R80.Backend 1.0) mirroring D-Bus
-hu/ui/qml/Sim.qml        mockup's Sim.qml with vehicle values bound to `Vehicle`
-mcu_emu/mcu_emu.py       MCU emulator
-mcu_emu/mcuctl.py        control client (also used by the tests)
-phone_emu/phone_emu.py   phone emulator (companion app stand-in), also the tests' Phone class
-phone_emu/phone_panel.py phone panel: GUI that plays the phone (routes, any guidance, link loss)
-phone_emu/route_demo.json  demo route the emulator plays
-boat/restbus.py          BoAt restbus node / library
-boat/restbus_panel.py    tester GUI: the restbus with live signal editing + HU controls
-boat/env_hu_virtual.json BoAt test environment (gateway started by hu-virtual.sh)
-boat/manifest_hu_smoke.json
-boat/tests/              the six tests
-docs/                    screenshots: the UI on live CAN data, the tester panel
+hu-virtual.sh                 start/stop everything, run tests (./r80 virtual <command>)
+mcu_emu/mcu_emu.py            MCU emulator
+mcu_emu/mcuctl.py             control client (also used by the tests)
+phone_emu/phone_emu.py        phone emulator (companion app stand-in), also the tests' Phone class
+phone_emu/phone_panel.py      phone panel: GUI that plays the phone (routes, any guidance, link loss)
+phone_emu/route_demo.json     demo route the emulator plays
+../test/boat/restbus.py       BoAt restbus node / library
+../test/boat/restbus_panel.py tester GUI: the restbus with live signal editing + HU controls
+../test/boat/env_hu_virtual.json  BoAt test environment (gateway started by hu-virtual.sh)
+../test/boat/manifest_hu_smoke.json
+../test/boat/tests/           the tests (table above)
+../build/                     git-ignored; the BoAt PDU database made from hu-can/r80_test.dbc
+                              (tools/dbc2boatjson.py --bus Infotainment), rebuilt when the DBC changes
+../docs/images/               screenshots: the UI on live CAN data, the tester and phone panels
 ```
+
+The headunit itself (`hu/services/`, `hu/ui/`) is listed in the root
+[`AGENTS.md`](../AGENTS.md) and [`hu/ui/README.md`](../hu/ui/README.md).
 
 ## Assumptions to check
 
-- **The MCU link protocol is a placeholder** (`hu/mcu_link.py`: HDLC-style
+- **The MCU link protocol is a placeholder** (`hu/services/mcu_link.py`: HDLC-style
   framing, CRC-16, message types for CAN, power, input, dimming). Architecture
   v0.3 names the link "SPI/UART" but doesn't define a protocol yet; all framing
   lives in that one file.
@@ -457,7 +441,7 @@ docs/                    screenshots: the UI on live CAN data, the tester panel
   answer SHUTDOWN_READY. Night = LowBeam or HighBeam, night level 40 %.
 - D-Bus property names are the DBC signal names; `backend.py` maps them to the
   mockup's names (`VehicleSpeed` → `speed`, `FuelLevel` % → `fuelLevel` 0..1, …).
-- **Media is local files only for now.** `hu/mediad.py` plays a folder with
+- **Media is local files only for now.** `hu/services/mediad.py` plays a folder with
   GStreamer; Bluetooth A2DP, MPRIS, tag parsing and cover art are not implemented
   yet. Metadata comes from the file name and folder.
 

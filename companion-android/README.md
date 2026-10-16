@@ -50,8 +50,7 @@ update an installed one: uninstall first (the settings are lost).
 1. Pair the phone with the PC (the PC's Bluetooth settings, or `bluetoothctl`).
 2. Start the virtual HU with the PC's real Bluetooth:
    ```bash
-   cd hu-virtual
-   NAV_BLUETOOTH=system ./hu-virtual.sh up && ./hu-virtual.sh ui
+   NAV_BLUETOOTH=system ./r80 virtual up && ./r80 virtual ui      # from the repo root
    ```
    `$XDG_RUNTIME_DIR/r80-hu/navd.log` should say "companion service registered with BlueZ".
 3. In the app: Bluetooth, choose the PC, Connect, then start a route in Google Maps.
@@ -59,8 +58,7 @@ update an installed one: uninstall first (the settings are lost).
 **Over Wi-Fi** (phone and PC in the same network; the PC's firewall must allow TCP 47800):
 
 ```bash
-cd hu-virtual
-NAV_ARGS="--tcp 47800" ./hu-virtual.sh up && ./hu-virtual.sh ui
+NAV_ARGS="--tcp 47800" ./r80 virtual up && ./r80 virtual ui       # from the repo root
 ```
 
 In the app: Wi-Fi (development), enter `<PC's IP>:47800`, Connect.

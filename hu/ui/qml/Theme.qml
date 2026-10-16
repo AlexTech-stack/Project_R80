@@ -2,7 +2,7 @@ pragma Singleton
 import QtQuick
 
 // Central look & feel. Everything visual reads from here. Accent colour and brightness
-// follow the user's settings (Sim; hu-sysd in hu-virtual, D12).
+// follow the user's settings (Sim; hu-sysd when live, D12).
 QtObject {
     id: theme
 

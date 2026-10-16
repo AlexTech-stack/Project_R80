@@ -84,7 +84,7 @@ QtObject {
     readonly property int rangeKm: live ? Vehicle.rangeKm : Math.round(fuelLevel * 760)
     readonly property real odometer: live ? Vehicle.odometer : _odometer
     readonly property real avgConsumption: live ? Vehicle.avgConsumption : 11.8
-    // ---- trip computer (D10; from hu-tripd in hu-virtual) -------------------
+    // ---- trip computer (D10; from hu-tripd when live) -------------------
     // {km, minutes, avgSpeed, maxSpeed}; "since start" and "long-term"
     // Live from hu-tripd; without it the fake data counts its own (as in the mockup).
     readonly property bool tripLive: Trip.available
