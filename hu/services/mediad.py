@@ -32,7 +32,8 @@ else cover/folder/front.jpg|png next to it. What was read is cached in --cache-d
 counts the tracks read so far. Bluetooth A2DP and MPRIS are not wired up yet;
 this is the local-file path from architecture v0.3 section 4.
 
-A stick that is plugged in becomes the source at once and plays; when it is pulled,
+A stick plugged in while running becomes the source at once and plays (one already in
+at start does not: resume decides); when the playing stick is pulled,
 the Library takes over (paused). Resume: per source (the Library, each stick by its
 filesystem UUID) the track and position are kept, and with the active source and
 whether it played saved to --state on a source change and before a shutdown (as a
@@ -354,6 +355,7 @@ class Media(dbus.service.Object):
         GLib.timeout_add(1000, self.publish_scanned)
         self.scanner = Scanner(cache_dir, self.on_scanned)
         self.started = time.monotonic()
+        self.resume_wait = resume_wait
         self.awaited = None            # (key, play): the stick the last session ended on
         self.restore(resume_wait)
         register_saver(bus, "mediad", self.save_state, log)
@@ -564,9 +566,9 @@ class Media(dbus.service.Object):
             _key, play = self.awaited
             self.awaited = None
             self.use_source(name, play)
-        elif not self.awaited:                               # plugged in now: play it
-            self.use_source(name, True)
-        else:
+        elif not self.awaited and time.monotonic() - self.started > self.resume_wait:
+            self.use_source(name, True)                      # plugged in now: play it
+        else:                                                # already in at start: resume wins
             self.refresh_props()
 
     def on_medium_removed(self, key: str):
