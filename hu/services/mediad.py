@@ -36,8 +36,8 @@ A stick plugged in while running becomes the source at once and plays (one alrea
 at start does not: resume decides); when the playing stick is pulled,
 the Library takes over (paused). Resume: per source (the Library, each stick by its
 filesystem UUID) the track and position are kept, and with the active source and
-whether it played saved to --state on a source change and before a shutdown (as a
-saver of hu-sysd, D12). At start the last source carries on where it was; if that
+whether it played saved to --state on a source change, before a shutdown (as a
+saver of hu-sysd, D12) and on SIGTERM. At start the last source carries on where it was; if that
 was a stick, mediad waits up to --resume-wait s for it to appear.
 
 Runs unchanged on the bench (--usb system) and in the virtual environment (session
@@ -50,6 +50,7 @@ import hashlib
 import json
 import os
 import random
+import signal
 import sys
 import time
 from pathlib import Path
@@ -923,9 +924,16 @@ def main():
     usb_bus = None if not a.usb else dbus.SystemBus() if a.usb == "system" else dbus.SessionBus()
     log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, Library {music_dir}"
         + (f", USB sticks via udisks2 on the {a.usb} bus" if a.usb else ""))
-    Media(bus, music_dir, Path(a.cache_dir).expanduser(), Path(a.state).expanduser(), a.sink, a.buffer_ms,
-          usb_bus, a.resume_wait)
-    GLib.MainLoop().run()
+    media = Media(bus, music_dir, Path(a.cache_dir).expanduser(), Path(a.state).expanduser(), a.sink, a.buffer_ms,
+                  usb_bus, a.resume_wait)
+    loop = GLib.MainLoop()
+
+    def terminate():
+        media.save_state()          # stopped by systemd (restart, poweroff): keep the resume point
+        loop.quit()
+        return False
+    GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, terminate)
+    loop.run()
 
 
 if __name__ == "__main__":
