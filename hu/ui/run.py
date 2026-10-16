@@ -41,9 +41,9 @@ Rectangle {
 }
 """
 
-SHOTS = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media", "radio",
-         "phone", "vehicle", "cluster", "clock", "settings", "call", "volume", "audio", "system", "trip", "warning", "warnings",
-         "media_browse", "media_album"]
+SHOTS = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media",
+         "media_browse", "media_album", "radio", "phone", "vehicle", "cluster", "clock", "settings", "call", "volume", "audio",
+         "system", "trip", "warning", "warnings"]
 
 
 def register_backends(system_bus: bool):

@@ -48,7 +48,7 @@ needed. `run.py` and `./r80` do not use the project file.
 | Mouse wheel, ↑ / ↓ | turn the control knob |
 | ← / → | push the knob sideways (tune, tabs, sliders) |
 | Enter / Space | press the knob |
-| Esc / Backspace / H | back to home |
+| Esc / Backspace / H | back to home (in the media browse list: up one level) |
 | 1 – 8 | jump to Navigation, Media, Radio, Phone, Vehicle, Drive, Clock, Settings |
 | Volume (header, right of the temperature) | click: master volume popup; knob or slider changes it, Mute button, press or Esc closes |
 | C | simulate an incoming call |
@@ -59,7 +59,8 @@ needed. `run.py` and `./r80` do not use the project file.
 ## Screens
 
 Home, Navigation (turn-by-turn guidance from the phone, D11: maneuver, distance,
-street, arrival; no map), Media, Radio (FM dial),
+street, arrival; no map), Media (sources as tabs, cover, up next; Browse: folders,
+artists, albums, all tracks), Radio (FM dial),
 Phone (favourites/recent/contacts, keypad, call popup), Vehicle (status, trip, tyres,
 service), Drive (virtual cluster), Clock & Weather, Settings. Under
 Settings → Display you can change brightness and the accent colour (red, amber,
@@ -89,6 +90,7 @@ qml/Theme.qml          colours, fonts, sizes (single place to restyle)
 qml/Sim.qml            the screens' data: from R80.Backend, fake when a backend is unavailable
 qml/Icons.qml          ~60 self-drawn line icons as SVG path data (24x24)
 qml/*Screen.qml        one file per screen
+qml/MediaBrowser.qml   media browse list: folders, artists, albums, tracks (knob, press, back)
 qml/CarFront.qml, CarSide.qml   self-drawn car line art
 qml/VolumeBadge.qml, VolumePopup.qml   master volume in the header and its popup
 qml/WarningBanner.qml  vehicle warning banner (D10)

@@ -97,11 +97,12 @@ It publishes
 on D-Bus `de.r80.Media` at `/de/r80/Media` (interface `de.r80.Media1`):
 
 - properties `PlaybackStatus`, `Source`, `Sources`, `TrackIndex`, `TrackCount`,
-  `Scanned`, `Position` (µs), `Metadata`, `Playlist`, `Shuffle`, `RepeatAll`,
-  `CanGoNext`, `CanGoPrevious`
+  `QueueTitle`, `Queue`, `UpNext`, `SourceTrackCount`, `Scanned`, `Position` (µs),
+  `Metadata`, `Shuffle`, `RepeatAll`, `CanGoNext`, `CanGoPrevious`
 - methods `Play`, `Pause`, `PlayPause`, `Next`, `Previous`, `SetTrack`, `Seek`,
   `SetPosition`, `SetPlaying`, `SetShuffle`, `SetRepeatAll`, `SetSource`,
-  `SetGain(gain, fade_ms)` (the playback level, set by hu-audiod)
+  `SetGain(gain, fade_ms)` (the playback level, set by hu-audiod),
+  `GetQueue(offset, count)`, `Browse(path, offset, count)`, `PlayFrom(path, index)`
 - signals `Seeked` and `PropertiesChanged`
 
 `./r80 virtual up` starts it on the test library in `$XDG_RUNTIME_DIR/r80-hu/test-music`,
@@ -140,7 +141,21 @@ What was read is cached in `--cache-dir` (default `~/.cache/r80/media`, under
 `./r80 virtual` `$XDG_RUNTIME_DIR/r80-hu/media-cache`), keyed by path, size and
 mtime; the medium is never written. The UI shows the cover tinted in the accent
 colour (`hu/ui/covers.py`). Tag test files with `dev/media_tags.py tag` (ID3v2.3,
-generated covers). Bluetooth A2DP and MPRIS are not wired up yet. `hu/ui/qml/Sim.qml` binds the
+generated covers).
+
+What plays is a queue: a list of the browse tree (`hu/services/browse.py`): `Folders`
+(sub-folders, then the folder's tracks), `Artists` (artist → albums → tracks),
+`Albums` (A–Z, tracks by number) and `All tracks` (path order, what a source starts
+with). `Browse` returns a page of a list, `PlayFrom(path, index)` makes it the queue
+and starts at that track. TrackIndex and TrackCount count the queue, `GetQueue`
+hands it out in pages, and `UpNext` holds the next five in play order. Shuffle is
+one shuffled order of the queue, which `UpNext` shows and `Next` follows. The queue
+is part of the resume point.
+
+```bash
+gdbus call --session -d de.r80.Media -o /de/r80/Media -m de.r80.Media1.Browse "albums" 0 20
+gdbus call --session -d de.r80.Media -o /de/r80/Media -m de.r80.Media1.PlayFrom "tracks" 2
+``` Bluetooth A2DP and MPRIS are not wired up yet. `hu/ui/qml/Sim.qml` binds the
 Media screen to this service and falls back to the mockup's own playlist when
 `hu-mediad` is not on the bus, so `hu/ui/run.py` still works alone.
 
@@ -406,6 +421,7 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_028 | system information (Settings → System): all HU services of `[info] services` reported running, version / OS / uptime / memory / storage plausible, refreshed every `refresh_s`, Bluetooth fields present |
 | TC_HU_029 | media tags: title, artist, album, track number and embedded cover (one file per album) from ID3; name, folder and `cover.png` without a tag; durations before playing; int32 / `aa{sv}` types; unknown source refused |
 | TC_HU_030 | media sources: a udisks2 stand-in plugs in a stick (an fstab disk is ignored), read-only mount without a prompt, named after its label, plays at once; resume per source Library <-> stick; state file; a stick without a label is `USB`; pulling the playing stick -> Library, paused |
+| TC_HU_031 | media browsing: menu, folders, albums (artist, cover), artists → albums → tracks, paging; `PlayFrom` makes a list the queue (`QueueTitle`, `GetQueue`); `UpNext` with and without repeat; shuffle order shown by `UpNext` and followed by `Next`; queue in the state file; `NotFound` |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).

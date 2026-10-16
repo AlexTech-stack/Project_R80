@@ -59,6 +59,7 @@ hu/                               the headunit software (target software: runs u
     sysd.py, system.ini           system and settings service (D12), D-Bus de.r80.System, and the settings' schema
     saver.py                      a service's part in the shutdown: register with sysd, save, report
     removable.py                  USB sticks for mediad through udisks2 (mount read-only, gone)
+    browse.py                     mediad's browse tree: folders, artists, albums, all tracks
   ui/                             Qt 6 / QML UI, launched with PySide6
     run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
     backend.py                    the R80.Backend QML singletons, one per service, over D-Bus
@@ -70,6 +71,7 @@ hu/                               the headunit software (target software: runs u
     qml/Icons.qml                 self-drawn line icons as SVG path data
     qml/ManeuverIcon.qml          navigation maneuver arrows, drawn in code (D11)
     qml/*Screen.qml               one file per screen
+    qml/MediaBrowser.qml          the media browse list (folders, artists, albums, tracks)
     qml/Logo.qml                  the placeholder "R80" brand mark
     qml-demo/R80/Backend/         demo stand-ins for the backend.py singletons (available: false)
     fonts/                        B612 and OSP-DIN with their licence files
