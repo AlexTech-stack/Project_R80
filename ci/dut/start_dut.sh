@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs inside the DUT container: the MCU stand-in, the vehicle, media, audio, warning, trip and navigation service,
+# Runs inside the DUT container: the MCU stand-in, the vehicle, media, audio, warning, trip, navigation and system service,
 # like r80_pi_testbench/r80-kiosk.sh on the Pi (without the UI). mediad plays the demo
 # tones into $MEDIA_ARGS (the caller passes --sink fakesink).
 #   start_dut.sh <path to hu-virtual>
@@ -18,6 +18,7 @@ python3 "$HU/hu/audiod.py" --state "$XDG_RUNTIME_DIR/r80-hu/audio-state.json" &
 # shellcheck disable=SC2086  # WARN_ARGS is a list of flags
 python3 "$HU/hu/warnd.py" ${WARN_ARGS:-} &
 python3 "$HU/hu/tripd.py" --state "$XDG_RUNTIME_DIR/r80-hu/trip-state.json" &
+python3 "$HU/hu/sysd.py" --state "$XDG_RUNTIME_DIR/r80-hu/settings.json" &
 python3 "$HU/hu/navd.py" --socket "$XDG_RUNTIME_DIR/r80-hu/companion.sock" --bluetooth session &
 wait -n   # either one ending ends the DUT
 echo "DUT: a process exited"

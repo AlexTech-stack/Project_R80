@@ -17,7 +17,6 @@ QtObject {
         // With hu-audiod on the bus it handles the MCU's volume keys itself.
         function onVolumeStep(d) { if (!sim.audioLive) sim.volume = Math.min(sim.volumeMax, Math.max(0, sim.volume + d)) }
         function onMuteToggled() { if (!sim.audioLive) sim.muted = !sim.muted }
-        function onDimChanged() { Theme.brightness = Math.max(0.2, Vehicle.dimLevel / 100) }
     }
 
     signal navigate(string screen)
@@ -61,7 +60,7 @@ QtObject {
 
     // ---- time ------------------------------------------------------------
     property date now: new Date()
-    property bool clock24h: true
+    readonly property bool clock24h: _setting("clock_24h")
     readonly property string timeText: Qt.formatTime(now, clock24h ? "HH:mm" : "h:mm AP")
     readonly property string dateText: now.toLocaleDateString(Qt.locale("de_DE"), "ddd, d. MMM yyyy")
 
@@ -151,7 +150,7 @@ QtObject {
         ]
     }
     property int homeIndex: 0
-    property bool units_metric: true
+    readonly property bool units_metric: _setting("units") === "metric"
 
     // ---- media -----------------------------------------------------------
     // hu-mediad (de.r80.Media1, singleton Media) drives these when it runs;
@@ -277,6 +276,46 @@ QtObject {
     function dial(name) { caller = name; callerNumber = numberFor(name); callSeconds = 0; micMuted = false; callState = "active" }
     function answer() { callSeconds = 0; callState = "active" }
     function hangUp() { callState = "idle" }
+
+    // ---- settings (D12): live from hu-sysd; without it local values as in the mockup -----
+    readonly property bool settingsLive: System.available && System.settings.accent !== undefined
+    property var _local: ({ accent: "signal_red", brightness: 0.9, night_dimming: true, clock_24h: true, units: "metric" })
+    function _setting(name) { return settingsLive && System.settings[name] !== undefined ? System.settings[name] : _local[name] }
+    readonly property string accent: _setting("accent")
+    readonly property real brightness: _setting("brightness")
+    readonly property bool nightDimming: _setting("night_dimming")
+    // What the display shows: hu-sysd computes it from the user's brightness, day/night and
+    // the car's dimmer (D12); without sysd the user's brightness.
+    readonly property real displayBrightness: settingsLive ? System.displayBrightness : brightness
+    function setSetting(name, value) {
+        if (settingsLive) { System.set(name, value); return }
+        const l = Object.assign({}, _local); l[name] = value; _local = l;
+    }
+
+    // ---- system information (Settings -> System): hu-sysd's Info; without it demo values ------
+    readonly property date _bootTime: new Date(now.getTime() - 3 * 3600 * 1000 - 12 * 60 * 1000)
+    readonly property var _fakeInfo: ({
+        version: "mockup", os: "simulated", kernel: "-", host: "r80-mockup",
+        uptime_s: Math.floor((now - _bootTime) / 1000), cpu_temp_c: 48.5, load: 0.42,
+        mem_total_mb: 905, mem_available_mb: 512, disk_free_mb: 6900,
+        services_up: ["de.r80.Vehicle", "de.r80.Media", "de.r80.Audio", "de.r80.Warnings", "de.r80.Trip",
+                      "de.r80.Nav", "de.r80.System"],
+        services_missing: [], bt_name: "R80", bt_address: "B8:27:EB:00:00:00", bt_powered: true
+    })
+    readonly property var systemInfo: settingsLive && System.info.version !== undefined ? System.info : _fakeInfo
+
+    // ---- tone (D9): kept by hu-audiod; without it local values ------------------------------
+    readonly property bool toneLive: Audio.available && Audio.tone.bass !== undefined
+    property var _tone: ({ bass: 0, treble: 0, balance: 0, loudness: true })
+    function _toneValue(name) { return toneLive ? Audio.tone[name] : _tone[name] }
+    readonly property int toneBass: _toneValue("bass")
+    readonly property int toneTreble: _toneValue("treble")
+    readonly property real toneBalance: _toneValue("balance")
+    readonly property bool loudness: _toneValue("loudness")
+    function setTone(name, value) {
+        if (toneLive) { Audio.setTone(name, value); return }
+        const t = Object.assign({}, _tone); t[name] = value; _tone = t;
+    }
 
     // ---- navigation (D11: the phone navigates, the HU shows its guidance) ----
     // Live from hu-navd; without it a fake phone drives a demo route (as in the mockup):

@@ -293,3 +293,26 @@ def phone(device="Test phone", wait_free=True):
     from phone_emu import Phone
     wait_nav(lambda p: not p["Phone"]["connected"] or not wait_free, timeout=10.0)
     return Phone(COMPANION_SOCKET, device=device)
+
+
+# ---- system and settings (hu-sysd, D12) --------------------------------------------
+SYS_SERVICE, SYS_PATH, SYS_IFACE = "de.r80.System", "/de/r80/System", "de.r80.System1"
+SETTINGS_STATE = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu" / "settings.json"
+
+
+def system():
+    """The de.r80.System1 interface (Set, Reset, ResetAll)."""
+    return dbus.Interface(dbus.SessionBus().get_object(SYS_SERVICE, SYS_PATH), SYS_IFACE)
+
+
+def sys_props() -> dict:
+    obj = dbus.SessionBus().get_object(SYS_SERVICE, SYS_PATH)
+    raw = obj.GetAll(SYS_IFACE, dbus_interface="org.freedesktop.DBus.Properties")
+    return {str(k): _plain(v) for k, v in raw.items()}
+
+
+def sys_logic():
+    """sysd's own config and Settings class, so tests never repeat its numbers."""
+    sys.path.insert(0, str(ROOT / "hu"))
+    import sysd
+    return sysd, sysd.load_config()

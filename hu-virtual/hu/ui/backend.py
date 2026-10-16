@@ -294,7 +294,7 @@ class Audio(QObject):
     def __init__(self, system_bus=False, parent=None):
         super().__init__(parent)
         self._available = False
-        self._v = {"master": 0, "muted": False, "max": 30, "volumes": {}}
+        self._v = {"master": 0, "muted": False, "max": 30, "volumes": {}, "tone": {}}
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
         self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, AUDIO_PATH)
@@ -321,7 +321,7 @@ class Audio(QObject):
         if not self._available:
             self._available = True
             self.availableChanged.emit()
-        for key, prop in (("Master", "master"), ("Muted", "muted"), ("Max", "max"), ("Volumes", "volumes")):
+        for key, prop in (("Master", "master"), ("Muted", "muted"), ("Max", "max"), ("Volumes", "volumes"), ("Tone", "tone")):
             if key in changed:
                 self._v[prop] = changed[key]
         self.changed.emit()
@@ -335,6 +335,14 @@ class Audio(QObject):
     muted = Property(bool, lambda self: bool(self._v["muted"]), notify=changed)
     max = Property(int, lambda self: int(self._v["max"]), notify=changed)
     volumes = Property("QVariantMap", lambda self: dict(self._v["volumes"]), notify=changed)
+    tone = Property("QVariantMap", lambda self: dict(self._v["tone"]), notify=changed)
+
+    @Slot(str, "QVariant")
+    def setTone(self, name, value):
+        """bass / treble (whole dB), balance (-1..1), loudness (bool); audiod checks the range."""
+        v = (dbus.Boolean(value) if isinstance(value, bool) else dbus.Double(value) if name == "balance"
+             else dbus.Int32(int(round(value))))
+        self._call("SetTone", "sv", (str(name), v))
 
     @Slot(int)
     def setMaster(self, value):
@@ -514,3 +522,70 @@ class Nav(QObject):
     available = Property(bool, lambda self: self._available, notify=availableChanged)
     phone = Property("QVariantMap", lambda self: dict(self._v["Phone"]), notify=changed)
     guidance = Property("QVariantMap", lambda self: dict(self._v["Guidance"]), notify=changed)
+
+
+SYS_SERVICE, SYS_PATH, SYS_IFACE = "de.r80.System", "/de/r80/System", "de.r80.System1"
+
+
+class System(QObject):
+    """QML singleton mirroring hu-sysd (de.r80.System1, D12): the user's settings as a dict
+    {name: value} (names as in hu/system.ini; sysd checks and saves every change) and the
+    display brightness sysd computes from them, day/night and the car's dimmer."""
+    changed = Signal()
+    availableChanged = Signal()
+
+    def __init__(self, system_bus=False, parent=None):
+        super().__init__(parent)
+        self._available = False
+        self._settings = {}
+        self._display = 0.9
+        self._info = {}
+        DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
+        self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, SYS_PATH)
+        self._poll = QTimer(self, interval=3000, timeout=self.refresh)
+        self._poll.start()
+        QTimer.singleShot(0, self.refresh)
+
+    def refresh(self):
+        self.bus.call_async(SYS_SERVICE, SYS_PATH, PROPS, "GetAll", "s", (SYS_IFACE,),
+                            self._apply, self._on_gone, timeout=1.0)
+
+    def _on_gone(self, _err):
+        if self._available:
+            self._available = False
+            self.availableChanged.emit()
+            self.changed.emit()
+
+    def _on_props(self, iface, changed, _invalidated):
+        if iface == SYS_IFACE:
+            self._apply(changed)
+
+    def _apply(self, changed: dict):
+        if "Settings" in changed:
+            self._settings = {str(k): _py(v) for k, v in changed["Settings"].items()}
+        if "DisplayBrightness" in changed:
+            self._display = float(changed["DisplayBrightness"])
+        if "Info" in changed:
+            self._info = {str(k): _py(v) for k, v in changed["Info"].items()}
+        if not self._available:
+            self._available = True
+            self.availableChanged.emit()
+        self.changed.emit()
+
+    available = Property(bool, lambda self: self._available, notify=availableChanged)
+    settings = Property("QVariantMap", lambda self: dict(self._settings), notify=changed)
+    displayBrightness = Property(float, lambda self: self._display, notify=changed)
+    info = Property("QVariantMap", lambda self: dict(self._info), notify=changed)
+
+    @Slot(str, "QVariant")
+    def set(self, name, value):
+        v = (dbus.Boolean(value) if isinstance(value, bool) else dbus.Double(value) if isinstance(value, (int, float))
+             else dbus.String(str(value)))
+        self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "Set", "sv", (str(name), v),
+                            lambda *_: None, lambda e: print(f"[ui] setting {name} refused: {e}", flush=True), timeout=1.0)
+
+    @Slot()
+    def resetAll(self):
+        self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "ResetAll", "", (),
+                            lambda *_: None, lambda *_: None, timeout=1.0)

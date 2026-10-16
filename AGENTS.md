@@ -33,7 +33,7 @@ ci/dut/                           emulated aarch64 DUT for CI: Dockerfile, start
 ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
 ci/boat_report.py                 BoAt reports as Markdown (CI job summaries)
 ci/build_android.sh               builds and unit-tests the companion app (companion-android/)
-docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D11
+docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D12
 docs/companion-protocol.md        phone (R80 Companion app) <-> HU link protocol (D11)
 docs/companion-protocol-examples.jsonl  protocol examples both sides test against
 companion-android/                R80 Companion, the Android app on the driver's phone (D11, Kotlin)
@@ -65,6 +65,8 @@ hu-virtual/
     tripd.py, trip.ini            trip computer (D10), D-Bus de.r80.Trip, and its config
     companion_link.py             companion app <-> HU protocol (D11, docs/companion-protocol.md)
     navd.py, nav.ini              navigation service (D11), D-Bus de.r80.Nav, and its timing
+    sysd.py, system.ini           system and settings service (D12), D-Bus de.r80.System, and the settings' schema
+    saver.py                      a service's part in the shutdown: register with sysd, save, report
     ui/run_hu.py, ui/backend.py   UI launcher and QML backend over D-Bus
     ui/qml/Sim.qml                replaces hu-mockup/qml/Sim.qml at runtime
   mcu_emu/                        MCU emulator and its control client (PC only)
@@ -123,7 +125,7 @@ SKIP_UI=1 ci/check_static.sh  # same without the screenshots
 
 CI also runs the 6 BoAt smoke tests with the BoAt release pinned in `ci/boat.version`
 (`ci/run_boat_sil.sh --install`). To move to a newer BoAt, change that file and push.
-A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`, `hu/warnd.py`, `hu/tripd.py`, `hu/navd.py`) in a
+A second job runs them with the DUT (`mcu_emu/`, `hu/vehicled.py`, `hu/mediad.py`, `hu/audiod.py`, `hu/warnd.py`, `hu/tripd.py`, `hu/navd.py`, `hu/sysd.py`) in a
 Debian 13 container per CPU, arm64 (QEMU-emulated, like the Pi) and amd64, while BoAt
 stays on the x86 host (`ci/run_boat_sil.sh --install --dut-arch=arm64`; needs docker,
 and qemu-user-static for arm64).
@@ -217,7 +219,7 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
   dependencies. Captured notifications contain the driver's streets: never commit them;
   only the derived arrow fingerprints go into `maneuver_icons.json`.
 - The stock instrument cluster stays (decision D1).
-- The architecture decisions D1 to D11 are in `docs/architecture/HU_architecture_v0.3.md`.
+- The architecture decisions D1 to D12 are in `docs/architecture/HU_architecture_v0.3.md`.
   Do not contradict them. If a change needs a different decision, ask Alex first.
 
 ## 9. Code conventions

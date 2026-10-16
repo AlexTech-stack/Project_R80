@@ -170,6 +170,8 @@ def run_service(cfg: dict, state_path: Path, system: bool):
     from dbus.mainloop.glib import DBusGMainLoop
     from gi.repository import GLib
 
+    from saver import register_saver
+
     BUS_NAME, OBJ_PATH, IFACE = "de.r80.Trip", "/de/r80/Trip", "de.r80.Trip1"
     PROPS = "org.freedesktop.DBus.Properties"
     VEHICLE = ("de.r80.Vehicle", "/de/r80/Vehicle", "de.r80.Vehicle1")
@@ -188,6 +190,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                                     "org.freedesktop.DBus", "/org/freedesktop/DBus")
             GLib.idle_add(self.read_all)
             GLib.timeout_add(1000, self.tick)
+            register_saver(bus, "tripd", self.save, log)   # trips saved before a shutdown (D12)
 
         def read_all(self):
             self.bus.call_async(VEHICLE[0], VEHICLE[1], PROPS, "GetAll", "s", (VEHICLE[2],),

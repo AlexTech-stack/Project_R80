@@ -11,9 +11,14 @@ on D-Bus for the UI and other services:
                   Power (s: off|standby|acc|on|crank|shutdown), LinkUp (b),
                   DimLevel (i 0..100), Night (b), StaleSignals (as)
       signal      Input(s kind, i value)   kind = knob | push | tilt | button:<NAME>
-      method      SendCan(y bus, u can_id, ay data) -> b
+      methods     SendCan(y bus, u can_id, ay data) -> b
+                  ShutdownReady() -> b     hu-sysd: the services have saved, acknowledge to the MCU
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged,
     batched every 50 ms.
+
+Shutdown: when the MCU announces off, Power becomes "shutdown". hu-sysd (D12) lets the
+services save and then calls ShutdownReady; only then does vehicled acknowledge to the MCU.
+Without hu-sysd on the bus vehicled acknowledges by itself after a second.
 
 Runs unchanged on the bench (--uart /dev/ttyAMA0 --system) and in the virtual
 environment (session bus, the MCU emulator's pty).
@@ -65,6 +70,7 @@ def variant(v):
 class Vehicle(dbus.service.Object):
     def __init__(self, bus, db: Database, uart_path: str):
         super().__init__(bus, OBJ_PATH)
+        self.bus = bus
         self.db = db
         self.uart_path = uart_path
         self.fd = None
@@ -103,6 +109,14 @@ class Vehicle(dbus.service.Object):
     @dbus.service.method(IFACE, in_signature="yuay", out_signature="b")
     def SendCan(self, bus, can_id, data):
         return self.send(L.CAN_TX, L.pack_can(int(bus), int(can_id), bytes(data)))
+
+    @dbus.service.method(IFACE, out_signature="b")
+    def ShutdownReady(self):
+        """hu-sysd: everything is saved. False if no shutdown is pending (the ignition came back)."""
+        if self.props["Power"] != "shutdown":
+            return False
+        self.shutdown_ready()
+        return True
 
     def set(self, name, value):
         if self.props.get(name) != value:
@@ -177,10 +191,11 @@ class Vehicle(dbus.service.Object):
         elif m.type == L.POWER:
             state = L.POWER_NAMES.get(m.payload[0], "off")
             if state == "off" and self.props["Power"] not in ("off", "shutdown"):
-                # MCU asks us to shut down. Here the real HU would save state and
-                # stop services; we just give listeners a moment, then say ready.
+                # MCU asks us to shut down. hu-sysd lets the services save and then calls
+                # ShutdownReady; without it, give listeners a moment and say ready ourselves.
                 self.set("Power", "shutdown")
-                GLib.timeout_add(1000, self.shutdown_ready)
+                if not self.bus.name_has_owner("de.r80.System"):
+                    GLib.timeout_add(1000, self.shutdown_ready)
             elif state != "off":
                 self.set("Power", state)
         elif m.type == L.INPUT:
