@@ -116,6 +116,8 @@ class RemovableMedia:
         if mounts:
             if path not in self.present:
                 key = self.key(path)
+                for old in [p for p, k in self.present.items() if k == key]:
+                    self.gone(old)                         # the same medium again, on a new device
                 self.present[path] = key
                 self.log(f"removable medium {key} at {mounts[0]}")
                 self.on_added(key, str(self.objects[path][BLOCK].get("IdLabel", "")), mounts[0])
