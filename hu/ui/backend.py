@@ -173,6 +173,7 @@ class Media(QObject):
         super().__init__(parent)
         self._available = False
         self._tracks = []
+        self._sources = []
         self._meta = {"title": "", "artist": "", "album": "", "duration": 0}
         self._v = {"trackIndex": 0, "trackPos": 0, "playing": False, "shuffle": False,
                    "repeatAll": True, "mediaSource": "", "trackCount": 0}
@@ -226,6 +227,8 @@ class Media(QObject):
             self._v["repeatAll"] = bool(changed["RepeatAll"])
         if "Source" in changed:
             self._v["mediaSource"] = str(changed["Source"])
+        if "Sources" in changed:
+            self._sources = [str(x) for x in changed["Sources"]]
         self.changed.emit()
 
     def _call(self, method, signature="", args=()):
@@ -242,6 +245,7 @@ class Media(QObject):
     repeatAll = Property(bool, lambda self: self._v["repeatAll"], notify=changed)
     mediaSource = Property(str, lambda self: self._v["mediaSource"], notify=changed)
     trackCount = Property(int, lambda self: self._v["trackCount"], notify=changed)
+    sources = Property("QVariantList", lambda self: self._sources, notify=changed)
 
     # ---- QML methods ------------------------------------------------------
     @Slot()

@@ -153,8 +153,8 @@ QtObject {
     readonly property bool units_metric: _setting("units") === "metric"
 
     // ---- media -----------------------------------------------------------
-    // hu-mediad (de.r80.Media1, singleton Media) drives these when it runs;
-    // otherwise the mockup's own playlist below keeps the screen alive.
+    // hu-mediad (de.r80.Media1, singleton Media) drives these when it runs, also when
+    // its source is empty; otherwise the demo playlist below keeps the screen alive.
     property var _tracks: [
         { title: "The Passenger",    artist: "Iggy Pop",          album: "Lust for Life",      duration: 296 },
         { title: "Night Drive",      artist: "Neon Autobahn",     album: "Kilometer Null",     duration: 241 },
@@ -163,7 +163,7 @@ QtObject {
         { title: "Coastline",        artist: "Marta Kovac",       album: "Blue Roads",         duration: 263 },
         { title: "Low Frequencies",  artist: "Nord Signal",       album: "Carrier Wave",       duration: 227 }
     ]
-    readonly property bool mediaLive: Media.available && Media.trackCount > 0
+    readonly property bool mediaLive: Media.available
     property bool _mediaSync: false
 
     property int trackIndex: 0
@@ -172,9 +172,12 @@ QtObject {
     property bool shuffle: false
     property bool repeatAll: true
     property string mediaSource: "USB"
+    readonly property var mediaSources: mediaLive ? Media.sources : ["Library", "USB"]
 
     readonly property var tracks: mediaLive ? Media.tracks : _tracks
-    readonly property var track: tracks.length ? tracks[Math.min(trackIndex, tracks.length - 1)] : null
+    // never null: an empty source shows a blank track
+    readonly property var track: tracks.length ? tracks[Math.min(trackIndex, tracks.length - 1)]
+                                               : ({ title: "", artist: "", album: "", trackNumber: 0, duration: 0, cover: "" })
 
     function _pullMedia() {
         if (!mediaLive) return
@@ -202,6 +205,7 @@ QtObject {
 
     function nextTrack() {
         if (mediaLive) { Media.next(); return }
+        if (!_tracks.length) return
         trackIndex = (trackIndex + 1) % _tracks.length; trackPos = 0
     }
     function prevTrack() {

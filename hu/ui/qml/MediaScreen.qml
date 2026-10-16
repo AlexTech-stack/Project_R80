@@ -5,7 +5,7 @@ import QtQuick.Shapes
 Item {
     id: root
     property int sel: 1          // 0 prev, 1 play/pause, 2 next (knob focus)
-    readonly property var sources: ["USB", "Bluetooth", "SD card"]
+    readonly property var sources: Sim.mediaSources     // from hu-mediad: Library and the USB sticks
 
     function knob(d) { sel = (sel + d + 3) % 3 }
     function side(d) { knob(d) }
@@ -71,9 +71,19 @@ Item {
         rotation: 0
     }
 
+    T {
+        // an empty source: nothing to play
+        x: cover.x + cover.width + 40
+        y: 96
+        visible: Sim.tracks.length === 0
+        text: "No music on " + Sim.mediaSource
+        font.pixelSize: 40
+    }
+
     Column {
         x: cover.x + cover.width + 40
         y: 96
+        visible: Sim.tracks.length > 0
         width: 850 - x
         spacing: 10
         T { width: parent.width; text: Sim.track.title; font.pixelSize: 40 }

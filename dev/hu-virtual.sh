@@ -16,7 +16,8 @@
 #                vehicled, mediad, audiod, warnd, tripd, navd and sysd, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
 #                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort),
 #                MUSIC_DIR (media library; unset = the test library in $RUN/test-music, dev/media_tags.py),
-#                MEDIA_ARGS (extra hu/mediad.py arguments),
+#                MEDIA_ARGS (extra hu/mediad.py arguments), MEDIA_USB (session: the tests' udisks2 stand-in, default;
+#                system: this PC's real USB sticks),
 #                AUDIO_ARGS (extra hu/audiod.py arguments; volumes are saved in $RUN/audio-state.json),
 #                WARN_ARGS (extra hu/warnd.py arguments, e.g. --config my-warnings.ini),
 #                TRIP_ARGS (extra hu/tripd.py arguments; trips are saved in $RUN/trip-state.json),
@@ -92,7 +93,7 @@ up() {
   [[ -n "${MUSIC_DIR:-}" ]] || python3 "$HERE/media_tags.py" library "$RUN/test-music"
   # shellcheck disable=SC2086  # MEDIA_ARGS is a list of flags
   start mediad python3 "$REPO/hu/services/mediad.py" --music-dir "${MUSIC_DIR:-$RUN/test-music}" \
-    --cache-dir "$RUN/media-cache" ${MEDIA_ARGS:-}
+    --cache-dir "$RUN/media-cache" --state "$RUN/media-state.json" --usb "${MEDIA_USB:-session}" ${MEDIA_ARGS:-}
   # shellcheck disable=SC2086  # AUDIO_ARGS is a list of flags
   start audiod python3 "$REPO/hu/services/audiod.py" --state "$RUN/audio-state.json" ${AUDIO_ARGS:-}
   # shellcheck disable=SC2086  # WARN_ARGS is a list of flags

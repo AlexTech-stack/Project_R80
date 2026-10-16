@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """hu-mediad: the Linux-side media service of the R80 headunit.
 
-Plays local audio (the USB / SD-card source) with GStreamer and publishes the
-playback state on D-Bus for the UI and the other services:
+Plays local audio with GStreamer and publishes the playback state on D-Bus for the
+UI and the other services. Sources: "Library" (the HU's own music folder, --music-dir)
+and every USB stick udisks2 reports (hu/removable.py, --usb), named after its label or
+"USB" (a second one "USB 2", ...).
 
     bus name   de.r80.Media
     object     /de/r80/Media
@@ -15,7 +17,7 @@ playback state on D-Bus for the UI and the other services:
       methods     Play(), Pause(), PlayPause(), Next(), Previous(),
                   SetTrack(i), Seek(x offset_us), SetPosition(x pos_us),
                   SetPlaying(b), SetShuffle(b), SetRepeatAll(b),
-                  SetSource(s; error de.r80.Media1.Error.UnknownSource),
+                  SetSource(s, one of Sources; else de.r80.Media1.Error.UnknownSource),
                   SetGain(d gain 0.0..1.0, u fade_ms; set by hu-audiod)
       signal      Seeked(x position)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
@@ -30,20 +32,25 @@ else cover/folder/front.jpg|png next to it. What was read is cached in --cache-d
 counts the tracks read so far. Bluetooth A2DP and MPRIS are not wired up yet;
 this is the local-file path from architecture v0.3 section 4.
 
-Runs unchanged on the bench (--system --music-dir /media/usb) and in the virtual
-environment (session bus, --demo tones when there is no music yet).
+A stick that is plugged in becomes the source at once and plays; when it is pulled,
+the Library takes over (paused). Resume: per source (the Library, each stick by its
+filesystem UUID) the track and position are kept, and with the active source and
+whether it played saved to --state on a source change and before a shutdown (as a
+saver of hu-sysd, D12). At start the last source carries on where it was; if that
+was a stick, mediad waits up to --resume-wait s for it to appear.
+
+Runs unchanged on the bench (--usb system) and in the virtual environment (session
+bus; --usb session is the BoAt tests' udisks2 stand-in).
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-import math
 import os
 import random
 import sys
-import wave
-from array import array
+import time
 from pathlib import Path
 
 import dbus
@@ -55,12 +62,16 @@ gi.require_version("Gst", "1.0")
 gi.require_version("GstController", "1.0")
 from gi.repository import GLib, Gst, GstController  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from removable import RemovableMedia  # noqa: E402
+from saver import register_saver  # noqa: E402
+
 BUS_NAME = "de.r80.Media"
 OBJ_PATH = "/de/r80/Media"
 IFACE = "de.r80.Media1"
 PROPS_IFACE = "org.freedesktop.DBus.Properties"
 AUDIO_EXT = {".mp3", ".ogg", ".oga", ".flac", ".wav", ".m4a", ".aac", ".opus", ".wma"}
-SOURCES = ["USB", "SD card"]
+LIBRARY = "Library"
 FOLDER_COVERS = ("cover", "folder", "front", "album")
 COVER_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/gif": "gif", "image/bmp": "bmp"}
 INT32_PROPS = {"TrackIndex", "TrackCount", "Scanned"}
@@ -287,71 +298,18 @@ class Scanner:
         return True
 
 
-def _wav_rate_is(path: Path, rate: int) -> bool:
-    try:
-        with wave.open(str(path)) as w:
-            return w.getframerate() == rate
-    except (OSError, wave.Error, EOFError):
-        return False
-
-
-DEMO_TONES = [("Neon Autobahn", "Night Drive", 225, 24),
-              ("The Quattro Lines", "Red Horizon", 315, 20),
-              ("Lumen Drift", "Tunnel Vision", 175, 28),
-              ("Marta Kovac", "Coastline", 245, 18)]
-
-
-def only_demo_tones(music_dir: Path) -> bool:
-    """True if the folder has no audio, or only (possibly older) demo tones of ours."""
-    names = {f"{a} - {t}.wav" for a, t, _f, _s in DEMO_TONES}
-    audio = [p for p in music_dir.rglob("*") if p.suffix.lower() in AUDIO_EXT] if music_dir.is_dir() else []
-    return all(p.name in names and p.parent == music_dir for p in audio)
-
-
-def make_demo(music_dir: Path, count: int = 4) -> list:
-    """Write a few short WAV tones (stdlib only) so the UI has real audio.
-
-    Fast on purpose, also on a Pi 3B or under QEMU: each frequency divides the sample
-    rate, so one period is computed and repeated as bytes; only the fades are per sample.
-    44.1 kHz rather than less: wavparse hands out 4 KB chunks, which at 8 kHz were 256 ms
-    long and made every volume change late by up to that much.
-    """
-    tones = DEMO_TONES
-    music_dir.mkdir(parents=True, exist_ok=True)
-    made = []
-    rate = 44100
-    edge = rate // 10                # 0.1 s fade in / out so the tone does not click
-    for artist, title, freq, secs in tones[:count]:
-        f = music_dir / f"{artist} - {title}.wav"
-        if not f.exists() or not _wav_rate_is(f, rate):     # also replaces older 8 kHz tones
-            period = rate // freq
-            one = array("h", (int(0.25 * 32767 * math.sin(2 * math.pi * k / period)) for k in range(period)))
-            total = rate * secs
-            samples = array("h")
-            samples.frombytes((one.tobytes() * (total // period + 1))[:total * 2])
-            for n in range(edge):
-                samples[n] = int(samples[n] * n / edge)
-                samples[total - 1 - n] = int(samples[total - 1 - n] * (n + 1) / edge)
-            if sys.byteorder == "big":
-                samples.byteswap()   # WAV is little-endian
-            with wave.open(str(f), "w") as w:
-                w.setnchannels(1)
-                w.setsampwidth(2)
-                w.setframerate(rate)
-                w.writeframes(samples.tobytes())
-            log(f"demo tone: {f.name}")
-        made.append(f)
-    return made
-
-
 class Media(dbus.service.Object):
-    def __init__(self, bus, music_dir: Path, cache_dir: Path, sink: str | None = None, buffer_ms: int = 60):
+    def __init__(self, bus, music_dir: Path, cache_dir: Path, state: Path, sink: str | None = None,
+                 buffer_ms: int = 60, usb_bus=None, resume_wait: float = 15.0):
         super().__init__(bus, OBJ_PATH)
+        self.sources = {LIBRARY: {"key": "library", "dir": music_dir}}   # name -> key, folder
+        self.source = LIBRARY
         self.dir = music_dir
         self.tracks = self.scan()
         self.list_changed = False      # tags read since the last Playlist update
         self.index = 0
-        self.source = SOURCES[0]
+        self.state_file = state
+        self.resume = {}               # source key -> {"path", "position" (us)}
         self.shuffle = False
         self.repeat_all = True
         self.status = "stopped"
@@ -395,7 +353,12 @@ class Media(dbus.service.Object):
         GLib.timeout_add(300, self.poll_position)
         GLib.timeout_add(1000, self.publish_scanned)
         self.scanner = Scanner(cache_dir, self.on_scanned)
-        self.scanner.start(self.tracks)
+        self.started = time.monotonic()
+        self.awaited = None            # (key, play): the stick the last session ended on
+        self.restore(resume_wait)
+        register_saver(bus, "mediad", self.save_state, log)
+        if usb_bus is not None:
+            self.usb = RemovableMedia(usb_bus, self.on_medium_added, self.on_medium_removed, log)
         self.refresh_props()
 
     # ---- output and gain --------------------------------------------------
@@ -525,6 +488,100 @@ class Media(dbus.service.Object):
                        key=lambda p: str(p).lower())
         return [dict(path=str(p), duration=0, trackNumber=0, cover="", scanned=False, **parse_name(p)) for p in files]
 
+    # ---- sources and resume -------------------------------------------------
+    def key(self) -> str:
+        return self.sources[self.source]["key"]
+
+    def remember(self):
+        """Note where the active source is, for when it comes back."""
+        if self.tracks:
+            pos = self.current_time() if self.status == "playing" else self.position
+            self.resume[self.key()] = {"path": self.tracks[self.index]["path"], "position": int(pos)}
+
+    def use_source(self, name: str, play: bool):
+        """Switch to a source and carry on where it was (track and position)."""
+        if name in self.sources and name != self.source:
+            self.remember()
+        self.stop()
+        self.source = name
+        self.dir = self.sources[name]["dir"]
+        self.tracks = self.scan()
+        self.history.clear()
+        r = self.resume.get(self.key(), {})
+        paths = [t["path"] for t in self.tracks]
+        self.index = paths.index(r["path"]) if r.get("path") in paths else 0
+        self.scanner.start(self.tracks, self.index)
+        if self.tracks:
+            self.load(play)
+            if r.get("path") in paths and r.get("position", 0) > 0:
+                self.seek_abs(int(r["position"]))
+        self.refresh_props()
+        self.save_state()
+        log(f"source {name}: {len(self.tracks)} track(s) in {self.dir}, track {self.index}")
+
+    def restore(self, resume_wait: float):
+        try:
+            st = json.loads(self.state_file.read_text())
+        except (OSError, ValueError):
+            st = {}
+        self.resume = st.get("resume", {})
+        last, play = st.get("source", "library"), bool(st.get("playing", False))
+        if last.startswith("usb:"):
+            # The stick shows up a moment after start, if it is still plugged in.
+            self.awaited = (last, play)
+            self.use_source(LIBRARY, False)
+            GLib.timeout_add(int(resume_wait * 1000), self.stop_waiting)
+        else:
+            self.use_source(LIBRARY, play)
+
+    def stop_waiting(self):
+        if self.awaited:
+            _key, play = self.awaited
+            self.awaited = None
+            log("the last stick did not come back: staying on the Library")
+            if play and self.tracks:
+                self.Play()
+        return False
+
+    def save_state(self):
+        self.remember()
+        st = {"source": self.key(), "playing": self.status == "playing", "resume": self.resume}
+        try:
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.state_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(st))
+            tmp.replace(self.state_file)
+        except OSError as e:
+            log(f"cannot save {self.state_file}: {e}")
+
+    def on_medium_added(self, key: str, label: str, mount: str):
+        base = label or "USB"
+        name, n = base, 2
+        while name in self.sources:
+            name, n = f"{base} {n}", n + 1
+        self.sources[name] = {"key": key, "dir": Path(mount)}
+        if self.awaited and self.awaited[0] == key:          # the stick the last session ended on
+            _key, play = self.awaited
+            self.awaited = None
+            self.use_source(name, play)
+        elif not self.awaited:                               # plugged in now: play it
+            self.use_source(name, True)
+        else:
+            self.refresh_props()
+
+    def on_medium_removed(self, key: str):
+        name = next((n for n, s in self.sources.items() if s["key"] == key), None)
+        if name is None:
+            return
+        if name == self.source:
+            self.remember()                                  # where it was, for when it is back
+            del self.sources[name]
+            self.source = LIBRARY                            # use_source must not remember the stick again
+            self.use_source(LIBRARY, False)
+        else:
+            del self.sources[name]
+            self.refresh_props()
+
     def metadata(self):
         if not self.tracks:
             return {"title": "", "artist": "", "album": "", "trackNumber": 0, "duration": 0, "cover": ""}
@@ -648,7 +705,7 @@ class Media(dbus.service.Object):
     def refresh_props(self):
         self.set("PlaybackStatus", self.status)
         self.set("Source", self.source)
-        self.set("Sources", list(SOURCES))
+        self.set("Sources", list(self.sources))
         self.set("TrackIndex", self.index)
         self.set("TrackCount", len(self.tracks))
         self.set("Position", self.position)
@@ -826,39 +883,46 @@ class Media(dbus.service.Object):
 
     @dbus.service.method(IFACE, in_signature="s")
     def SetSource(self, source):
-        # Only local files are wired up; Bluetooth A2DP comes later.
-        if str(source) not in SOURCES:
-            raise dbus.exceptions.DBusException(f"unknown source {str(source)!r} (one of {', '.join(SOURCES)})",
+        # Local files only: the Library and the sticks; Bluetooth A2DP comes later.
+        source = str(source)
+        if source not in self.sources:
+            raise dbus.exceptions.DBusException(f"unknown source {source!r} (one of {', '.join(self.sources)})",
                                                 name="de.r80.Media1.Error.UnknownSource")
-        self.source = str(source)
-        self.refresh_props()
+        if source != self.source:
+            self.awaited = None
+            self.use_source(source, self.status == "playing")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--music-dir", default=os.environ.get("XDG_MUSIC_DIR", str(Path.home() / "Music")),
-                    help="folder to scan for audio files (USB / SD card)")
-    ap.add_argument("--demo", action="store_true",
-                    help="if the music dir has no audio, write a few short WAV tones into it")
+                    help="the Library: the HU's own music folder (default ~/Music)")
     ap.add_argument("--sink", default=None, help="force a GStreamer audio sink (e.g. fakesink, for headless runs)")
     ap.add_argument("--buffer-ms", type=int, default=60,
                     help="audio sink buffer; smaller makes volume changes audible sooner (default 60)")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     ap.add_argument("--cache-dir", default=str(Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "r80" / "media"),
                     help="where the tags read and the covers are kept (default ~/.cache/r80/media)")
+    state_home = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    ap.add_argument("--state", default=str(state_home / "r80" / "media.json"),
+                    help="where the source and resume points are saved (default ~/.local/state/r80/media.json)")
+    ap.add_argument("--usb", choices=("system", "session"), metavar="BUS",
+                    help="USB sticks through udisks2 on this bus (system on the target; session: the tests' stand-in)")
+    ap.add_argument("--resume-wait", type=float, default=15.0,
+                    help="how long to wait at start for the stick the last session played (s, default 15)")
     a = ap.parse_args()
 
     music_dir = Path(a.music_dir).expanduser()
-    if a.demo and only_demo_tones(music_dir):     # never touches a folder with real music
-        make_demo(music_dir)                      # writes missing or outdated demo tones
 
     Gst.init(None)
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
-    media = Media(bus, music_dir, Path(a.cache_dir).expanduser(), a.sink, a.buffer_ms)
-    log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, "
-        f"{len(media.tracks)} track(s) in {music_dir}")
+    usb_bus = None if not a.usb else dbus.SystemBus() if a.usb == "system" else dbus.SessionBus()
+    log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, Library {music_dir}"
+        + (f", USB sticks via udisks2 on the {a.usb} bus" if a.usb else ""))
+    Media(bus, music_dir, Path(a.cache_dir).expanduser(), Path(a.state).expanduser(), a.sink, a.buffer_ms,
+          usb_bus, a.resume_wait)
     GLib.MainLoop().run()
 
 

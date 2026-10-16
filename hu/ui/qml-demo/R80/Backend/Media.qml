@@ -14,6 +14,7 @@ QtObject {
     property bool repeatAll: false
     property string mediaSource: ""
     property int trackCount: 0
+    property var sources: []
     signal changed()
     function playPause() {}
     function setPlaying(on) {}
