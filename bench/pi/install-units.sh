@@ -18,7 +18,7 @@ USER_NAME="$(id -un)"
 USER_ID="$(id -u)"
 [[ "$USER_NAME" != root ]] || { echo "run as the user the HU should run as, not root (sudo is used inside)"; exit 1; }
 
-for unit in r80-can.service r80-hu.service; do
+for unit in r80-can.service r80-hu.service r80-bt-sco.service; do
   sed -e "s|@USER@|$USER_NAME|g" -e "s|@UID@|$USER_ID|g" -e "s|@REPO@|$REPO|g" "$HERE/$unit" \
     | sudo tee "/etc/systemd/system/$unit" >/dev/null
   echo "installed /etc/systemd/system/$unit (user $USER_NAME, repo $REPO)"
@@ -44,4 +44,4 @@ if [[ -n "$DESKTOP" ]]; then
   echo "installed r80-hu-desktop.service (user) + desktop autostart: the HU starts with the desktop"
   echo "  now: systemctl --user start r80-hu-desktop   (or log in again / reboot)"
 fi
-echo "now: sudo systemctl enable --now r80-can.service (and r80-hu.service for the kiosk)"
+echo "now: sudo systemctl enable --now r80-can.service r80-bt-sco.service (and r80-hu.service for the kiosk)"

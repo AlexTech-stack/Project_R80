@@ -1,0 +1,13 @@
+# Template: install-units.sh fills in @REPO@. Raspberry Pi bench only (r80-bt-sco.sh).
+[Unit]
+Description=R80 bench: call audio (SCO) of the Pi's built-in Bluetooth over HCI
+After=bluetooth.service
+PartOf=bluetooth.service
+RequiresMountsFor=@REPO@
+
+[Service]
+Type=oneshot
+ExecStart=@REPO@/bench/pi/r80-bt-sco.sh
+
+[Install]
+WantedBy=bluetooth.service
