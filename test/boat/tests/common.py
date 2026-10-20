@@ -148,8 +148,18 @@ def media_queue() -> list:
     return [_plain(t) for t in m.GetQueue(0, n)]
 
 
+def power_settled(timeout=12.0):
+    """Wait until hu-vehicled's Power is "off": after a test that closed its restbus the
+    bus falls asleep a few seconds later, and hu-audiod pauses media at "off" (TC_HU_032).
+    Media tests start after that, so no power change hits them half-way."""
+    ok, _, _ = wait_for(lambda p: p["Power"] == "off", timeout=timeout)
+    time.sleep(0.5)                     # hu-audiod's pause at "off" is a D-Bus round trip away
+    return ok
+
+
 def media_reset():
-    """Known start: no shuffle, repeat on, track 0 playing from the start."""
+    """Known start: power settled, no shuffle, repeat on, track 0 playing from the start."""
+    power_settled()
     m = media()
     m.SetShuffle(False)
     m.SetRepeatAll(True)

@@ -204,7 +204,9 @@ gdbus call --session -d de.r80.Audio -o /de/r80/Audio \
 Rules between sources (`[focus]` in `audio.ini`): while a navigation prompt
 plays, media and radio fade to `duck_level`; during a call (from ringing on)
 audiod pauses mediad if it was playing and resumes it afterwards, radio is
-silent, and mute leaves the phone audible. There is no navigation or phone
+silent, and mute leaves the phone audible. When the HU goes off (Power "off",
+after the shutdown save) audiod pauses mediad if it was playing and plays it again
+when the HU is back on (`pause_media_when_off`). There is no navigation or phone
 service yet, so `SetNavPrompt` / `SetCallState` come from tests, `gdbus`, or the
 UI's simulated call (key `C`), which reports itself as a call:
 
@@ -425,6 +427,7 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_029 | media tags: title, artist, album, track number and embedded cover (one file per album) from ID3; name, folder and `cover.png` without a tag; durations before playing; int32 / `aa{sv}` types; unknown source refused |
 | TC_HU_030 | media sources: a udisks2 stand-in plugs in a stick (an fstab disk is ignored), read-only mount without a prompt, named after its label, plays at once; resume per source Library <-> stick; state file; a stick without a label is `USB`; pulling the playing stick -> Library, paused |
 | TC_HU_031 | media browsing: menu, folders, albums (artist, cover), artists → albums → tracks, paging; `PlayFrom` makes a list the queue (`QueueTitle`, `GetQueue`); `UpNext` with and without repeat; shuffle order shown by `UpNext` and followed by `Next`; queue in the state file; `NotFound` |
+| TC_HU_032 | media pauses while the HU is off: paused at Power off (the shutdown save still saw it playing), plays again at power on; paused by the driver stays paused; a call at power on keeps it paused until it ends |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).

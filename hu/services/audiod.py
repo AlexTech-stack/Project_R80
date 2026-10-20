@@ -26,6 +26,8 @@ Rules between sources ([focus] in audio.ini, decision D9):
 - During a call (SetCallState; from "ringing" or only "active", see call_starts_on)
   mediad is paused if it was playing and resumed afterwards, and radio is at gain 0.
 - Mute silences everything except the phone during a call (mute_spares_call).
+- When hu-vehicled's Power goes "off" (after the shutdown save) mediad is paused if it
+  was playing, and plays again when the power is back (pause_media_when_off).
 - While a chime plays (SetChime, from hu-warnd), media and radio duck as for a prompt.
 - The information chime is a normal source ("chime"); the warning chime (D10: the driver
   has to act within seconds) plays at WarningChimeGain: the chime volume ignoring mute,
@@ -84,7 +86,7 @@ def load_config(extra: str | None = None) -> dict:
         raise ConfigError(f"config file not found: {extra}")
     cp.read([str(f) for f in files if f.is_file()])
     used = {"volume": {"max", "startup_cap", "default_master", "curve", "change_fade_ms"} | {f"default_{s}" for s in SOURCES},
-            "focus": {"duck_level", "duck_fade_ms", "call_starts_on", "resume_media_after_call",
+            "focus": {"duck_level", "duck_fade_ms", "call_starts_on", "resume_media_after_call", "pause_media_when_off",
                       "call_mutes_radio", "mute_spares_call", "warning_chime_min_gain"},
             "tone": {"tone_range_db", "default_bass", "default_treble", "default_balance", "default_loudness"}}
 
@@ -125,6 +127,7 @@ def load_config(extra: str | None = None) -> dict:
         "duck_fade_ms": num("focus", "duck_fade_ms", int, 0, 5000),
         "call_starts_on": choice("focus", "call_starts_on", ("ring", "answer")),
         "resume_media_after_call": flag("focus", "resume_media_after_call"),
+        "pause_media_when_off": flag("focus", "pause_media_when_off"),
         "call_mutes_radio": flag("focus", "call_mutes_radio"),
         "mute_spares_call": flag("focus", "mute_spares_call"),
     }
@@ -259,6 +262,8 @@ class Audio(dbus.service.Object):
         self.duck = 1.0                 # current factor on media and radio, fades to its target
         self.duck_timer = None
         self.media_paused_by_call = False
+        self.media_paused_by_power = False
+        self.power = None
         self.props = {}
         self.dirty = set()
         self.save_pending = False
@@ -268,6 +273,7 @@ class Audio(dbus.service.Object):
             f"cap {cfg['startup_cap']}), volumes {self.volumes}, state {state_path}")
 
         bus.add_signal_receiver(self.on_input, "Input", VEHICLE[2], None, VEHICLE[1])
+        bus.add_signal_receiver(self.on_vehicle_props, "PropertiesChanged", PROPS_IFACE, None, VEHICLE[1])
         bus.add_signal_receiver(self.on_owner, "NameOwnerChanged", "org.freedesktop.DBus",
                                 "org.freedesktop.DBus", "/org/freedesktop/DBus")
         GLib.timeout_add(100, self.flush)
@@ -400,6 +406,25 @@ class Audio(dbus.service.Object):
         self.media_paused_by_call = False
 
     # ---- vehicle -----------------------------------------------------------
+    def on_vehicle_props(self, iface, changed, _invalidated):
+        if str(iface) != VEHICLE[2] or "Power" not in changed:
+            return
+        old, self.power = self.power, str(changed["Power"])
+        if not self.cfg["pause_media_when_off"] or old is None or old == self.power:
+            return                                  # the first value after (re)starting is no change
+        if self.power == "off":
+            def status(s):
+                if self.power == "off" and str(s) == "playing":
+                    self.media_paused_by_power = True
+                    self.media_call("SetPlaying", "b", (False,))
+            self.media_call("Get", "ss", (MEDIA[2], "PlaybackStatus"), status)
+        elif self.power != "shutdown" and self.media_paused_by_power:
+            self.media_paused_by_power = False
+            if in_call(self.cfg, self.call_state):
+                self.media_paused_by_call = True                 # resumed when the call ends
+            else:
+                self.media_call("SetPlaying", "b", (True,))
+
     def on_input(self, kind, _value):
         kind = str(kind)
         if kind not in ("button:VOL_UP", "button:VOL_DOWN", "button:MUTE"):

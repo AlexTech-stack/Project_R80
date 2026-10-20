@@ -21,7 +21,7 @@ import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
-from common import DEV, check, finish, media, media_props, media_queue, wait_media
+from common import DEV, check, finish, media, media_props, media_queue, power_settled, wait_media
 
 sys.path.insert(0, str(DEV))
 import media_tags  # noqa: E402
@@ -112,6 +112,7 @@ def make_stick(root: Path, album: str, titles):
 stick_dir, stick2_dir = RUN / "test-stick", RUN / "test-stick-2"
 make_stick(stick_dir, "Stick Album", ["Stick One", "Stick Two", "Stick Three"])
 make_stick(stick2_dir, "Second Stick", ["Other One"])
+power_settled()
 m = media()
 m.SetSource("Library")
 

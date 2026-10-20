@@ -11,9 +11,10 @@ from pathlib import Path
 
 import dbus
 
-from common import check, finish, media, media_props, media_queue, wait_media
+from common import check, finish, media, media_props, media_queue, power_settled, wait_media
 
 STATE = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu" / "media-state.json"
+power_settled()
 m = media()
 m.SetSource("Library")
 m.SetShuffle(False)

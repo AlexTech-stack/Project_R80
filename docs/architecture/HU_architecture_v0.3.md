@@ -15,7 +15,7 @@ in `hu/` (runs on a PC and on the Raspberry Pi bench, started with `./r80`) and 
 | D6 | CAN database | No real message list yet. Development uses a made-up test DBC: classic CAN, one signal per message, standard IDs plus one extended ID. See `hu-can/`. |
 | D7 | Car networks | The car has three CAN networks: Motor (powertrain), Infotainment, Comfort. Which one carries each signal at the HU is not yet known. |
 | D8 | CAN channels | Agreed for now (2026-09-29): vehicle MCU gets two CAN channels, CAN 1 active on Infotainment, CAN 2 listen-only on Motor or Comfort. Revisit once real bus logs exist. |
-| D9 | Audio and volume | Agreed 2026-10-13: one audio service (`audiod`) owns all audio: master volume, one volume per source (media, navigation, phone, radio), mute, and how sources affect each other. A navigation prompt lowers music; a call (from ringing on) pauses media and mutes radio, media resumes afterwards. The last volume is remembered and capped at startup. Volume is handled in the HU for now (the DSP amp of D3 is not chosen) and does not depend on CAN signals. The numbers live in a config file, not in code. UI: volume shown on every screen, master volume popup from it, per-source volumes under Settings → Audio. |
+| D9 | Audio and volume | Agreed 2026-10-13: one audio service (`audiod`) owns all audio: master volume, one volume per source (media, navigation, phone, radio), mute, and how sources affect each other. A navigation prompt lowers music; a call (from ringing on) pauses media and mutes radio, media resumes afterwards; while the HU is off, media is paused (2026-10-20). The last volume is remembered and capped at startup. Volume is handled in the HU for now (the DSP amp of D3 is not chosen) and does not depend on CAN signals. The numbers live in a config file, not in code. UI: volume shown on every screen, master volume popup from it, per-source volumes under Settings → Audio. |
 | D10 | Vehicle warnings and trip computer | Agreed 2026-10-14: a warning service (`warnd`) watches the CAN signals and shows as many warnings as possible, even where the stock cluster (D1) shows the same. Thresholds, hysteresis and timing live in a file, not in code; the first values are placeholders, not the real car's. Severity says how soon the driver has to act: *warning* within seconds (tyre pressure falling fast, oil pressure gone; warning chime, banner until acknowledged), *information* within minutes or hours, the car can still reach a workshop or fuel (tyre pressure low, range low; information chime, banner until acknowledged), *notice* not dangerous, some time soon (service due or overdue; silent). For tyre pressure the speed of a drop counts: a fast drop is a warning even while the value is still fine. Oil pressure has a static limit only (it falls fast on every lift-off). The chimes are generated in code; the information chime follows the chime volume and mute, the warning chime is audible even when muted. A trip computer (`tripd`) keeps a trip since start (resets itself after more than 2 h with the ignition off) and a long-term trip (reset by hand); consumption comes from the car's own value for now. |
 | D11 | Navigation | Agreed 2026-10-14: the phone navigates, the HU displays. A full offline navigation on the HU is not built: it would be the most resource-hungry part of the device, always worse than the phone's, and a readable map in the HU's style is a project of its own. An own Android app (R80 Companion, in this repo, Android 14 and newer) reads the turn-by-turn guidance of the phone's navigation app (Google Maps' navigation notification first, OsmAnd's interface as a second source) and sends it over Bluetooth RFCOMM to the HU (`docs/companion-protocol.md`). A navigation service (`navd`) publishes it; the UI shows the next maneuver, distance, street and arrival in its own style. Navigation needs the phone; that is accepted. The voice prompts come from the phone. Later: a reduced overview map drawn by the HU itself (main roads only), more phone sensors, and extending the HU's UI from the phone (concept open). A pointer towards the destination is dropped for now: there is no easy way to get the destination's coordinates. |
 | D12 | System and settings | Agreed 2026-10-15: a system service (`sysd`) keeps the user's settings and saves them, so they survive a restart; what each setting may be (type, range, default) lives in a file, not in code. It also coordinates the shutdown: when the MCU announces off, the services save their state, then the MCU gets its acknowledgement, and on the target Linux powers off cleanly before the MCU cuts the power (off on the bench). Display brightness at night follows the car's dimmer as the base, with the user's brightness setting on top (like modern devices). English only, no language setting, at least until feature complete. The HU always starts on Home. Logging and software updates come later. |
@@ -193,17 +193,24 @@ Done:
   amd64 containers).
 - Services for vehicle, media, audio (D9), warnings and trip (D10), navigation with the
   R80 Companion app (D11), system and settings (D12), with the UI on them.
+- Media complete for local files: tags and covers, the Library and USB sticks, resume
+  per source, browsing (folders, artists, albums) with a queue.
+- One product, three run modes (`./r80 demo | virtual | bench`).
 - Raspberry Pi 3B bench: CAN tunnel from the test PC, headless display over VNC, the
-  phone over real Bluetooth (`docs/bench-pi.md`).
+  phone over real Bluetooth, USB sticks (`docs/bench-pi.md`).
 
 Next:
 1. Phone service: hands-free calls, contacts, music from the phone (A2DP); a simulated
    phone for it in the virtual environment.
-2. Log the three real buses and replace the test DBC with the real messages (also: DIS
+2. Startup time and memory on the Pi against the targets of §5 (UI < 8 s).
+3. Logging and diagnostics: one log, errors under Settings → System, export to a stick;
+   then software updates (D12).
+4. Radio with a simulated tuner behind a thin hardware layer (needs: FM only or FM + DAB+).
+5. Log the three real buses and replace the test DBC with the real messages (also: DIS
    text to the cluster, the dimmer input).
-3. Hardware: vehicle MCU and its firmware, the DSP amplifier (D3), the tuner, the final
+6. Hardware: vehicle MCU and its firmware, the DSP amplifier (D3), the tuner, the final
    board (D4).
-4. Logging and software updates (D12, later); requirements per function.
+7. Requirements per function.
 
 ---
 
