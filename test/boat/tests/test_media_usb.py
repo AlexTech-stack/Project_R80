@@ -5,8 +5,9 @@ with --usb session) offers an fstab-mounted disk, which must be ignored, then pl
 a stick: mediad mounts it read-only without a prompt, names the source after the
 label, switches to it and plays its tracks. Each source keeps its own track and
 position (Library <-> stick), the state file holds the source and the resume points,
-a second stick without a label is "USB", and pulling the playing stick falls back to
-the Library, paused. A real USB port and a real udisks2 are not part of this test."""
+the same stick mounted elsewhere next time keeps its resume point and its tags come from
+the cache, the same stick on a second device stays one source, a second stick without a
+label is "USB", and pulling the playing stick falls back to the Library, paused. A real USB port and a real udisks2 are not part of this test."""
 import json
 import os
 import shutil
@@ -154,6 +155,28 @@ except (OSError, ValueError):
     st = {}
 check(st.get("source") == "usb:R80-TEST-1" and "library" in st.get("resume", {}) and "usb:R80-TEST-1" in st.get("resume", {}),
       f"state file: active source and a resume point per source ({st.get('source')}, {sorted(st.get('resume', {}))})")
+
+# pulled at track 1, about 11 s; back on another mount point (a desktop does that when the
+# old one is busy): same source, same place, tags from the cache (paths inside the medium)
+ud.remove("sdz")
+wait_media(lambda p: p["Source"] == "Library", timeout=4.0)
+moved = RUN / "test-stick-moved"
+if moved.exists():
+    shutil.rmtree(moved)
+shutil.copytree(stick_dir, moved)                     # copy2: same sizes and mtimes
+first = {}
+ud.add("sdz", "R80-TEST-1", "MUSICSTICK", str(moved))
+ok, p, _ = wait_media(lambda p: p["Source"] == "MUSICSTICK", timeout=8.0)
+first = p
+ok2, p, _ = wait_media(lambda p: p["TrackIndex"] == 1 and p["Position"] >= 10_000_000, timeout=4.0)
+check(ok and ok2, f"the stick back on another mount point resumes (track {p.get('TrackIndex')}, {p.get('Position', 0) / 1e6:.1f} s)")
+check(first.get("Scanned") == 3, f"... with its tags from the cache at once (Scanned {first.get('Scanned')} of 3)")
+ud.add("sdv", "R80-TEST-1", "MUSICSTICK", str(moved))
+ok, p, _ = wait_media(lambda p: len(p["Sources"]) != 2, timeout=2.0)
+check(not ok and p["Sources"] == ["Library", "MUSICSTICK"], f"the same stick on a second device: one source ({p['Sources']})")
+ud.remove("sdv")
+ok, p, _ = wait_media(lambda p: p["Source"] != "MUSICSTICK", timeout=2.0)
+check(not ok, f"... and one of the two gone: it stays ({p['Source']})")
 
 ud.add("sdx", "R80-TEST-2", "", str(stick2_dir))
 ok, p, _ = wait_media(lambda p: p["Source"] == "USB", timeout=8.0)

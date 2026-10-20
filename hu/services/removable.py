@@ -122,9 +122,7 @@ class RemovableMedia:
         if mounts:
             if path not in self.present:
                 key = self.key(path)
-                for old in [p for p, k in self.present.items() if k == key]:
-                    self.gone(old)                         # the same medium again, on a new device
-                self.present[path] = key
+                self.present[path] = key                   # the same medium on a new device: on_added again
                 self.log(f"removable medium {key} at {mounts[0]}")
                 self.on_added(key, str(self.objects[path][BLOCK].get("IdLabel", "")), mounts[0], path in self.initial)
         elif path in self.present:
@@ -148,6 +146,6 @@ class RemovableMedia:
 
     def gone(self, path: str):
         key = self.present.pop(path, None)
-        if key:
+        if key and key not in self.present.values():      # not still there on another device
             self.log(f"removable medium {key} gone")
             self.on_removed(key)

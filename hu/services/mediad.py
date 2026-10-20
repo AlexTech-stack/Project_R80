@@ -155,6 +155,7 @@ class Scanner:
         except (OSError, ValueError):
             self.cache = {}
         self.on_track = on_track       # called with the track dict once it is read
+        self.root, self.medium = "\0", ""   # the source being read (start)
         self.queue = []
         self.current = None
         self.tags = None
@@ -177,18 +178,35 @@ class Scanner:
             return None
         return f"{st.st_size}:{int(st.st_mtime)}"
 
+    def ckey(self, path: str) -> str:
+        """The cache's name for a track: its medium and its path on it, so a stick
+        mounted somewhere else next time is not read again."""
+        return self.medium + ":" + path[len(self.root):] if path.startswith(self.root) else path
+
+    def cover_in(self, cover: str) -> str:
+        return "@/" + cover[len(self.root):] if cover.startswith(self.root) else cover   # a folder cover: relative
+
+    def cover_out(self, cover: str) -> str:
+        return self.root + cover[2:] if cover.startswith("@/") else cover
+
     def cached(self, track: dict) -> bool:
         """Fill the track from the cache; False if it has to be read."""
-        hit = self.cache.get(track["path"])
-        if not hit or hit.get("key") != self.key(track["path"]) or (hit["cover"] and not os.path.exists(hit["cover"])):
+        hit = self.cache.get(self.ckey(track["path"]))
+        if not hit or hit.get("key") != self.key(track["path"]):
             return False
-        track.update({k: hit[k] for k in TRACK_KEYS})
+        cover = self.cover_out(hit["cover"])
+        if cover and not os.path.exists(cover):
+            return False
+        track.update({k: hit[k] for k in TRACK_KEYS}, cover=cover)
         track["scanned"] = True
         return True
 
-    def start(self, tracks: list, first: int = 0) -> None:
-        """Read every track not in the cache, beginning with tracks[first]."""
+    def start(self, tracks: list, first: int = 0, root: Path | None = None, medium: str = "") -> None:
+        """Read every track not in the cache, beginning with tracks[first]; root and
+        medium: the source's folder and key (library, usb:<UUID>)."""
         self.stop()
+        self.root = (str(root).rstrip("/") + "/") if root else "\0"
+        self.medium = medium
         order = tracks[first:] + tracks[:first]
         self.queue = [t for t in order if not self.cached(t)]
         self.started, self.count = time.monotonic(), len(self.queue)
@@ -270,7 +288,8 @@ class Scanner:
                     break
         t["cover"] = self.save_image(tags) or folder_cover(Path(t["path"]).parent)
         t["scanned"] = True
-        self.cache[t["path"]] = {"key": self.key(t["path"]), **{k: t[k] for k in TRACK_KEYS}}
+        self.cache[self.ckey(t["path"])] = {"key": self.key(t["path"]), **{k: t[k] for k in TRACK_KEYS},
+                                            "cover": self.cover_in(t["cover"])}
         self.dirty = True
         self.current = None
         self.on_track(t)
@@ -514,9 +533,17 @@ class Media(dbus.service.Object):
     def remember(self):
         """Note where the active source is, for when it comes back."""
         if self.tracks:
-            pos = self.current_time() if self.status == "playing" else self.position
-            self.resume[self.key()] = {"path": self.tracks[self.index]["path"], "position": int(pos),
+            if self.deferred_seek is not None or self.pending:
+                pos = self.position            # a seek not done yet: where it is going
+            else:
+                pos = self.current_time() if self.status == "playing" else self.position
+            self.resume[self.key()] = {"path": self.rel(self.tracks[self.index]["path"]), "position": int(pos),
                                        "queue": self.queue_path}
+
+    def rel(self, path: str) -> str:
+        """A track's path inside its source (a stick may be mounted elsewhere next time)."""
+        root = str(self.dir).rstrip("/") + "/"
+        return path[len(root):] if path.startswith(root) else path
 
     def use_source(self, name: str, play: bool):
         """Switch to a source and carry on where it was (track and position)."""
@@ -530,15 +557,16 @@ class Media(dbus.service.Object):
         self.set_queue("tracks", "All tracks", self.library)
         try:                                       # the list it played, if it is still there
             title, queue = tracks_of(self.library, self.dir, self.source, r.get("queue", "tracks"))
-            if any(t["path"] == r.get("path") for t in queue):
+            if any(self.rel(t["path"]) == r.get("path") for t in queue):
                 self.set_queue(r["queue"], title, queue)
         except KeyError:
             pass
-        paths = [t["path"] for t in self.tracks]
+        paths = [self.rel(t["path"]) for t in self.tracks]
         self.index = paths.index(r["path"]) if r.get("path") in paths else 0
         if self.shuffle:
             self.shuffle_from(self.index)
-        self.scanner.start(self.library, self.library.index(self.tracks[self.index]) if self.tracks else 0)
+        self.scanner.start(self.library, self.library.index(self.tracks[self.index]) if self.tracks else 0,
+                           self.dir, self.key())
         if self.tracks:
             self.load(play)
             if r.get("path") in paths and r.get("position", 0) > 0:
@@ -614,6 +642,15 @@ class Media(dbus.service.Object):
             log(f"cannot save {self.state_file}: {e}")
 
     def on_medium_added(self, key: str, label: str, mount: str, initial: bool):
+        same = next((n for n, s in self.sources.items() if s["key"] == key), None)
+        if same is not None:                                 # the same medium, now mounted elsewhere
+            if same == self.source:
+                self.remember()                              # while its paths are still the old ones
+            self.sources[same]["dir"] = Path(mount)
+            if same == self.source:
+                playing, self.source = self.status == "playing", LIBRARY   # use_source must not remember again
+                self.use_source(same, playing)
+            return
         base = label or "USB"
         name, n = base, 2
         while name in self.sources:
