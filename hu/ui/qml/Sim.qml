@@ -330,8 +330,38 @@ QtObject {
     property bool micMuted: false
     readonly property string phoneName: phoneLive ? (Phone.connected ? Phone.deviceName : "No phone connected") : "Alex's phone"
     readonly property int phoneBattery: phoneLive ? Phone.battery : 78       // -1 = unknown
-    readonly property var contacts: phoneLive ? [] : _demoContacts          // from the phone: next step
-    readonly property var recents: phoneLive ? [] : _demoRecents
+    // the copy of the phone's contacts and call history (hu-phoned, with consent); entries
+    // { id, name, number (the first), numbers [{number, type}], fav } and { name, number, kind, when }
+    readonly property var _favIds: phoneLive ? Phone.favourites.map(f => f.id) : []
+    function _contact(c) { return { id: c.id, name: c.name, number: c.numbers.length ? c.numbers[0].number : "",
+                                    numbers: c.numbers, fav: _favIds.indexOf(c.id) >= 0 } }
+    readonly property var contacts: phoneLive ? Phone.contacts.map(_contact) : _demoContacts
+    readonly property var favourites: phoneLive ? Phone.favourites.map(_contact) : _demoContacts.filter(c => c.fav)
+    readonly property var recents: phoneLive ? Phone.history.map(h => ({ name: h.name || h.number, number: h.number,
+                                                                        kind: h.kind, when: _when(h.time) }))
+                                             : _demoRecents
+    function _when(t) {         // "2026-10-20 14:44" -> 14:44 today, Yesterday, Mon, 12.10.
+        const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2})/.exec(t || "")
+        if (!m) return ""
+        const d = new Date(+m[1], +m[2] - 1, +m[3]), today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        const days = Math.round((today - d) / 86400000)
+        return days <= 0 ? m[4] : days === 1 ? "Yesterday" : days < 7 ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()]
+                                                                      : m[3] + "." + m[2] + "."
+    }
+    function setFavourite(contact, on) {
+        if (phoneLive) { Phone.setFavourite(contact.id, on); return }
+        _demoContacts = _demoContacts.map(c => c.name === contact.name ? Object.assign({}, c, { fav: on }) : c)
+    }
+    // Settings -> Phone: may the HU keep a copy, sync, delete it (demo: a pretend copy)
+    readonly property string phoneConsent: phoneLive ? Phone.consent : "yes"
+    readonly property bool askPhoneConsent: phoneLive && Phone.connected && Phone.consent === ""
+    readonly property string phoneSyncState: phoneLive ? Phone.syncState : "idle"
+    readonly property string phoneSyncError: phoneLive ? Phone.syncError : ""
+    readonly property real phoneSyncedAt: phoneLive ? Phone.syncedAt : now.getTime() / 1000 - 3600
+    readonly property int phoneContactCount: phoneLive ? Phone.contactCount : _demoContacts.length
+    function phoneSetConsent(allowed) { if (phoneLive) Phone.setConsent(allowed) }
+    function phoneSync() { if (phoneLive) Phone.sync() }
+    function phoneDeleteCopy() { if (phoneLive) Phone.deleteCopy() }
     property var _demoContacts: [
         { name: "Anna",          number: "+49 171 2345 678", fav: true },
         { name: "Workshop Bernd",number: "+49 89 998 877",   fav: true },
@@ -341,7 +371,7 @@ QtObject {
         { name: "Emergency ADAC",number: "+49 89 22 22 22",  fav: false },
         { name: "Felix",         number: "+49 176 111 2233", fav: false },
         { name: "Parts dealer",  number: "+49 711 404 040",  fav: false }
-    ]
+    ].map(c => Object.assign({ id: c.name, numbers: [{ number: c.number, type: "mobile" }] }, c))
     property var _demoRecents: [
         { name: "Anna",           kind: "in",     when: "13:58" },
         { name: "Workshop Bernd", kind: "out",    when: "11:20" },

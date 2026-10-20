@@ -13,9 +13,21 @@ QtObject {
     property string callerName: ""
     property string callerNumber: ""
     property real callSince: 0
+    property string consent: ""
+    property string syncState: "idle"
+    property string syncError: ""
+    property real syncedAt: 0
+    property int contactCount: 0
+    property var contacts: []
+    property var history: []
+    property var favourites: []
     signal changed()
     function dial(number) {}
     function answer() {}
     function hangup() {}
     function sendTones(tones) {}
+    function setConsent(allowed) {}
+    function sync() {}
+    function deleteCopy() {}
+    function setFavourite(id, on) {}
 }

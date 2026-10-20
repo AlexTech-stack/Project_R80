@@ -63,6 +63,7 @@ Window {
 
         function target() {
             return Sim.callState !== "idle" ? callOverlay
+                 : phoneConsent.visible ? phoneConsent           // a new phone: copy its contacts?
                  : warningBanner.active ? warningBanner          // acknowledge first
                  : volumePopup.open ? volumePopup : loader.item
         }
@@ -135,6 +136,7 @@ Window {
         VolumePopup { id: volumePopup }
         WarningBanner { id: warningBanner }
 
+        PhoneConsent { id: phoneConsent; anchors.fill: parent }
         CallOverlay { id: callOverlay; anchors.fill: parent }
 
         // brightness

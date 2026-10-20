@@ -3,17 +3,39 @@ import QtQuick
 // Phone: favourites / recents / contacts on the left, keypad on the right.
 Item {
     id: root
+    objectName: "phoneScreen"        // run.py --screenshots opens a contact through it
     property int tab: 0
     property int sel: 0
     property string dialed: ""
     readonly property var tabs: ["Favourites", "Recent", "Contacts"]
-    readonly property var rows: tab === 0 ? Sim.contacts.filter(c => c.fav)
-                               : tab === 1 ? Sim.recents : Sim.contacts
-    onTabChanged: sel = 0
+    readonly property var rows: tab === 0 ? Sim.favourites : tab === 1 ? Sim.recents : Sim.contacts
+    // a contact opened from Contacts: its numbers to call and the favourite switch
+    property var detail: null
+    property int dsel: 0
+    readonly property var detailRows: detail ? detail.numbers.map(n => ({ kind: "number", number: n.number, type: n.type }))
+                                                     .concat([{ kind: "fav" }]) : []
+    onTabChanged: { sel = 0; detail = null }
 
-    function knob(d) { sel = Math.min(rows.length - 1, Math.max(0, sel + d)) }
-    function side(d) { tab = (tab + d + tabs.length) % tabs.length }
-    function press() { if (rows.length && Sim.phoneConnected) Sim.dial(rows[sel].name) }
+    function knob(d) {
+        if (detail) dsel = Math.min(detailRows.length - 1, Math.max(0, dsel + d))
+        else sel = Math.min(rows.length - 1, Math.max(0, sel + d))
+    }
+    function side(d) { if (!detail) tab = (tab + d + tabs.length) % tabs.length }
+    function press() {
+        if (detail) { pressDetail(detailRows[dsel]); return }
+        const r = rows[sel]
+        if (!r) return
+        if (tab === 2) { detail = r; dsel = 0 }
+        else if (Sim.phoneConnected) Sim.dial(r.number || r.name)
+    }
+    function pressDetail(r) {
+        if (r.kind === "fav") {
+            const on = !Sim.favourites.some(f => f.id === detail.id)
+            Sim.setFavourite(detail, on)
+        } else if (Sim.phoneConnected) Sim.dial(r.number)
+    }
+    // main.qml asks before going home: an open contact closes first
+    function back() { if (!detail) return false; detail = null; return true }
 
     Tabs {
         x: Theme.margin
@@ -25,6 +47,7 @@ Item {
 
     ListView {
         id: list
+        visible: !root.detail
         x: Theme.margin
         y: 80
         width: 640
@@ -45,10 +68,33 @@ Item {
         }
     }
 
+    // one contact
+    Column {
+        x: list.x
+        y: list.y
+        width: list.width
+        spacing: 6
+        visible: root.detail !== null
+        T { x: 14; text: root.detail ? root.detail.name : ""; font.pixelSize: Theme.fontLarge; bottomPadding: 10; width: parent.width - 28; elide: Text.ElideRight }
+        Repeater {
+            model: root.detailRows
+            MenuRow {
+                width: list.width
+                height: 62
+                readonly property bool isFav: root.detail && Sim.favourites.some(f => f.id === root.detail.id)
+                icon: modelData.kind === "fav" ? Icons.star : Icons.phone
+                label: modelData.kind === "fav" ? (isFav ? "Remove from favourites" : "Add to favourites") : modelData.number
+                value: modelData.kind === "fav" ? "" : modelData.type
+                selected: index === root.dsel
+                onClicked: { root.dsel = index; root.pressDetail(modelData) }
+            }
+        }
+    }
+
     T {
         x: list.x + 14
         y: list.y + 20
-        visible: root.rows.length === 0
+        visible: root.rows.length === 0 && !root.detail
         text: !Sim.phoneConnected ? "No phone connected"
             : ["No favourites yet", "No recent calls", "No contacts"][root.tab]
         color: Theme.accentMid

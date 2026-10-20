@@ -631,14 +631,21 @@ class Phone(QObject):
     """QML singleton mirroring hu-phoned (de.r80.Phone1): the connected phone (connected,
     deviceName, battery: -1 = unknown) and its calls (callState: idle | ringing | dialing |
     active, the current call's callerName / callerNumber / callSince: unix ms it became
-    active, 0 = not yet). dial / answer / hangup / sendTones go to phoned."""
+    active, 0 = not yet). dial / answer / hangup / sendTones go to phoned. The copy of the
+    phone's contacts: consent ("" = not asked yet, yes, no), syncState (idle | syncing |
+    failed), syncError, syncedAt (unix s), contactCount, contacts (all, fetched whenever the
+    copy changes), history, favourites; setConsent / sync / deleteCopy / setFavourite."""
     changed = Signal()
     availableChanged = Signal()
 
     def __init__(self, system_bus=False, parent=None):
         super().__init__(parent)
         self._available = False
-        self._v = {"Connected": False, "Device": {}, "Calls": [], "CallState": "idle"}
+        self._v = {"Connected": False, "Device": {}, "Calls": [], "CallState": "idle", "Consent": "",
+                   "SyncState": "idle", "SyncError": "", "SyncedAt": 0, "ContactCount": 0, "History": [],
+                   "Favourites": []}
+        self._contacts = []
+        self._contacts_key = None
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
         self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, PHONE_PATH)
@@ -667,6 +674,15 @@ class Phone(QObject):
         for k in self._v:
             if k in changed:
                 self._v[k] = _py(changed[k])
+        key = (self._v["Device"].get("address"), self._v["SyncedAt"], self._v["ContactCount"])
+        if key != self._contacts_key:                  # the copy changed: fetch the contacts again
+            self._contacts_key = key
+            self.bus.call_async(PHONE_SERVICE, PHONE_PATH, PHONE_IFACE, "GetContacts", "ii",
+                                (0, int(self._v["ContactCount"])), self._got_contacts, lambda e: None, timeout=10.0)
+        self.changed.emit()
+
+    def _got_contacts(self, contacts):
+        self._contacts = [_py(c) for c in contacts]
         self.changed.emit()
 
     def _call(self) -> dict:
@@ -686,6 +702,14 @@ class Phone(QObject):
     callerName = Property(str, lambda self: str(self._call().get("name", "")), notify=changed)
     callerNumber = Property(str, lambda self: str(self._call().get("number", "")), notify=changed)
     callSince = Property(float, lambda self: float(self._call().get("since", 0)), notify=changed)
+    consent = Property(str, lambda self: str(self._v["Consent"]), notify=changed)
+    syncState = Property(str, lambda self: str(self._v["SyncState"]), notify=changed)
+    syncError = Property(str, lambda self: str(self._v["SyncError"]), notify=changed)
+    syncedAt = Property(float, lambda self: float(self._v["SyncedAt"]), notify=changed)
+    contactCount = Property(int, lambda self: int(self._v["ContactCount"]), notify=changed)
+    contacts = Property("QVariantList", lambda self: self._contacts, notify=changed)
+    history = Property("QVariantList", lambda self: list(self._v["History"]), notify=changed)
+    favourites = Property("QVariantList", lambda self: list(self._v["Favourites"]), notify=changed)
 
     @Slot(str)
     def dial(self, number):
@@ -702,3 +726,19 @@ class Phone(QObject):
     @Slot(str)
     def sendTones(self, tones):
         self._send("SendTones", "s", (str(tones),))
+
+    @Slot(bool)
+    def setConsent(self, allowed):
+        self._send("SetConsent", "b", (bool(allowed),))
+
+    @Slot()
+    def sync(self):
+        self._send("Sync")
+
+    @Slot()
+    def deleteCopy(self):
+        self._send("DeleteCopy")
+
+    @Slot(str, bool)
+    def setFavourite(self, contact_id, on):
+        self._send("SetFavourite", "sb", (str(contact_id), bool(on)))

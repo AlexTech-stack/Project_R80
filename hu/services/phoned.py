@@ -17,9 +17,22 @@ No oFono. phoned shows one phone at a time (the one that connected last) and pub
                                   direction (s: in|out), since (x: unix ms it became active, 0 = not yet)
                   CallState (s): idle | ringing (a call comes in) | dialing (we call, not
                                  answered yet) | active (a call is on, maybe held)
+                  Consent (s): may the HU keep a copy of this phone's contacts and call
+                               history? "" = not asked yet (the UI asks), yes, no
+                  SyncState (s): idle | syncing | failed;  SyncError (s);  SyncedAt (x: unix s, 0 = never)
+                  ContactCount (i);  History (aa{sv}: name, number, kind in|out|missed, time)
+                  Favourites (aa{sv}: id, name, numbers aa{sv} number/type): local to the HU
       methods     Dial(s number), Answer() (the ringing call), Hangup() (the ringing call is
                   rejected, else the current call ends), HangupAll(), SendTones(s)
-                  errors: de.r80.Phone1.Error.NoPhone, .NoCall, .Failed (the phone said no)
+                  SetConsent(b) (yes: copy now), Sync() (copy again, implies consent),
+                  DeleteCopy() (forget contacts, history, favourites; consent no),
+                  GetContacts(i offset, i count) -> aa{sv} (id, name, numbers), SetFavourite(s id, b)
+                  errors: de.r80.Phone1.Error.NoPhone, .NoCall, .Failed (the phone said no), .Busy
+
+Contacts and call history (hu/phonebook.py: PBAP over BlueZ's obexd, --obex BUS) are
+copied per phone into --state-dir, only with consent: the first time a phone connects
+the UI asks; afterwards a copy is made again only by Sync (Settings -> Phone). A call
+without a name from the phone gets it from the copy. Names and numbers are never logged.
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
 phoned tells hu-audiod about calls (SetCallState: ringing / active / idle; dialing counts
@@ -33,6 +46,7 @@ battery (org.bluez.Device1 / Battery1), none to leave them out.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -42,6 +56,10 @@ import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import vcard  # noqa: E402
+from phonebook import PbapClient, Store  # noqa: E402
+
 BUS_NAME, OBJ_PATH, IFACE = "de.r80.Phone", "/de/r80/Phone", "de.r80.Phone1"
 PROPS_IFACE = "org.freedesktop.DBus.Properties"
 OM = "org.freedesktop.DBus.ObjectManager"
@@ -50,6 +68,7 @@ AG_IFACE, CALL_IFACE = TEL + ".AudioGateway1", TEL + ".Call1"
 AUDIO = ("de.r80.Audio", "/de/r80/Audio", "de.r80.Audio1")
 BLUEZ = "org.bluez"
 LIVE_STATES = ("active", "held", "dialing", "alerting", "incoming", "waiting")
+SYNC_TIMEOUT_S = 300                     # a phone that never answers the PBAP request
 
 
 def log(*a):
@@ -83,9 +102,13 @@ def call_state(calls: list) -> str:
 
 
 class Phone(dbus.service.Object):
-    def __init__(self, bus, tel_bus, bluez_bus):
+    def __init__(self, bus, tel_bus, bluez_bus, pbap: PbapClient | None, store: Store):
         super().__init__(bus, OBJ_PATH)
         self.bus, self.tel, self.bluez = bus, tel_bus, bluez_bus
+        self.pbap, self.store = pbap, store
+        self.book = self.no_book()                   # the current phone's copy (empty: none)
+        self.book_address = ""
+        self.sync_state, self.sync_error, self.sync_timer = "idle", "", None
         self.ags: dict[str, dict] = {}       # ag path -> {"address", "added"}
         self.calls: dict[str, dict] = {}     # call path -> call (of every ag)
         self.order = 0
@@ -199,14 +222,78 @@ class Phone(dbus.service.Object):
 
     def my_calls(self) -> list:
         ag = self.current()
-        return [dict(c, id=p.rsplit("/", 1)[-1], path=p) for p, c in sorted(self.calls.items())
-                if c["ag"] == ag and c["state"] in LIVE_STATES]
+        return [dict(c, id=p.rsplit("/", 1)[-1], path=p, name=c["name"] or self.name_for(c["number"]))
+                for p, c in sorted(self.calls.items()) if c["ag"] == ag and c["state"] in LIVE_STATES]
+
+    # ---- contacts and history: the copy on the HU ---------------------------------
+    def name_for(self, number: str) -> str:
+        return next((c["name"] for c in self.book["contacts"]
+                     if any(vcard.same_number(n["number"], number) for n in c["numbers"])), "") if number else ""
+
+    @staticmethod
+    def no_book() -> dict:
+        return {"consent": None, "synced": 0, "contacts": [], "history": [], "favourites": []}
+
+    def load_book(self, address: str):
+        self.book_address = address
+        self.book = self.store.load(address) if address else self.no_book()
+        self.sync_state, self.sync_error = "idle", ""
+        if address and self.book["consent"] is True and not self.book["synced"]:
+            GLib.idle_add(lambda: self.start_sync() and False)     # allowed, never copied yet
+
+    def save_book(self):
+        if self.book_address:
+            self.store.save(self.book_address, self.book)
+
+    def start_sync(self) -> bool:
+        address = self.book_address
+        if not address or self.sync_state == "syncing":
+            return False
+        if self.pbap is None:
+            self.sync_state, self.sync_error = "failed", "no OBEX service (obexd) for contacts"
+            self.refresh()
+            return False
+        self.sync_state, self.sync_error = "syncing", ""
+        log("copying contacts and call history from the phone")
+        self.refresh()
+
+        def done(contacts, history, error):
+            if self.sync_timer:
+                GLib.source_remove(self.sync_timer)
+                self.sync_timer = None
+            if address != self.book_address or self.sync_state != "syncing":
+                return                                   # another phone by now, or timed out
+            if error:
+                self.sync_state, self.sync_error = "failed", error
+                log(f"copying contacts failed: {error}")
+            else:
+                self.book.update(contacts=contacts, history=history, synced=int(time.time()))
+                self.sync_state = "idle"
+                log(f"copied {len(contacts)} contact(s) and {len(history)} call(s)")
+                self.save_book()
+            self.refresh()
+
+        def timeout():
+            self.sync_timer = None
+            if self.sync_state == "syncing":
+                self.sync_state, self.sync_error = "failed", "the phone did not answer"
+                log("copying contacts failed: the phone did not answer")
+                self.refresh()
+            return False
+        self.sync_timer = GLib.timeout_add_seconds(SYNC_TIMEOUT_S, timeout)
+        self.pbap.sync(address, done)
+        return True
+
+    def favourites(self) -> list:
+        by_id = {c["id"]: c for c in self.book["contacts"]}
+        return [by_id[i] for i in self.book["favourites"] if i in by_id]
 
     def update_device(self):
         ag = self.current()
         address = self.ags[ag]["address"] if ag else ""
         if address != self.device["address"]:
             self.device = {"address": address, "name": address, "battery": -1}
+            self.load_book(address)
             if address and self.bluez is not None:
                 self.bluez_path = None
                 self.bluez.call_async(BLUEZ, "/", OM, "GetManagedObjects", "", (),
@@ -250,6 +337,14 @@ class Phone(dbus.service.Object):
         self.set("Device", dict(self.device))
         self.set("Calls", [{k: c[k] for k in ("id", "number", "name", "state", "direction", "since")} for c in calls])
         self.set("CallState", call_state(calls))
+        consent = self.book["consent"]
+        self.set("Consent", "" if consent is None else "yes" if consent else "no")
+        self.set("SyncState", self.sync_state)
+        self.set("SyncError", self.sync_error)
+        self.set("SyncedAt", int(self.book["synced"]))
+        self.set("ContactCount", len(self.book["contacts"]))
+        self.set("History", [dict(h, name=h["name"] or self.name_for(h["number"])) for h in self.book["history"]])
+        self.set("Favourites", self.favourites())
         self.push_audio()
 
     def set(self, name, value):
@@ -266,7 +361,22 @@ class Phone(dbus.service.Object):
             return dbus.Array([dbus.Dictionary({**{k: dbus.String(c[k]) for k in ("id", "number", "name", "state", "direction")},
                                                 "since": dbus.Int64(c["since"])}, signature="sv") for c in v],
                               signature="a{sv}")
+        if name in ("SyncedAt",):
+            return dbus.Int64(v)
+        if name == "ContactCount":
+            return dbus.Int32(v)
+        if name == "History":
+            return dbus.Array([dbus.Dictionary({k: dbus.String(h[k]) for k in ("name", "number", "kind", "time")},
+                                               signature="sv") for h in v], signature="a{sv}")
+        if name == "Favourites":
+            return dbus.Array([self.contact(c) for c in v], signature="a{sv}")
         return dbus.Boolean(v) if isinstance(v, bool) else dbus.String(v)
+
+    @staticmethod
+    def contact(c: dict):
+        numbers = dbus.Array([dbus.Dictionary({"number": n["number"], "type": n["type"]}, signature="sv")
+                              for n in c["numbers"]], signature="a{sv}")
+        return dbus.Dictionary({"id": c["id"], "name": c["name"], "numbers": numbers}, signature="sv")
 
     def flush(self):
         if self.dirty:
@@ -334,6 +444,51 @@ class Phone(dbus.service.Object):
             raise self.error("NoPhone", "no phone connected")
         self.tel_call(ag, AG_IFACE, "HangupAll", reply=reply, error=error)
 
+    @dbus.service.method(IFACE, in_signature="b")
+    def SetConsent(self, allowed):
+        if not self.book_address:
+            raise self.error("NoPhone", "no phone connected")
+        self.book["consent"] = bool(allowed)
+        self.save_book()
+        if allowed:
+            self.start_sync()
+        self.refresh()
+
+    @dbus.service.method(IFACE)
+    def Sync(self):
+        if not self.book_address:
+            raise self.error("NoPhone", "no phone connected")
+        if self.sync_state == "syncing":
+            raise self.error("Busy", "already copying")
+        self.book["consent"] = True                  # the user asked for it
+        self.save_book()
+        self.start_sync()
+        self.refresh()
+
+    @dbus.service.method(IFACE)
+    def DeleteCopy(self):
+        if not self.book_address:
+            raise self.error("NoPhone", "no phone connected")
+        self.book.update(consent=False, synced=0, contacts=[], history=[], favourites=[])
+        self.save_book()
+        log("deleted the copy of the phone's contacts and call history")
+        self.refresh()
+
+    @dbus.service.method(IFACE, in_signature="ii", out_signature="aa{sv}")
+    def GetContacts(self, offset, count):
+        offset, count = max(0, int(offset)), max(0, int(count))
+        return dbus.Array([self.contact(c) for c in self.book["contacts"][offset:offset + count]], signature="a{sv}")
+
+    @dbus.service.method(IFACE, in_signature="sb")
+    def SetFavourite(self, contact_id, on):
+        contact_id = str(contact_id)
+        if not any(c["id"] == contact_id for c in self.book["contacts"]):
+            raise self.error("Failed", "no such contact")
+        favs = [f for f in self.book["favourites"] if f != contact_id]
+        self.book["favourites"] = favs + [contact_id] if on else favs
+        self.save_book()
+        self.refresh()
+
     @dbus.service.method(IFACE, in_signature="s", async_callbacks=("reply", "error"))
     def SendTones(self, tones, reply, error):
         ag = self.current()
@@ -357,15 +512,22 @@ def main():
                     help="where PipeWire's org.pipewire.Telephony is: system, session or a D-Bus address (default session)")
     ap.add_argument("--bluez", choices=("system", "session", "none"), default="system",
                     help="BlueZ for the phone's name and battery (default system)")
+    ap.add_argument("--obex", default="session", metavar="BUS",
+                    help="where BlueZ's obexd (contacts, PBAP) is: system, session, a D-Bus address or none (default session)")
+    state_home = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    ap.add_argument("--state-dir", default=str(state_home / "r80" / "phone"),
+                    help="the copies of the phones' contacts, one file each (default ~/.local/state/r80/phone)")
+    ap.add_argument("--history-max", type=int, default=50, help="calls of the history to copy (default 50)")
     a = ap.parse_args()
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     tel = bus_for(a.telephony)
     bluez = None if a.bluez == "none" else bus_for(a.bluez)
-    Phone(bus, tel, bluez)
+    pbap = None if a.obex == "none" else PbapClient(bus_for(a.obex), log, a.history_max)
+    Phone(bus, tel, bluez, pbap, Store(Path(a.state_dir).expanduser()))
     log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus; telephony on {a.telephony}, "
-        f"BlueZ on {a.bluez}")
+        f"BlueZ on {a.bluez}, OBEX on {a.obex}")
     GLib.MainLoop().run()
 
 

@@ -104,8 +104,10 @@ up() {
   # shellcheck disable=SC2086  # SYS_ARGS is a list of flags
   start sysd python3 "$REPO/hu/services/sysd.py" --state "$RUN/settings.json" ${SYS_ARGS:-}
   start navd python3 "$REPO/hu/services/navd.py" --socket "$RUN/companion.sock" --bluetooth "${NAV_BLUETOOTH:-session}" ${NAV_ARGS:-}
-  # calls: PipeWire's telephony stand-in of the tests / the phone panel on the session bus (PHONE_TELEPHONY=ADDRESS for a real one)
-  start phoned python3 "$REPO/hu/services/phoned.py" --telephony "${PHONE_TELEPHONY:-session}" --bluez "${PHONE_BLUEZ:-none}"
+  # calls and contacts: the tests' / phone panel's stand-ins for PipeWire's telephony and obexd on the
+  # session bus (PHONE_TELEPHONY / PHONE_OBEX = a D-Bus address for real ones); copies of contacts in $RUN/phone
+  start phoned python3 "$REPO/hu/services/phoned.py" --telephony "${PHONE_TELEPHONY:-session}" --bluez "${PHONE_BLUEZ:-none}" \
+    --obex "${PHONE_OBEX:-session}" --state-dir "$RUN/phone"
 }
 
 case "${1:-status}" in

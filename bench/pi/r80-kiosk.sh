@@ -23,8 +23,10 @@ PY="$VENV/bin/python"
 "$PY" "$R/hu/services/sysd.py" >/tmp/r80-sysd.log 2>&1 &
 # shellcheck disable=SC2086  # R80_NAV_ARGS: extra navd flags, e.g. --tcp 47800 for the phone panel on the PC
 "$PY" "$R/hu/services/navd.py" --bluetooth system ${R80_NAV_ARGS:-} >/tmp/r80-navd.log 2>&1 &
-# calls: PipeWire's telephony service runs in the desktop's session bus (WirePlumber, r80-telephony.conf)
-"$PY" "$R/hu/services/phoned.py" --telephony "unix:path=/run/user/$(id -u)/bus" --bluez system >/tmp/r80-phoned.log 2>&1 &
+# calls and contacts: PipeWire's telephony service (WirePlumber, r80-telephony.conf) and obexd run on
+# the desktop's session bus
+DESKTOP_BUS="unix:path=/run/user/$(id -u)/bus"
+"$PY" "$R/hu/services/phoned.py" --telephony "$DESKTOP_BUS" --obex "$DESKTOP_BUS" --bluez system >/tmp/r80-phoned.log 2>&1 &
 sleep 1
 
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-eglfs}"
