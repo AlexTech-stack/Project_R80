@@ -16,7 +16,7 @@ PY="$VENV/bin/python"
 
 "$PY" "$R/dev/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 vcan_motor --can2-bus motor >/tmp/r80-mcu.log 2>&1 &
 "$PY" "$R/hu/services/vehicled.py" >/tmp/r80-vehicled.log 2>&1 &
-"$PY" "$R/hu/services/mediad.py" --music-dir "$MUSIC" --usb system >/tmp/r80-mediad.log 2>&1 &
+"$PY" "$R/hu/services/mediad.py" --music-dir "$MUSIC" --usb system --bluetooth system >/tmp/r80-mediad.log 2>&1 &
 "$PY" "$R/hu/services/audiod.py" >/tmp/r80-audiod.log 2>&1 &
 "$PY" "$R/hu/services/warnd.py" >/tmp/r80-warnd.log 2>&1 &
 "$PY" "$R/hu/services/tripd.py" >/tmp/r80-tripd.log 2>&1 &

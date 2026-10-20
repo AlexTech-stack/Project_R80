@@ -1,4 +1,8 @@
-"""The sound of a call, on PipeWire: the thin layer between hu-phoned and the audio stack.
+"""Bluetooth sound on PipeWire: the thin layer between hu-phoned / hu-mediad and the audio stack.
+
+Calls (hu-phoned) below; music from the phone (hu-mediad): music(address) finds the phone's
+A2DP stream (kept at full volume, so the phone sends at full level) and the "R80 Bluetooth
+music" stage (r80_bt_music_out), whose level mediad sets.
 
 During a call PipeWire's Bluetooth hands-free backend opens two streams for the phone,
 and WirePlumber links them like any other stream:
@@ -76,6 +80,35 @@ class CallAudio:
                      if o.get("type") == "PipeWire:Interface:Link"
                      and (o.get("info") or {}).get("input-node-id") == found["up"]]
             found["mic"] = any(classes.get(n) == "Audio/Source" for n in feeds)
+        return found
+
+    def music(self, address: str) -> dict | None:
+        """{"stream": the phone's A2DP stream, "stage": r80_bt_music_out}, as far as they
+        exist; None if PipeWire could not be asked."""
+        if not self.ok:
+            return {}
+        out = self.run("pw-dump")
+        if out is None:
+            return None
+        try:
+            objects = json.loads(out)
+        except ValueError:
+            return None
+        tag = address.replace(":", "_").upper()
+        found = {}
+        for o in objects:
+            if o.get("type") != "PipeWire:Interface:Node":
+                continue
+            props = (o.get("info") or {}).get("props") or {}
+            name = str(props.get("node.name", ""))
+            vols = [x.get("channelVolumes") for x in ((o.get("info") or {}).get("params") or {}).get("Props", [])
+                    if isinstance(x, dict) and "channelVolumes" in x]
+            self.channels[o["id"]] = len(vols[0]) if vols and vols[0] else 2
+            if name == "r80_bt_music_out":
+                found["stage"] = o["id"]
+            elif (tag and name.startswith(f"bluez_input.{tag}") and props.get("media.class") == "Stream/Output/Audio"
+                  and str(props.get("api.bluez5.profile", "")).startswith("a2dp")):
+                found["stream"] = o["id"]
         return found
 
     def set_linear(self, node: int, value: float) -> bool:

@@ -93,7 +93,8 @@ up() {
   [[ -n "${MUSIC_DIR:-}" ]] || python3 "$HERE/media_tags.py" library "$RUN/test-music"
   # shellcheck disable=SC2086  # MEDIA_ARGS is a list of flags
   start mediad python3 "$REPO/hu/services/mediad.py" --music-dir "${MUSIC_DIR:-$RUN/test-music}" \
-    --cache-dir "$RUN/media-cache" --state "$RUN/media-state.json" --usb "${MEDIA_USB:-session}" ${MEDIA_ARGS:-}
+    --cache-dir "$RUN/media-cache" --state "$RUN/media-state.json" --usb "${MEDIA_USB:-session}" \
+    --bluetooth "${MEDIA_BLUETOOTH:-session}" --bt-audio none ${MEDIA_ARGS:-}
   # shellcheck disable=SC2086  # AUDIO_ARGS is a list of flags
   start audiod python3 "$REPO/hu/services/audiod.py" --state "$RUN/audio-state.json" ${AUDIO_ARGS:-}
   # shellcheck disable=SC2086  # WARN_ARGS is a list of flags

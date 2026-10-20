@@ -16,7 +16,7 @@ python3 "$R/dev/media_tags.py" library "$XDG_RUNTIME_DIR/r80-hu/test-music"
 # shellcheck disable=SC2086  # MEDIA_ARGS is a list of flags
 python3 "$R/hu/services/mediad.py" --music-dir "$XDG_RUNTIME_DIR/r80-hu/test-music" \
   --cache-dir "$XDG_RUNTIME_DIR/r80-hu/media-cache" --state "$XDG_RUNTIME_DIR/r80-hu/media-state.json" \
-  --usb session ${MEDIA_ARGS:-} &
+  --usb session --bluetooth session --bt-audio none ${MEDIA_ARGS:-} &
 python3 "$R/hu/services/audiod.py" --state "$XDG_RUNTIME_DIR/r80-hu/audio-state.json" &
 # shellcheck disable=SC2086  # WARN_ARGS is a list of flags
 python3 "$R/hu/services/warnd.py" ${WARN_ARGS:-} &

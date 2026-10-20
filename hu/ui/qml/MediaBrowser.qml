@@ -178,7 +178,7 @@ Item {
     T {
         anchors.centerIn: list
         visible: !root.loading && root.total === 0
-        text: "Nothing here"
+        text: Sim.mediaSource === "Bluetooth" ? "Choose the music on the phone" : "Nothing here"
         color: Theme.accentMid
     }
 }
