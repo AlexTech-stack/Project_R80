@@ -4,8 +4,9 @@ A headunit (hardware and software) and centre console for a modified
 2005 Audi A3 Sportback (8PA, PQ35 platform).
 
 Current state: the headunit software runs without target hardware, on a Linux PC and on
-a Raspberry Pi bench: services for vehicle data, media, audio, warnings and trip computer,
-navigation guidance from the driver's phone (with the R80 Companion Android app), and
+a Raspberry Pi bench: services for vehicle data, media (Library, USB sticks, music from
+the phone), audio, warnings and trip computer, navigation guidance from the driver's phone
+(with the R80 Companion Android app), hands-free calls and the phone's contacts, and
 system settings, under the line-art UI. The car is simulated with a made-up test CAN
 database and [BoAt](https://github.com/AlexTech-stack/BoAt); CI runs the BoAt tests on
 every push. Real bus logs and the hardware designs come later.
@@ -32,7 +33,7 @@ All of them start with [`./r80`](r80) (`./r80 --help`):
 | [`test/boat/`](test/boat/) | BoAt restbus node, tester panel and the BoAt tests. |
 | [`bench/pi/`](bench/pi/) | Raspberry Pi 3B bench files: cannelloni CAN tunnel, kiosk launcher, systemd units and their installer, internet sharing from the test PC. |
 | [`companion-android/`](companion-android/) | R80 Companion, the Android app on the driver's phone: sends the phone's navigation guidance to the HU (decision D11). |
-| [`docs/`](docs/) | [Architecture](docs/architecture/) (v0.3, decisions D1 to D12), [bench guide](docs/bench-pi.md), [companion protocol](docs/companion-protocol.md), [screenshots](docs/screenshots/). |
+| [`docs/`](docs/) | [Architecture](docs/architecture/) (v0.3, decisions D1 to D13), [bench guide](docs/bench-pi.md), [companion protocol](docs/companion-protocol.md), [screenshots](docs/screenshots/). |
 | [`ci/`](ci/) | CI scripts. GitHub Actions runs them on every push; run `ci/check_static.sh` locally for the same checks. |
 | [`hardware/`](hardware/) | Placeholder for hardware designs (PCBs, console). Licensed CERN-OHL-P-2.0. |
 

@@ -37,7 +37,7 @@ ci/dut/                           emulated aarch64 DUT for CI: Dockerfile, start
 ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
 ci/boat_report.py                 BoAt reports as Markdown (CI job summaries)
 ci/build_android.sh               builds and unit-tests the companion app (companion-android/)
-docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D12
+docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D13
 docs/companion-protocol.md        phone (R80 Companion app) <-> HU link protocol (D11)
 docs/companion-protocol-examples.jsonl  protocol examples both sides test against
 docs/bench-pi.md                  the Raspberry Pi bench: setup and operation
@@ -60,6 +60,10 @@ hu/                               the headunit software (target software: runs u
     saver.py                      a service's part in the shutdown: register with sysd, save, report
     removable.py                  USB sticks for mediad through udisks2 (mount read-only, gone)
     browse.py                     mediad's browse tree: folders, artists, albums, all tracks
+    btmedia.py                    music from the phone for mediad: its AVRCP player in BlueZ
+    phoned.py                     phone service (D13): calls over hands-free, D-Bus de.r80.Phone
+    phonebook.py, vcard.py        the phone's contacts and call history (PBAP via obexd), the copy per phone
+    callaudio.py                  Bluetooth sound on PipeWire: call and phone-music stages, levels, mic mute
   ui/                             Qt 6 / QML UI, launched with PySide6
     run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
     backend.py                    the R80.Backend QML singletons, one per service, over D-Bus
@@ -72,6 +76,7 @@ hu/                               the headunit software (target software: runs u
     qml/ManeuverIcon.qml          navigation maneuver arrows, drawn in code (D11)
     qml/*Screen.qml               one file per screen
     qml/MediaBrowser.qml          the media browse list (folders, artists, albums, tracks)
+    qml/PhoneConsent.qml          the first time a phone connects: copy its contacts?
     qml/Logo.qml                  the placeholder "R80" brand mark
     qml-demo/R80/Backend/         demo stand-ins for the backend.py singletons (available: false)
     fonts/                        B612 and OSP-DIN with their licence files
@@ -83,10 +88,12 @@ hu-can/
 dev/                              PC stand-ins for the virtual mode (PC only)
   hu-virtual.sh                   up | drive | restbus | panel | phone | phonepanel | tunnel | ui | test | status | logs | down
   mcu_emu/                        MCU emulator and its control client
-  phone_emu/                      phone emulator and phone panel (GUI): companion app stand-ins
+  phone_emu/                      phone emulator and phone panel (GUI): companion app stand-ins; stand-ins
+                                  for PipeWire's telephony, obexd (PBAP) and BlueZ's AVRCP player
   media_tags.py                   test media: ID3 tags with generated covers, the test library
 test/boat/                        BoAt restbus node, tester panel and the BoAt tests (PC only; list in dev/README.md)
-bench/pi/                         Raspberry Pi bench: kiosk script, systemd units, CAN tunnel, PC helpers
+bench/pi/                         Raspberry Pi bench: kiosk script, systemd units, CAN tunnel, PC helpers,
+                                  PipeWire / WirePlumber settings, the built-in Bluetooth's SCO routing
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```
 
@@ -239,8 +246,13 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
 - The companion app: Android 14+ (minSdk 34), no Google Play services, only open-source
   dependencies. Captured notifications contain the driver's streets: never commit them;
   only the derived arrow fingerprints go into `maneuver_icons.json`.
+- Phone (D13): calls go through PipeWire's own Bluetooth telephony service, not oFono.
+  Contacts and call history are the driver's personal data: copied per phone only with
+  consent, kept on the HU (mode 0600), never logged and never committed; tests use made-up
+  phonebooks only. Phone sound (calls, phone music) keeps the phone at full level and sets
+  the level on the HU's own PipeWire stages (`bench/pi/r80-pipewire.conf`).
 - The stock instrument cluster stays (decision D1).
-- The architecture decisions D1 to D12 are in `docs/architecture/HU_architecture_v0.3.md`.
+- The architecture decisions D1 to D13 are in `docs/architecture/HU_architecture_v0.3.md`.
   Do not contradict them. If a change needs a different decision, ask Alex first.
 
 ## 9. Code conventions

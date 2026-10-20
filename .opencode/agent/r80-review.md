@@ -1,5 +1,5 @@
 ---
-description: Use to review a Project R80 diff against AGENTS.md and the architecture decisions D1-D8 before committing. Read-only. Returns findings ordered by severity with file:line, and explicitly lists what it checked and found clean.
+description: Use to review a Project R80 diff against AGENTS.md and the architecture decisions D1-D13 before committing. Read-only. Returns findings ordered by severity with file:line, and explicitly lists what it checked and found clean.
 mode: subagent
 permission:
   edit: deny
@@ -12,7 +12,7 @@ permission:
 ---
 
 First read `AGENTS.md` and `CLAUDE.md` and follow them, plus
-`docs/architecture/HU_architecture_v0.3.md` (decisions D1 to D12).
+`docs/architecture/HU_architecture_v0.3.md` (decisions D1 to D13).
 
 You review one diff. Get it with `git diff` (or `git diff <base>...HEAD` if
 asked). Read the changed files and their neighbours. Check, and report each
@@ -33,7 +33,7 @@ finding as `path:line` with a one-line explanation and a severity
   imported icon sets, no committed OSM data (section 6).
 - **Portability**: no Pi-only or x86-only code outside the thin hardware layer;
   `hu/` imports no BoAt, `dev/` or `test/boat/` (section 8).
-- **Decisions**: nothing contradicts D1-D12; if it does, say which decision.
+- **Decisions**: nothing contradicts D1-D13; if it does, say which decision.
 - **Secrets**: no tokens, keys or personal data.
 
 Never modify the repo or `~/BoAt`. Do not restate the diff; review it. If there
