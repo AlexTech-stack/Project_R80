@@ -8,6 +8,7 @@ Item {
     objectName: "mediaScreen"       // run.py --screenshots opens the browser through it
     property int sel: 1          // 0 prev, 1 play/pause, 2 next, 3 browse (knob focus)
     property bool browsing: false
+    readonly property bool empty: Sim.trackCount === 0
     readonly property var sources: Sim.mediaSources     // from hu-mediad: Library and the USB sticks
 
     function openBrowser() { browser.reset(); browsing = true }
@@ -65,12 +66,21 @@ Item {
             asynchronous: true
             visible: status === Image.Ready
         }
+        Icon {
+            // nothing to play: what the source is
+            anchors.centerIn: parent
+            width: 120; height: 120
+            visible: root.empty
+            path: Sim.mediaSource === "Library" ? Icons.music : Icons.usb
+            color: Theme.accentDim
+            stroke: 1.2
+        }
         Item {
             id: art
             anchors.centerIn: parent
             width: 200; height: 200
             clip: true
-            visible: coverImage.status !== Image.Ready
+            visible: !root.empty && coverImage.status !== Image.Ready
             Rectangle {
                 width: 200; height: 200; radius: 100
                 color: Theme.accent
@@ -90,13 +100,32 @@ Item {
         rotation: 0
     }
 
-    T {
-        // an empty source: nothing to play
+    Column {
+        // an empty source: nothing to play, and what to do about it
         x: cover.x + cover.width + 40
         y: 96
-        visible: Sim.trackCount === 0
-        text: "No music on " + Sim.mediaSource
-        font.pixelSize: 40
+        width: 850 - x
+        spacing: 14
+        visible: root.empty
+        T { width: parent.width; text: "No music on " + Sim.mediaSource; font.pixelSize: 40; elide: Text.ElideRight }
+        T {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            color: Theme.accentMid
+            text: Sim.mediaSource === "Library"
+                  ? "Copy music into the Library, or plug in a USB stick."
+                  : "No audio files found on this stick."
+        }
+    }
+
+    T {
+        // reading the tags of a big stick takes a while; until then names come from the files
+        anchors.horizontalCenter: transport.horizontalCenter
+        y: transport.y + transport.height + 34
+        visible: Sim.mediaScanned < Sim.mediaTotal
+        text: "Reading tags  ·  " + Sim.mediaScanned + " of " + Sim.mediaTotal
+        color: Theme.accentMid
+        font.pixelSize: Theme.fontSmall
     }
 
     Column {
@@ -123,6 +152,7 @@ Item {
     }
 
     Row {
+        id: transport
         x: Theme.margin + (850 - Theme.margin - width) / 2
         y: cover.y + cover.height + 70
         spacing: 44
@@ -147,7 +177,8 @@ Item {
         spacing: 4
         T {
             width: parent.width
-            text: "Up next" + (Sim.trackCount ? "  ·  " + Sim.queueTitle : "")
+            visible: !root.empty
+            text: "Up next  ·  " + Sim.queueTitle
             color: Theme.accentMid; font.pixelSize: Theme.fontSmall; bottomPadding: 8
             elide: Text.ElideRight
         }

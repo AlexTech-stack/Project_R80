@@ -31,7 +31,8 @@ What plays is a queue: a list of the browse tree (hu/browse.py: folders, artists
 albums, all tracks); TrackIndex and TrackCount are about the queue, which a source
 starts with as "All tracks". Shuffle plays the queue in a shuffled order, which UpNext
 follows. Metadata, each UpNext / GetQueue entry: title, artist, album, trackNumber,
-duration (s) and cover (a file path, or ""); a queue entry also has its index. They come from the files' tags, read in the
+duration (s) and cover (a file path, or ""); Metadata and browse tracks also their
+path (to mark what plays), a queue entry its index. They come from the files' tags, read in the
 background by prerolling each file once (core GStreamer, no extra package); until
 a file is read, and for what its tags lack, the file name (`Artist - Title.ext`)
 and its folder (album) stand in. The cover is the picture embedded in the file,
@@ -60,6 +61,7 @@ import os
 import random
 import signal
 import sys
+import time
 from pathlib import Path
 
 import dbus
@@ -189,6 +191,7 @@ class Scanner:
         self.stop()
         order = tracks[first:] + tracks[:first]
         self.queue = [t for t in order if not self.cached(t)]
+        self.started, self.count = time.monotonic(), len(self.queue)
         if self.queue:
             log(f"reading tags of {len(self.queue)} track(s)")
         self.next()
@@ -207,6 +210,9 @@ class Scanner:
             GLib.source_remove(self.timer)
             self.timer = None
         if not self.queue:
+            if self.count:
+                log(f"read the tags of {self.count} track(s) in {time.monotonic() - self.started:.1f} s")
+                self.count = 0
             self.current = None
             self.save()
             return False
@@ -638,9 +644,9 @@ class Media(dbus.service.Object):
 
     def metadata(self):
         if not self.tracks:
-            return {"title": "", "artist": "", "album": "", "trackNumber": 0, "duration": 0, "cover": ""}
+            return {"title": "", "artist": "", "album": "", "trackNumber": 0, "duration": 0, "cover": "", "path": ""}
         t = self.tracks[self.index]
-        return {k: t[k] for k in TRACK_KEYS}
+        return {**{k: t[k] for k in TRACK_KEYS}, "path": t["path"]}
 
     def on_scanned(self, track):
         self.list_changed = True

@@ -115,6 +115,9 @@ Item {
             required property int index
             readonly property bool selected: index === root.sel
             readonly property bool isList: modelData.kind !== "track"
+            // the track that plays (live: by path; demo: by its place in the demo list)
+            readonly property bool playing: !isList && (modelData.path ? modelData.path === Sim.track.path
+                                                                        : modelData._ti === Sim.trackIndex)
             readonly property color ink: selected ? Theme.textOnAccent : Theme.accent
             width: list.width
             height: 72
@@ -129,7 +132,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 32; height: 32
                 color: row.ink
-                path: ({ menu: ({ folders: Icons.folder, artists: Icons.person, albums: Icons.disc, tracks: Icons.list })[row.modelData.id] || Icons.list,
+                path: row.playing ? Icons.speaker
+                    : ({ menu: ({ folders: Icons.folder, artists: Icons.person, albums: Icons.disc, tracks: Icons.list })[row.modelData.id] || Icons.list,
                          folder: Icons.folder, artist: Icons.person, album: Icons.disc, track: Icons.music })[row.modelData.kind]
             }
             Column {
@@ -138,7 +142,7 @@ Item {
                 anchors.right: value.left
                 anchors.rightMargin: 20
                 anchors.verticalCenter: parent.verticalCenter
-                T { width: parent.width; text: row.modelData.title; color: row.ink; elide: Text.ElideRight }
+                T { width: parent.width; text: row.modelData.title; color: row.ink; elide: Text.ElideRight; font.bold: row.playing }
                 T {
                     width: parent.width
                     visible: text !== ""

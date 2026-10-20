@@ -13,8 +13,8 @@ A path names a list; its entries are lists to open or tracks to play:
 Path segments are percent-encoded (urllib.parse.quote); an album is its name plus its
 folder, so two albums of the same name in different folders stay apart. Entries are
 dicts: kind (menu|folder|artist|album|track), id (the path to open, for lists),
-title, subtitle, count (tracks below), cover, and for tracks duration and index (the
-position among the tracks of this list, what PlayFrom takes) plus "track", the
+title, subtitle, count (tracks below), cover, and for tracks duration, path and index
+(the position among the tracks of this list, what PlayFrom takes) plus "track", the
 track itself. Standard library only.
 """
 from __future__ import annotations
@@ -73,7 +73,7 @@ def _list_entry(kind: str, path: str, title: str, tracks: list, subtitle: str = 
 
 def _track_entries(tracks: list) -> list:
     return [{"kind": "track", "id": "", "title": t["title"], "subtitle": t["artist"], "count": 0,
-             "cover": t["cover"], "duration": t["duration"], "index": i, "track": t}
+             "cover": t["cover"], "duration": t["duration"], "index": i, "path": t["path"], "track": t}
             for i, t in enumerate(tracks)]
 
 

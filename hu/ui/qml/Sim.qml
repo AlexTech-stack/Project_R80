@@ -179,6 +179,9 @@ QtObject {
     property string _demoQueueTitle: "All tracks"
     readonly property string queueTitle: mediaLive ? Media.queueTitle : _demoQueueTitle
     readonly property var upNext: mediaLive ? Media.upNext : _demoUpNext(trackIndex, repeatAll)
+    // reading the tags of a (new) source: how far (equal when done)
+    readonly property int mediaScanned: mediaLive ? Media.scanned : _tracks.length
+    readonly property int mediaTotal: mediaLive ? Media.sourceTrackCount : _tracks.length
     // never null: an empty source shows a blank track
     readonly property var _blankTrack: ({ title: "", artist: "", album: "", trackNumber: 0, duration: 0, cover: "" })
     readonly property var track: mediaLive ? (Media.trackCount > 0 ? Media.track : _blankTrack)
