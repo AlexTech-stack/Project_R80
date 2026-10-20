@@ -22,8 +22,11 @@ No oFono. phoned shows one phone at a time (the one that connected last) and pub
                   SyncState (s): idle | syncing | failed;  SyncError (s);  SyncedAt (x: unix s, 0 = never)
                   ContactCount (i);  History (aa{sv}: name, number, kind in|out|missed, time)
                   Favourites (aa{sv}: id, name, numbers aa{sv} number/type): local to the HU
+                  CallGain (d): the far end's level, from hu-audiod (phone volume, D9)
+                  MicMuted (b): the HU's microphone is cut off from the phone (per call)
       methods     Dial(s number), Answer() (the ringing call), Hangup() (the ringing call is
                   rejected, else the current call ends), HangupAll(), SendTones(s)
+                  SetGain(d gain, u fade_ms) (from hu-audiod), SetMicMuted(b),
                   SetConsent(b) (yes: copy now), Sync() (copy again, implies consent),
                   DeleteCopy() (forget contacts, history, favourites; consent no),
                   GetContacts(i offset, i count) -> aa{sv} (id, name, numbers), SetFavourite(s id, b)
@@ -33,6 +36,9 @@ Contacts and call history (hu/phonebook.py: PBAP over BlueZ's obexd, --obex BUS)
 copied per phone into --state-dir, only with consent: the first time a phone connects
 the UI asks; afterwards a copy is made again only by Sync (Settings -> Phone). A call
 without a name from the phone gets it from the copy. Names and numbers are never logged.
+
+The call's sound runs through PipeWire (hu/callaudio.py, --call-audio pipewire): phoned
+puts CallGain and MicMuted on the call's two streams once they exist.
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
 phoned tells hu-audiod about calls (SetCallState: ringing / active / idle; dialing counts
@@ -58,6 +64,7 @@ from gi.repository import GLib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import vcard  # noqa: E402
+from callaudio import CallAudio  # noqa: E402
 from phonebook import PbapClient, Store  # noqa: E402
 
 BUS_NAME, OBJ_PATH, IFACE = "de.r80.Phone", "/de/r80/Phone", "de.r80.Phone1"
@@ -102,8 +109,13 @@ def call_state(calls: list) -> str:
 
 
 class Phone(dbus.service.Object):
-    def __init__(self, bus, tel_bus, bluez_bus, pbap: PbapClient | None, store: Store):
+    def __init__(self, bus, tel_bus, bluez_bus, pbap: PbapClient | None, store: Store,
+                 audio: CallAudio | None = None):
         super().__init__(bus, OBJ_PATH)
+        self.audio = audio
+        self.gain, self.mic_muted = 1.0, False
+        self.streams: dict = {}                      # the call's PipeWire streams, once found
+        self.stream_timer = None
         self.bus, self.tel, self.bluez = bus, tel_bus, bluez_bus
         self.pbap, self.store = pbap, store
         self.book = self.no_book()                   # the current phone's copy (empty: none)
@@ -321,6 +333,44 @@ class Phone(dbus.service.Object):
             return
         self.refresh()
 
+    # ---- the call's sound (hu/callaudio.py) -------------------------------------
+    def track_streams(self):
+        """While a call is on, look for its PipeWire streams until they are there."""
+        calling = self.props.get("CallState") in ("ringing", "dialing", "active")
+        if not calling:
+            self.streams = {}
+            if self.mic_muted:
+                self.mic_muted = False               # the next call starts with the microphone on
+                self.set("MicMuted", False)
+            if self.stream_timer:
+                GLib.source_remove(self.stream_timer)
+                self.stream_timer = None
+        elif self.audio is not None and self.audio.ok and self.stream_timer is None:
+            self.stream_timer = GLib.timeout_add(1000, self.find_streams)
+
+    def find_streams(self) -> bool:
+        if self.props.get("CallState") == "idle":
+            self.stream_timer = None
+            return False
+        self.stream_ticks = getattr(self, "stream_ticks", 0) + 1
+        if len(self.streams) == 2 and self.stream_ticks % 5:
+            return True                              # both known: check every 5 s only (pw-dump costs)
+        found = self.audio.streams(self.device["address"])
+        if found != self.streams:
+            self.streams = found
+            if found:
+                log(f"call audio: streams {found}")
+            self.apply_audio()
+        return True                                  # keep looking: SCO can come and go
+
+    def apply_audio(self):
+        if self.audio is None:
+            return
+        if "down" in self.streams:
+            self.audio.set_level(self.streams["down"], self.gain)
+        if "up" in self.streams:
+            self.audio.set_mute(self.streams["up"], self.mic_muted)
+
     # ---- audiod (D9) ---------------------------------------------------------
     def push_audio(self, force=False):
         state = {"ringing": "ringing", "dialing": "active", "active": "active"}.get(self.props.get("CallState"), "idle")
@@ -345,7 +395,10 @@ class Phone(dbus.service.Object):
         self.set("ContactCount", len(self.book["contacts"]))
         self.set("History", [dict(h, name=h["name"] or self.name_for(h["number"])) for h in self.book["history"]])
         self.set("Favourites", self.favourites())
+        self.set("CallGain", self.gain)
+        self.set("MicMuted", self.mic_muted)
         self.push_audio()
+        self.track_streams()
 
     def set(self, name, value):
         if self.props.get(name) != value:
@@ -361,6 +414,8 @@ class Phone(dbus.service.Object):
             return dbus.Array([dbus.Dictionary({**{k: dbus.String(c[k]) for k in ("id", "number", "name", "state", "direction")},
                                                 "since": dbus.Int64(c["since"])}, signature="sv") for c in v],
                               signature="a{sv}")
+        if name == "CallGain":
+            return dbus.Double(v)
         if name in ("SyncedAt",):
             return dbus.Int64(v)
         if name == "ContactCount":
@@ -444,6 +499,18 @@ class Phone(dbus.service.Object):
             raise self.error("NoPhone", "no phone connected")
         self.tel_call(ag, AG_IFACE, "HangupAll", reply=reply, error=error)
 
+    @dbus.service.method(IFACE, in_signature="du")
+    def SetGain(self, gain, fade_ms):
+        self.gain = max(0.0, min(float(gain), 1.0))
+        self.apply_audio()
+        self.refresh()
+
+    @dbus.service.method(IFACE, in_signature="b")
+    def SetMicMuted(self, muted):
+        self.mic_muted = bool(muted)
+        self.apply_audio()
+        self.refresh()
+
     @dbus.service.method(IFACE, in_signature="b")
     def SetConsent(self, allowed):
         if not self.book_address:
@@ -518,6 +585,8 @@ def main():
     ap.add_argument("--state-dir", default=str(state_home / "r80" / "phone"),
                     help="the copies of the phones' contacts, one file each (default ~/.local/state/r80/phone)")
     ap.add_argument("--history-max", type=int, default=50, help="calls of the history to copy (default 50)")
+    ap.add_argument("--call-audio", choices=("pipewire", "none"), default="pipewire",
+                    help="put the phone volume and the microphone mute on the call's PipeWire streams (default pipewire)")
     a = ap.parse_args()
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
@@ -525,7 +594,8 @@ def main():
     tel = bus_for(a.telephony)
     bluez = None if a.bluez == "none" else bus_for(a.bluez)
     pbap = None if a.obex == "none" else PbapClient(bus_for(a.obex), log, a.history_max)
-    Phone(bus, tel, bluez, pbap, Store(Path(a.state_dir).expanduser()))
+    Phone(bus, tel, bluez, pbap, Store(Path(a.state_dir).expanduser()),
+          CallAudio(log) if a.call_audio == "pipewire" else None)
     log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus; telephony on {a.telephony}, "
         f"BlueZ on {a.bluez}, OBEX on {a.obex}")
     GLib.MainLoop().run()

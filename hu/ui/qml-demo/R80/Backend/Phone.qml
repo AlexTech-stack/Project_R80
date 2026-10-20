@@ -21,11 +21,13 @@ QtObject {
     property var contacts: []
     property var history: []
     property var favourites: []
+    property bool micMuted: false
     signal changed()
     function dial(number) {}
     function answer() {}
     function hangup() {}
     function sendTones(tones) {}
+    function setMicMuted(muted) {}
     function setConsent(allowed) {}
     function sync() {}
     function deleteCopy() {}

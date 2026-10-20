@@ -107,7 +107,7 @@ up() {
   # calls and contacts: the tests' / phone panel's stand-ins for PipeWire's telephony and obexd on the
   # session bus (PHONE_TELEPHONY / PHONE_OBEX = a D-Bus address for real ones); copies of contacts in $RUN/phone
   start phoned python3 "$REPO/hu/services/phoned.py" --telephony "${PHONE_TELEPHONY:-session}" --bluez "${PHONE_BLUEZ:-none}" \
-    --obex "${PHONE_OBEX:-session}" --state-dir "$RUN/phone"
+    --obex "${PHONE_OBEX:-session}" --state-dir "$RUN/phone" --call-audio "${PHONE_CALL_AUDIO:-none}"
 }
 
 case "${1:-status}" in

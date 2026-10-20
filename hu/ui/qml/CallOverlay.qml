@@ -13,7 +13,7 @@ Item {
     function run(a) {
         if (a === "answer") Sim.answer();
         else if (a === "decline" || a === "end") Sim.hangUp();
-        else if (a === "mute") Sim.micMuted = !Sim.micMuted;
+        else if (a === "mute") Sim.setMicMuted(!Sim.micMuted);
         sel = 0;
     }
 

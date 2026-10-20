@@ -23,7 +23,7 @@ python3 "$R/hu/services/warnd.py" ${WARN_ARGS:-} &
 python3 "$R/hu/services/tripd.py" --state "$XDG_RUNTIME_DIR/r80-hu/trip-state.json" &
 python3 "$R/hu/services/sysd.py" --state "$XDG_RUNTIME_DIR/r80-hu/settings.json" &
 python3 "$R/hu/services/navd.py" --socket "$XDG_RUNTIME_DIR/r80-hu/companion.sock" --bluetooth session &
-python3 "$R/hu/services/phoned.py" --telephony session --bluez none --obex session --state-dir "$XDG_RUNTIME_DIR/r80-hu/phone" &
+python3 "$R/hu/services/phoned.py" --telephony session --bluez none --obex session --state-dir "$XDG_RUNTIME_DIR/r80-hu/phone" --call-audio none &
 wait -n   # either one ending ends the DUT
 echo "DUT: a process exited"
 exit 1

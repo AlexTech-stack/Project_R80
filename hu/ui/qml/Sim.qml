@@ -327,7 +327,9 @@ QtObject {
                                                : _demoCaller
     readonly property int callSeconds: phoneLive ? (Phone.callSince > 0 ? Math.max(0, Math.floor((now.getTime() - Phone.callSince) / 1000)) : 0)
                                                  : _demoCallSeconds
-    property bool micMuted: false
+    property bool _demoMicMuted: false
+    readonly property bool micMuted: phoneLive ? Phone.micMuted : _demoMicMuted
+    function setMicMuted(muted) { if (phoneLive) Phone.setMicMuted(muted); else _demoMicMuted = muted }
     readonly property string phoneName: phoneLive ? (Phone.connected ? Phone.deviceName : "No phone connected") : "Alex's phone"
     readonly property int phoneBattery: phoneLive ? Phone.battery : 78       // -1 = unknown
     // the copy of the phone's contacts and call history (hu-phoned, with consent); entries
@@ -392,11 +394,11 @@ QtObject {
     function simulateIncomingCall(name) {
         if (phoneLive) return
         _demoCaller = name || "Anna"; _demoNumber = numberFor(_demoCaller);
-        _demoCallSeconds = 0; micMuted = false; _demoCallState = "incoming";
+        _demoCallSeconds = 0; _demoMicMuted = false; _demoCallState = "incoming";
     }
     // a contact's name or a number typed on the keypad
     function dial(nameOrNumber) {
-        micMuted = false
+        _demoMicMuted = false
         if (phoneLive) {
             const number = /^[+0-9*# ]+$/.test(nameOrNumber) ? nameOrNumber : (contacts.find(c => c.name === nameOrNumber) || {}).number
             if (number) Phone.dial(number)
