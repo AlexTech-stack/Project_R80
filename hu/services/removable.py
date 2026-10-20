@@ -41,7 +41,7 @@ class RemovableMedia:
         self.objects: dict[str, dict] = {}     # object path -> {interface: {property: value}}
         self.present: dict[str, str] = {}      # object path -> key of a medium in use
         self.mounting: set[str] = set()
-        self.initial: set[str] = set()         # object paths udisks2 listed at our start
+        self.initial: set[str] = set()         # filesystems udisks2 listed at our start
         bus.add_signal_receiver(self.on_ifaces_added, "InterfacesAdded", OM, UDISKS, ROOT)
         bus.add_signal_receiver(self.on_ifaces_removed, "InterfacesRemoved", OM, UDISKS, ROOT)
         bus.add_signal_receiver(self.on_props, "PropertiesChanged", PROPS, UDISKS, None, path_keyword="path")
@@ -59,7 +59,8 @@ class RemovableMedia:
 
     def on_objects(self, objects):
         self.objects = {str(p): {str(i): dict(props) for i, props in ifaces.items()} for p, ifaces in objects.items()}
-        self.initial = set(self.objects)
+        # only filesystems: udisks keeps loop0..7 as objects, a stick may appear on one later
+        self.initial = {p for p, ifaces in self.objects.items() if FS in ifaces}
         for path in list(self.objects):
             self.check(path)
 
@@ -80,6 +81,8 @@ class RemovableMedia:
         obj = self.objects.get(path, {})
         for i in ifaces:
             obj.pop(str(i), None)
+        if FS not in obj:
+            self.initial.discard(path)                     # what comes here next is plugged in
         if not obj:
             self.objects.pop(path, None)
         if path in self.present and (FS not in obj or BLOCK not in obj):
