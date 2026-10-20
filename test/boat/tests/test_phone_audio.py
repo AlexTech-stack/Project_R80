@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """TC_HU_035: the call's sound settings in hu-phoned (D9): hu-audiod hands it the phone
-level (CallGain = audiod's Gains["phone"]) whenever the phone volume or mute changes;
+level (CallGain = audiod's Gains["phone"] times call_boost_db from audio.ini) whenever the phone volume or mute changes;
 mute silences it outside a call but spares a running call; the microphone mute
 (SetMicMuted) holds for the call and is off again for the next one. Putting them on
 PipeWire's call streams (hu/callaudio.py) needs a real call and is checked on the bench."""
@@ -12,11 +12,13 @@ import dbus
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
-from common import DEV, audio, check, finish, phone_service, wait_audio, wait_phone
+from common import DEV, audio, audio_config, check, finish, phone_service, wait_audio, wait_phone
 
 sys.path.insert(0, str(DEV / "phone_emu"))
 from telephony_emu import TEL, FakeTelephony  # noqa: E402
 
+_audiod, cfg = audio_config()
+boost = 10 ** (cfg["call_boost_db"] / 20)
 a = audio()
 a.SetMuted(False)
 a.SetCallState("idle")
@@ -32,9 +34,10 @@ wait_phone(lambda p: p["Connected"], timeout=5.0)
 for volume in (20, 8):
     a.SetVolume("phone", volume)
     ok, au, _ = wait_audio(lambda au: au["Volumes"]["phone"] == volume)
-    want = au["Gains"]["phone"]
-    ok, p, _ = wait_phone(lambda p, w=want: abs(p["CallGain"] - w) < 1e-6)
-    check(ok, f"phone volume {volume}: phoned's CallGain follows audiod ({p.get('CallGain')} = {want})")
+    want = round(au["Gains"]["phone"] * boost, 6)
+    ok, p, _ = wait_phone(lambda p, w=want: abs(p["CallGain"] - w) < 1e-5)
+    check(ok, f"phone volume {volume}: phoned's CallGain is audiod's gain with the call boost "
+              f"({p.get('CallGain')} = {au['Gains']['phone']} x {boost:.2f})")
 
 a.SetMuted(True)
 ok, p, _ = wait_phone(lambda p: p["CallGain"] == 0)

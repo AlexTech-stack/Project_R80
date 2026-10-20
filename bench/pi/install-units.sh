@@ -3,7 +3,8 @@
 # fills in @USER@, @UID@ and @REPO@ in r80-can.service / r80-hu.service, copies them
 # to /etc/systemd/system and creates /etc/r80-bench.conf (from the example) if missing.
 # Also the polkit rule r80-media.rules (USB sticks for hu-mediad, test-stick images) and the
-# WirePlumber setting r80-telephony.conf (PipeWire's call control for hu-phoned).
+# WirePlumber setting r80-telephony.conf (PipeWire's call control for hu-phoned) and the PipeWire
+# setting r80-pipewire.conf (the call's own level stage).
 # Does not enable or start them.
 # --desktop: also the HU on the desktop (no monitor, VNC): r80-hu-desktop.service as a user
 # unit, started by the desktop's autostart at every login (the Pi logs in automatically).
@@ -25,8 +26,11 @@ for unit in r80-can.service r80-hu.service r80-bt-sco.service; do
 done
 mkdir -p ~/.config/wireplumber/wireplumber.conf.d
 cp "$HERE/r80-telephony.conf" ~/.config/wireplumber/wireplumber.conf.d/80-r80-telephony.conf
-systemctl --user try-restart wireplumber.service 2>/dev/null || true
+mkdir -p ~/.config/pipewire/pipewire.conf.d
+cp "$HERE/r80-pipewire.conf" ~/.config/pipewire/pipewire.conf.d/80-r80.conf
+systemctl --user try-restart pipewire.service wireplumber.service 2>/dev/null || true
 echo "installed ~/.config/wireplumber/wireplumber.conf.d/80-r80-telephony.conf (PipeWire call control for hu-phoned)"
+echo "installed ~/.config/pipewire/pipewire.conf.d/80-r80.conf (the R80 call stage)"
 sed -e "s|@USER@|$USER_NAME|g" "$HERE/r80-media.rules" | sudo tee /etc/polkit-1/rules.d/50-r80-media.rules >/dev/null
 echo "installed /etc/polkit-1/rules.d/50-r80-media.rules (user $USER_NAME may mount sticks, set up loop devices)"
 if [[ ! -f /etc/r80-bench.conf ]]; then

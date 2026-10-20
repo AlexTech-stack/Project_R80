@@ -371,7 +371,10 @@ class Phone(dbus.service.Object):
     def apply_audio(self):
         if self.audio is None:
             return
-        if "down" in self.streams:
+        if "down" in self.streams and "stage" in self.streams:
+            self.audio.set_linear(self.streams["down"], 1.0)          # the phone at full level
+            self.audio.set_linear(self.streams["stage"], self.gain)   # the level on the HU
+        elif "down" in self.streams:
             self.audio.set_level(self.streams["down"], self.gain)
         if "up" in self.streams:
             # no real microphone: muted, or the phone would get the HU's output (monitor) back
@@ -508,7 +511,7 @@ class Phone(dbus.service.Object):
 
     @dbus.service.method(IFACE, in_signature="du")
     def SetGain(self, gain, fade_ms):
-        self.gain = max(0.0, min(float(gain), 1.0))
+        self.gain = max(0.0, min(float(gain), 8.0))     # above 1.0: the call boost
         self.apply_audio()
         self.refresh()
 
