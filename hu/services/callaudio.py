@@ -7,7 +7,10 @@ and WirePlumber links them like any other stream:
     bluez_output.<ADDR>.N  (Stream/Input/Audio)   the HU's microphone -> the phone
 
 This module finds them (pw-dump) and sets the far end's level (the phone volume from
-hu-audiod, D9) and the microphone mute on them (wpctl). Everything PipeWire-specific is
+hu-audiod, D9) and the microphone mute on them (wpctl). With no microphone, WirePlumber
+links the stream to the phone from the *monitor* of the HU's output (its best target when
+there is no source), and the far end hears itself and the music: so the stream to the
+phone is muted unless it is fed by a real microphone (an Audio/Source). Everything PipeWire-specific is
 here; without PipeWire's tools it does nothing and says so (CI, the virtual HU).
 Echo cancellation (car speakers + cabin microphone) is a PipeWire filter, not part of it.
 """
@@ -33,8 +36,9 @@ class CallAudio:
             return None
 
     def streams(self, address: str) -> dict | None:
-        """{"down": node id, "up": node id} of the phone's call streams that exist now;
-        None if PipeWire could not be asked (keep what was known)."""
+        """{"down": node id, "up": node id, "mic": bool} of the phone's call streams that
+        exist now (mic: the stream to the phone is fed by a real microphone); None if
+        PipeWire could not be asked (keep what was known)."""
         if not self.ok or not address:
             return {}
         out = self.run("pw-dump")
@@ -46,15 +50,22 @@ class CallAudio:
             return None
         tag = address.replace(":", "_").upper()
         found = {}
+        classes = {}
         for o in objects:
             if o.get("type") != "PipeWire:Interface:Node":
                 continue
-            props = o.get("info", {}).get("props", {})
+            props = (o.get("info") or {}).get("props") or {}
             name, kind = str(props.get("node.name", "")), str(props.get("media.class", ""))
+            classes[o["id"]] = kind
             if name.startswith(f"bluez_input.{tag}") and kind == "Stream/Output/Audio":
                 found["down"] = o["id"]
             elif name.startswith(f"bluez_output.{tag}") and kind == "Stream/Input/Audio":
                 found["up"] = o["id"]
+        if "up" in found:
+            feeds = [(o.get("info") or {}).get("output-node-id") for o in objects
+                     if o.get("type") == "PipeWire:Interface:Link"
+                     and (o.get("info") or {}).get("input-node-id") == found["up"]]
+            found["mic"] = any(classes.get(n) == "Audio/Source" for n in feeds)
         return found
 
     def set_level(self, node: int, gain: float) -> bool:

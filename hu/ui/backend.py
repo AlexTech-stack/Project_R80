@@ -643,7 +643,7 @@ class Phone(QObject):
         self._available = False
         self._v = {"Connected": False, "Device": {}, "Calls": [], "CallState": "idle", "Consent": "",
                    "SyncState": "idle", "SyncError": "", "SyncedAt": 0, "ContactCount": 0, "History": [],
-                   "Favourites": [], "MicMuted": False}
+                   "Favourites": [], "MicMuted": False, "MicAvailable": True}
         self._contacts = []
         self._contacts_key = None
         DBusGMainLoop(set_as_default=True)
@@ -711,6 +711,7 @@ class Phone(QObject):
     history = Property("QVariantList", lambda self: list(self._v["History"]), notify=changed)
     favourites = Property("QVariantList", lambda self: list(self._v["Favourites"]), notify=changed)
     micMuted = Property(bool, lambda self: bool(self._v["MicMuted"]), notify=changed)
+    micAvailable = Property(bool, lambda self: bool(self._v["MicAvailable"]), notify=changed)
 
     @Slot(str)
     def dial(self, number):

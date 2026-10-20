@@ -24,6 +24,8 @@ No oFono. phoned shows one phone at a time (the one that connected last) and pub
                   Favourites (aa{sv}: id, name, numbers aa{sv} number/type): local to the HU
                   CallGain (d): the far end's level, from hu-audiod (phone volume, D9)
                   MicMuted (b): the HU's microphone is cut off from the phone (per call)
+                  MicAvailable (b): during a call, a real microphone feeds the phone (else
+                                    the stream to the phone stays muted: no echo of the output)
       methods     Dial(s number), Answer() (the ringing call), Hangup() (the ringing call is
                   rejected, else the current call ends), HangupAll(), SendTones(s)
                   SetGain(d gain, u fade_ms) (from hu-audiod), SetMicMuted(b),
@@ -361,8 +363,9 @@ class Phone(dbus.service.Object):
         if found != self.streams:
             self.streams = found
             if found:
-                log(f"call audio: streams {found}")
+                log(f"call audio: streams {found}" + ("" if found.get("mic", True) else " - no microphone: muted"))
             self.apply_audio()
+            self.refresh()
         return True                                  # keep looking: SCO can come and go
 
     def apply_audio(self):
@@ -371,7 +374,8 @@ class Phone(dbus.service.Object):
         if "down" in self.streams:
             self.audio.set_level(self.streams["down"], self.gain)
         if "up" in self.streams:
-            self.audio.set_mute(self.streams["up"], self.mic_muted)
+            # no real microphone: muted, or the phone would get the HU's output (monitor) back
+            self.audio.set_mute(self.streams["up"], self.mic_muted or not self.streams.get("mic"))
 
     # ---- audiod (D9) ---------------------------------------------------------
     def push_audio(self, force=False):
@@ -399,6 +403,7 @@ class Phone(dbus.service.Object):
         self.set("Favourites", self.favourites())
         self.set("CallGain", self.gain)
         self.set("MicMuted", self.mic_muted)
+        self.set("MicAvailable", bool(self.streams.get("mic", True)))
         self.push_audio()
         self.track_streams()
 

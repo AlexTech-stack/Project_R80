@@ -329,6 +329,7 @@ QtObject {
                                                  : _demoCallSeconds
     property bool _demoMicMuted: false
     readonly property bool micMuted: phoneLive ? Phone.micMuted : _demoMicMuted
+    readonly property bool micAvailable: phoneLive ? Phone.micAvailable : true     // a real microphone feeds the call
     function setMicMuted(muted) { if (phoneLive) Phone.setMicMuted(muted); else _demoMicMuted = muted }
     readonly property string phoneName: phoneLive ? (Phone.connected ? Phone.deviceName : "No phone connected") : "Alex's phone"
     readonly property int phoneBattery: phoneLive ? Phone.battery : 78       // -1 = unknown

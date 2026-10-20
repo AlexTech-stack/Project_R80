@@ -22,6 +22,7 @@ QtObject {
     property var history: []
     property var favourites: []
     property bool micMuted: false
+    property bool micAvailable: true
     signal changed()
     function dial(number) {}
     function answer() {}
