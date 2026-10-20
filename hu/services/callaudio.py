@@ -57,7 +57,10 @@ class CallAudio:
         return found
 
     def set_level(self, node: int, gain: float) -> bool:
-        return self.ok and self.run("wpctl", "set-volume", str(node), f"{max(0.0, min(gain, 1.0)):.3f}") is not None
+        """gain: linear amplitude, as audiod computes it (mediad's GStreamer volume is linear too).
+        wpctl takes the cubic scale of desktop volume sliders: linear = value ** 3."""
+        value = max(0.0, min(gain, 1.0)) ** (1 / 3)
+        return self.ok and self.run("wpctl", "set-volume", str(node), f"{value:.4f}") is not None
 
     def set_mute(self, node: int, muted: bool) -> bool:
         return self.ok and self.run("wpctl", "set-mute", str(node), "1" if muted else "0") is not None
