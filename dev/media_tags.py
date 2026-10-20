@@ -12,6 +12,7 @@ Standard library only.
     python3 dev/media_tags.py cover sun cover.png      # only the picture
     python3 dev/media_tags.py show song.mp3            # what the file's tag holds
     python3 dev/media_tags.py library DIR              # the test library of the virtual HU
+    python3 dev/media_tags.py big-library DIR          # 100 albums x 20 short tagged tones (speed tests)
 
 The test library (dev/hu-virtual.sh and ci/dut/start_dut.sh play it; the BoAt
 tests check what mediad reads from it), short tones of 20 to 28 s:
@@ -211,6 +212,22 @@ def library(root: Path) -> None:
             f.write_bytes(cover(style))
 
 
+def big_library(root: Path, albums: int = 100, tracks: int = 20) -> None:
+    """Many short tagged tones (2 s, 8 kHz) in Artist/Album folders, for scan and browse
+    speed: 100 x 20 is about 80 MB."""
+    covers = [cover(s, 200) for s in STYLES]
+    for a in range(albums):
+        artist, album = f"Artist {a % 40:02d}", f"Album {a:03d}"
+        d = root / artist / album
+        d.mkdir(parents=True, exist_ok=True)
+        for n in range(1, tracks + 1):
+            f = d / f"{n:02d}.wav"
+            if f.exists():
+                continue
+            tone_wav(f, 250, 2, rate=8000)
+            tag(f, title=f"Song {n} on {album}", artist=artist, album=album, track=n, total=tracks, png=covers[a % len(covers)])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -231,6 +248,10 @@ def main():
     s.add_argument("file", type=Path)
     lib = sub.add_parser("library", help="write the test library of the virtual HU")
     lib.add_argument("dir", type=Path)
+    big = sub.add_parser("big-library", help="write many short tagged tones (speed tests)")
+    big.add_argument("dir", type=Path)
+    big.add_argument("--albums", type=int, default=100)
+    big.add_argument("--tracks", type=int, default=20)
     a = ap.parse_args()
     if a.cmd == "tag":
         tag(a.file, title=a.title, artist=a.artist, album=a.album, track=a.track, total=a.total,
@@ -239,6 +260,8 @@ def main():
         a.out.write_bytes(cover(a.style, a.size))
     elif a.cmd == "library":
         library(a.dir)
+    elif a.cmd == "big-library":
+        big_library(a.dir, a.albums, a.tracks)
     else:
         for k, v in show(a.file).items():
             print(f"{k}: {v}")

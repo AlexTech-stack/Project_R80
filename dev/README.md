@@ -138,8 +138,11 @@ and for what a tag lacks, the file name (`Artist - Title.ext`) and the folder
 is estimated from size and bitrate. The cover is the embedded picture (saved once
 per album) or `cover`/`folder`/`front`/`album` `.jpg|.png` next to the tracks.
 What was read is cached in `--cache-dir` (default `~/.cache/r80/media`, under
-`./r80 virtual` `$XDG_RUNTIME_DIR/r80-hu/media-cache`), keyed by path, size and
-mtime; the medium is never written. The UI shows the cover tinted in the accent
+`./r80 virtual` `$XDG_RUNTIME_DIR/r80-hu/media-cache`), keyed by the medium, the path
+on it, size and mtime, so a stick mounted somewhere else next time is not read again;
+the medium is never written. The Media screen shows "Reading tags · n of m" while
+it reads. On a Pi 3B: about 30 tracks/s (2000 tracks in 68 s, the stick plays from
+the start), a browse page in under 0.2 s, mediad about 55 MB. The UI shows the cover tinted in the accent
 colour (`hu/ui/covers.py`). Tag test files with `dev/media_tags.py tag` (ID3v2.3,
 generated covers).
 

@@ -186,6 +186,14 @@ udisksctl loop-setup -f /mnt/r80/teststick.img           # "plug in" (the deskto
 udisksctl unmount -b /dev/loopN && udisksctl loop-delete -b /dev/loopN   # "pull"
 ```
 
+A big test stick for scan and browse speed (2000 short tagged tones, 100 albums):
+
+```bash
+python3 ~/Project_R80/dev/media_tags.py big-library /mnt/r80/bigstick
+truncate -s 160M /mnt/r80/bigstick.img && /usr/sbin/mkfs.vfat -n BIGSTICK /mnt/r80/bigstick.img
+mcopy -s -i /mnt/r80/bigstick.img /mnt/r80/bigstick/* ::/
+```
+
 Which source played, where in which track, and whether it played is kept in
 `~/.local/state/r80/media.json` (saved on a source change, before a shutdown and when
 systemd stops the HU) and restored at start; a stick is waited for 15 s.
