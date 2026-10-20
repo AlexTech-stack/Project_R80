@@ -13,7 +13,7 @@ Item {
 
     function knob(d) { sel = Math.min(rows.length - 1, Math.max(0, sel + d)) }
     function side(d) { tab = (tab + d + tabs.length) % tabs.length }
-    function press() { Sim.dial(rows[sel].name) }
+    function press() { if (rows.length && Sim.phoneConnected) Sim.dial(rows[sel].name) }
 
     Tabs {
         x: Theme.margin
@@ -43,6 +43,15 @@ Item {
             selected: index === root.sel
             onClicked: { root.sel = index; root.press() }
         }
+    }
+
+    T {
+        x: list.x + 14
+        y: list.y + 20
+        visible: root.rows.length === 0
+        text: !Sim.phoneConnected ? "No phone connected"
+            : ["No favourites yet", "No recent calls", "No contacts"][root.tab]
+        color: Theme.accentMid
     }
 
     Rectangle { x: list.x + list.width + 30; y: 30; width: 1; height: parent.height - 60; color: Theme.accentDim }
@@ -87,7 +96,7 @@ Item {
             anchors.bottom: parent.bottom
             spacing: 26
             LineButton { width: 180; icon: Icons.back; label: "Delete"; iconSize: 22; onClicked: root.dialed = root.dialed.slice(0, -1) }
-            LineButton { width: 210; icon: Icons.phone; label: "Call"; highlighted: true; iconSize: 24; onClicked: if (root.dialed !== "") Sim.dial(root.dialed) }
+            LineButton { width: 210; icon: Icons.phone; label: "Call"; highlighted: Sim.phoneConnected; iconSize: 24; onClicked: if (root.dialed !== "" && Sim.phoneConnected) Sim.dial(root.dialed) }
         }
     }
 
@@ -95,7 +104,7 @@ Item {
         x: Theme.margin + 14
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 22
-        text: Sim.phoneName + "  ·  " + Sim.phoneBattery + " %"
+        text: Sim.phoneName + (Sim.phoneConnected && Sim.phoneBattery >= 0 ? "  ·  " + Sim.phoneBattery + " %" : "")
         font.pixelSize: Theme.fontSmall
         color: Theme.accentMid
     }

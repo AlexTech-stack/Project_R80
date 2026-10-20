@@ -61,11 +61,12 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
                 T {
-                    text: Sim.callState === "incoming" ? "Incoming call" : "On call  " + Sim.fmtTime(Sim.callSeconds)
+                    text: Sim.callState === "incoming" ? "Incoming call"
+                        : Sim.callState === "dialing" ? "Calling …" : "On call  " + Sim.fmtTime(Sim.callSeconds)
                     color: Theme.accentMid
                 }
                 T { text: Sim.caller; font.pixelSize: 44 }
-                T { text: Sim.callerNumber; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
+                T { visible: Sim.callerNumber !== Sim.caller; text: Sim.callerNumber; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
             }
         }
 

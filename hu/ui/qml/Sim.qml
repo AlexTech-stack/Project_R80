@@ -48,9 +48,10 @@ QtObject {
     onPhoneVolumeChanged: _push(() => Audio.setVolume("phone", phoneVolume))
     onRadioVolumeChanged: _push(() => Audio.setVolume("radio", radioVolume))
     onChimeVolumeChanged: _push(() => Audio.setVolume("chime", chimeVolume))
-    // Until there is a phone service, the simulated call tells audiod about calls
-    // (D9: media pauses and radio is silent from ringing on).
-    function _pushCall() { if (audioLive) Audio.setCallState(callState === "incoming" ? "ringing" : callState) }
+    // The simulated call tells audiod about calls (D9: media pauses and radio is silent
+    // from ringing on); real calls hu-phoned reports to audiod itself.
+    // with hu-phoned running, phoned tells audiod about real calls itself
+    function _pushCall() { if (audioLive && !phoneLive) Audio.setCallState(callState === "incoming" ? "ringing" : callState === "dialing" ? "active" : callState) }
     onCallStateChanged: _pushCall()
     property Connections audioConn: Connections {
         target: Audio
@@ -310,14 +311,28 @@ QtObject {
     }
 
     // ---- phone -----------------------------------------------------------
-    property string callState: "idle"      // idle | incoming | active
-    property string caller: "Anna"
-    property string callerNumber: "+49 171 2345 678"
-    property int callSeconds: 0
+    // hu-phoned (de.r80.Phone1, singleton Phone) drives these when it runs (also with no
+    // phone connected); otherwise the simulated phone below (key C, Settings -> System).
+    readonly property bool phoneLive: Phone.available
+    readonly property bool phoneConnected: phoneLive ? Phone.connected : true
+    property string _demoCallState: "idle"
+    property string _demoCaller: "Anna"
+    property string _demoNumber: "+49 171 2345 678"
+    property int _demoCallSeconds: 0
+    // idle | incoming | dialing | active
+    readonly property string callState: phoneLive ? ({ ringing: "incoming", dialing: "dialing", active: "active" })[Phone.callState] || "idle"
+                                                  : _demoCallState
+    readonly property string callerNumber: phoneLive ? Phone.callerNumber : _demoNumber
+    readonly property string caller: phoneLive ? (Phone.callerName || nameFor(Phone.callerNumber) || Phone.callerNumber || "Unknown")
+                                               : _demoCaller
+    readonly property int callSeconds: phoneLive ? (Phone.callSince > 0 ? Math.max(0, Math.floor((now.getTime() - Phone.callSince) / 1000)) : 0)
+                                                 : _demoCallSeconds
     property bool micMuted: false
-    property string phoneName: "Alex's phone"
-    property int phoneBattery: 78
-    property var contacts: [
+    readonly property string phoneName: phoneLive ? (Phone.connected ? Phone.deviceName : "No phone connected") : "Alex's phone"
+    readonly property int phoneBattery: phoneLive ? Phone.battery : 78       // -1 = unknown
+    readonly property var contacts: phoneLive ? [] : _demoContacts          // from the phone: next step
+    readonly property var recents: phoneLive ? [] : _demoRecents
+    property var _demoContacts: [
         { name: "Anna",          number: "+49 171 2345 678", fav: true },
         { name: "Workshop Bernd",number: "+49 89 998 877",   fav: true },
         { name: "Home",          number: "+49 89 123 456",   fav: true },
@@ -327,7 +342,7 @@ QtObject {
         { name: "Felix",         number: "+49 176 111 2233", fav: false },
         { name: "Parts dealer",  number: "+49 711 404 040",  fav: false }
     ]
-    property var recents: [
+    property var _demoRecents: [
         { name: "Anna",           kind: "in",     when: "13:58" },
         { name: "Workshop Bernd", kind: "out",    when: "11:20" },
         { name: "+49 30 555 123", kind: "missed", when: "Yesterday" },
@@ -338,13 +353,29 @@ QtObject {
         for (let i = 0; i < contacts.length; i++) if (contacts[i].name === name) return contacts[i].number;
         return /^[+0-9*# ]+$/.test(name) ? "" : "Mobile";
     }
-    function simulateIncomingCall(name) {
-        caller = name || "Anna"; callerNumber = numberFor(caller);
-        callSeconds = 0; micMuted = false; callState = "incoming";
+    function nameFor(number) {
+        const digits = (n) => n.replace(/[^0-9+]/g, "")
+        for (let i = 0; i < contacts.length; i++) if (digits(contacts[i].number) === digits(number)) return contacts[i].name;
+        return ""
     }
-    function dial(name) { caller = name; callerNumber = numberFor(name); callSeconds = 0; micMuted = false; callState = "active" }
-    function answer() { callSeconds = 0; callState = "active" }
-    function hangUp() { callState = "idle" }
+    // the simulated phone only; with hu-phoned real calls come from the phone
+    function simulateIncomingCall(name) {
+        if (phoneLive) return
+        _demoCaller = name || "Anna"; _demoNumber = numberFor(_demoCaller);
+        _demoCallSeconds = 0; micMuted = false; _demoCallState = "incoming";
+    }
+    // a contact's name or a number typed on the keypad
+    function dial(nameOrNumber) {
+        micMuted = false
+        if (phoneLive) {
+            const number = /^[+0-9*# ]+$/.test(nameOrNumber) ? nameOrNumber : (contacts.find(c => c.name === nameOrNumber) || {}).number
+            if (number) Phone.dial(number)
+            return
+        }
+        _demoCaller = nameOrNumber; _demoNumber = numberFor(nameOrNumber); _demoCallSeconds = 0; _demoCallState = "active"
+    }
+    function answer() { if (phoneLive) Phone.answer(); else { _demoCallSeconds = 0; _demoCallState = "active" } }
+    function hangUp() { if (phoneLive) Phone.hangup(); else _demoCallState = "idle" }
 
     // ---- settings (D12): live from hu-sysd; without it local values as in the mockup -----
     readonly property bool settingsLive: System.available && System.settings.accent !== undefined
@@ -467,7 +498,7 @@ QtObject {
                 sim.trackPos += 1;
                 if (sim.trackPos >= sim.track.duration) sim.nextTrack();
             }
-            if (sim.callState === "active") sim.callSeconds += 1;
+            if (sim._demoCallState === "active") sim._demoCallSeconds += 1;
             if (!sim.live) {
                 sim._odometer += sim.speed / 3600;
                 sim._driveTrips(1);

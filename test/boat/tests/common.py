@@ -167,6 +167,33 @@ def media_reset():
     return m
 
 
+# ---- phone (hu/phoned.py) ---------------------------------------------------
+PHONE_SERVICE, PHONE_PATH, PHONE_IFACE = "de.r80.Phone", "/de/r80/Phone", "de.r80.Phone1"
+
+
+def phone_service():
+    """The de.r80.Phone1 interface (Dial, Answer, Hangup, ...)."""
+    return dbus.Interface(dbus.SessionBus().get_object(PHONE_SERVICE, PHONE_PATH), PHONE_IFACE)
+
+
+def phone_props() -> dict:
+    obj = dbus.SessionBus().get_object(PHONE_SERVICE, PHONE_PATH)
+    raw = obj.GetAll(PHONE_IFACE, dbus_interface="org.freedesktop.DBus.Properties")
+    return {str(k): _plain(v) for k, v in raw.items()}
+
+
+def wait_phone(cond, timeout=3.0, step=0.05):
+    """Poll cond(phone props) until true; returns (ok, last props, seconds waited)."""
+    t0 = time.monotonic()
+    props = {}
+    while time.monotonic() - t0 < timeout:
+        props = phone_props()
+        if cond(props):
+            return True, props, time.monotonic() - t0
+        time.sleep(step)
+    return False, props, time.monotonic() - t0
+
+
 # ---- audio (hu/audiod.py) -------------------------------------------------
 AUDIO_SERVICE, AUDIO_PATH, AUDIO_IFACE = "de.r80.Audio", "/de/r80/Audio", "de.r80.Audio1"
 # Where hu-virtual.sh and ci/dut/start_dut.sh let audiod save its volumes.

@@ -52,7 +52,7 @@ def register_backends(system_bus: bool):
     sys.path.insert(0, str(HERE))
     import backend
     objs = {}
-    for name in ("Vehicle", "Media", "Audio", "Warnings", "Trip", "Nav", "System"):
+    for name in ("Vehicle", "Media", "Audio", "Warnings", "Trip", "Nav", "System", "Phone"):
         cls = getattr(backend, name)
         objs[name] = cls(system_bus=system_bus)
         qmlRegisterSingletonInstance(cls, "R80.Backend", 1, 0, name, objs[name])
