@@ -35,11 +35,10 @@ def _artist(t: dict) -> str:
 
 
 def _folder(t: dict, root: Path) -> str:
-    try:
-        rel = str(Path(t["path"]).parent.relative_to(root))
-    except ValueError:
-        return ""
-    return "" if rel == "." else rel
+    """The track's folder relative to the source ("" = the top). Plain string work:
+    pathlib was most of the time of a 2000-track list on a Pi 3B."""
+    base = str(root).rstrip("/") + "/"
+    return t["path"][len(base):].rpartition("/")[0] if t["path"].startswith(base) else ""
 
 
 def _album_key(t: dict, root: Path) -> str:
@@ -50,8 +49,12 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" + ("" if n == 1 else "s")
 
 
+def _name(t: dict) -> str:
+    return t["path"].rpartition("/")[2].lower()
+
+
 def _by_track_number(tracks: list) -> list:
-    return sorted(tracks, key=lambda t: (t["trackNumber"] or 9999, Path(t["path"]).name.lower()))
+    return sorted(tracks, key=lambda t: (t["trackNumber"] or 9999, _name(t)))
 
 
 def _albums(tracks: list, root: Path) -> "OrderedDict[str, list]":
@@ -94,13 +97,13 @@ def browse(tracks: list, root: Path, source: str, path: str) -> tuple[str, list]
         return "All tracks", _track_entries(tracks)
     if head == "folders":
         rel = "/".join(parts[1:])
-        inside = [t for t in tracks if _folder(t, root) == rel or _folder(t, root).startswith(rel + "/") or not rel]
+        folders = [(_folder(t, root), t) for t in tracks]
+        inside = [(f, t) for f, t in folders if not rel or f == rel or f.startswith(rel + "/")]
         if rel and not inside:
             raise KeyError(path)
         subs: dict[str, list] = {}
         here = []
-        for t in inside:
-            f = _folder(t, root)
+        for f, t in inside:
             if f == rel:
                 here.append(t)
             else:
@@ -108,7 +111,7 @@ def browse(tracks: list, root: Path, source: str, path: str) -> tuple[str, list]
                 subs.setdefault(name, []).append(t)
         entries = [_list_entry("folder", "folders/" + "/".join(_q(p) for p in (rel.split("/") if rel else []) + [n]), n, subs[n])
                    for n in sorted(subs, key=str.lower)]
-        here.sort(key=lambda t: Path(t["path"]).name.lower())
+        here.sort(key=_name)
         return (rel.rsplit("/", 1)[-1] if rel else source), entries + _track_entries(here)
     if head == "albums":
         albums = _albums(tracks, root)
