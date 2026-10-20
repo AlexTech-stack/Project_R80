@@ -30,6 +30,15 @@ OBEX = "org.bluez.obex"
 CLIENT_PATH, CLIENT = "/org/bluez/obex", "org.bluez.obex.Client1"
 PBAP, TRANSFER = "org.bluez.obex.PhonebookAccess1", "org.bluez.obex.Transfer1"
 PROPS = "org.freedesktop.DBus.Properties"
+# What a phone's OBEX refusal means for the driver (obexd: "OBEX Connect failed with 0x53")
+REFUSALS = {"0x41": "the phone did not allow access to its contacts",
+            "0x43": "the phone did not allow access to its contacts",
+            "0x53": "the phone does not share its contacts with this headunit: allow contact sharing "
+                    "for it in the phone's Bluetooth settings"}
+
+
+def readable(message: str) -> str:
+    return next((text for code, text in REFUSALS.items() if code in message), message)
 
 
 class PbapClient:
@@ -52,7 +61,7 @@ class PbapClient:
             msg = e.get_dbus_message() if isinstance(e, dbus.exceptions.DBusException) else str(e)
             if state["session"]:
                 self.remove(state["session"])
-            done(None, None, msg or "failed")
+            done(None, None, readable(msg or "failed"))
 
         def pull(phonebook, filters, then):
             def selected(*_):

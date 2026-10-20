@@ -204,7 +204,7 @@ Item {
                 Row {
                     x: 18; spacing: 14
                     T { width: 200; text: modelData[0]; color: Theme.accentMid; font.pixelSize: Theme.fontSmall + 2 }
-                    T { width: 460; text: modelData[1]; font.pixelSize: Theme.fontSmall + 2; elide: Text.ElideRight }
+                    T { width: 460; text: modelData[1]; font.pixelSize: Theme.fontSmall + 2; wrapMode: Text.WordWrap }
                 }
             }
         }
