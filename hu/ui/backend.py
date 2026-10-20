@@ -161,21 +161,25 @@ MEDIA_SERVICE, MEDIA_PATH, MEDIA_IFACE = "de.r80.Media", "/de/r80/Media", "de.r8
 class Media(QObject):
     """QML singleton mirroring hu-mediad (de.r80.Media1) property names.
 
-    Exposes the same names the mockup's Sim.qml uses for media so the overlay
-    Sim.qml can bind 1:1: tracks, trackIndex, trackPos, playing, shuffle,
-    repeatAll, mediaSource. `available` tells the overlay whether to fall back
-    to its own simulated playlist.
+    The playing track (track), the queue (trackIndex, trackCount, queueTitle, upNext:
+    the next tracks in play order), playing, trackPos, shuffle, repeatAll, the sources,
+    and browsing: browse() answers with browsed(), playFrom() plays a list. A cover is
+    a file path ("" = none), shown through covers.py. `available` tells Sim.qml
+    whether to fall back to its demo playlist.
     """
     changed = Signal()
     availableChanged = Signal()
+    browsed = Signal(str, int, str, int, "QVariantList")   # path, offset, title, total, entries
 
     def __init__(self, system_bus=False, parent=None):
         super().__init__(parent)
         self._available = False
-        self._tracks = []
-        self._meta = {"title": "", "artist": "", "album": "", "duration": 0}
+        self._sources = []
+        self._up_next = []
+        self._meta = {"title": "", "artist": "", "album": "", "trackNumber": 0, "duration": 0, "cover": ""}
         self._v = {"trackIndex": 0, "trackPos": 0, "playing": False, "shuffle": False,
-                   "repeatAll": True, "mediaSource": "", "trackCount": 0}
+                   "repeatAll": True, "mediaSource": "", "trackCount": 0, "queueTitle": "", "queue": "",
+                   "sourceTrackCount": 0, "scanned": 0}
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
         self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, MEDIA_PATH)
@@ -210,8 +214,14 @@ class Media(QObject):
             self.availableChanged.emit()
         if "Metadata" in changed:
             self._meta = changed["Metadata"]
-        if "Playlist" in changed:
-            self._tracks = list(changed["Playlist"])
+        if "UpNext" in changed:
+            self._up_next = list(changed["UpNext"])
+        for name, key in (("QueueTitle", "queueTitle"), ("Queue", "queue")):
+            if name in changed:
+                self._v[key] = str(changed[name])
+        for name, key in (("SourceTrackCount", "sourceTrackCount"), ("Scanned", "scanned")):
+            if name in changed:
+                self._v[key] = int(changed[name])
         if "TrackIndex" in changed:
             self._v["trackIndex"] = int(changed["TrackIndex"])
         if "TrackCount" in changed:
@@ -226,6 +236,8 @@ class Media(QObject):
             self._v["repeatAll"] = bool(changed["RepeatAll"])
         if "Source" in changed:
             self._v["mediaSource"] = str(changed["Source"])
+        if "Sources" in changed:
+            self._sources = [str(x) for x in changed["Sources"]]
         self.changed.emit()
 
     def _call(self, method, signature="", args=()):
@@ -234,7 +246,12 @@ class Media(QObject):
 
     # ---- QML properties ---------------------------------------------------
     available = Property(bool, lambda self: self._available, notify=availableChanged)
-    tracks = Property("QVariantList", lambda self: self._tracks, notify=changed)
+    track = Property("QVariantMap", lambda self: self._meta, notify=changed)
+    upNext = Property("QVariantList", lambda self: self._up_next, notify=changed)
+    queueTitle = Property(str, lambda self: self._v["queueTitle"], notify=changed)
+    queue = Property(str, lambda self: self._v["queue"], notify=changed)
+    sourceTrackCount = Property(int, lambda self: self._v["sourceTrackCount"], notify=changed)
+    scanned = Property(int, lambda self: self._v["scanned"], notify=changed)
     playing = Property(bool, lambda self: self._v["playing"], notify=changed)
     trackIndex = Property(int, lambda self: self._v["trackIndex"], notify=changed)
     trackPos = Property(int, lambda self: self._v["trackPos"], notify=changed)
@@ -242,6 +259,7 @@ class Media(QObject):
     repeatAll = Property(bool, lambda self: self._v["repeatAll"], notify=changed)
     mediaSource = Property(str, lambda self: self._v["mediaSource"], notify=changed)
     trackCount = Property(int, lambda self: self._v["trackCount"], notify=changed)
+    sources = Property("QVariantList", lambda self: self._sources, notify=changed)
 
     # ---- QML methods ------------------------------------------------------
     @Slot()
@@ -279,6 +297,21 @@ class Media(QObject):
     @Slot(str)
     def setSource(self, source):
         self._call("SetSource", "s", (str(source),))
+
+    @Slot(str, int, int)
+    def browse(self, path, offset, count):
+        """Ask mediad for a page of a list; the answer comes as browsed(...)."""
+        def done(title, total, entries):
+            self.browsed.emit(path, offset, str(title), int(total), [_py(e) for e in entries])
+
+        def failed(_err):
+            self.browsed.emit(path, offset, "", -1, [])        # total -1: no such list
+        self.bus.call_async(MEDIA_SERVICE, MEDIA_PATH, MEDIA_IFACE, "Browse", "sii",
+                            (str(path), int(offset), int(count)), done, failed, timeout=5.0)
+
+    @Slot(str, int)
+    def playFrom(self, path, index):
+        self._call("PlayFrom", "si", (str(path), int(index)))
 
 
 AUDIO_SERVICE, AUDIO_PATH, AUDIO_IFACE = "de.r80.Audio", "/de/r80/Audio", "de.r80.Audio1"

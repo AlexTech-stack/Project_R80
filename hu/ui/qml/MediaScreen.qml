@@ -1,19 +1,28 @@
 import QtQuick
 import QtQuick.Shapes
 
-// Now playing: cover art, track info, progress, transport controls and queue.
+// Now playing: cover art, track info, progress, transport controls and what comes next;
+// Browse opens the source's folders, artists, albums and tracks (MediaBrowser).
 Item {
     id: root
-    property int sel: 1          // 0 prev, 1 play/pause, 2 next (knob focus)
-    readonly property var sources: ["USB", "Bluetooth", "SD card"]
+    objectName: "mediaScreen"       // run.py --screenshots opens the browser through it
+    property int sel: 1          // 0 prev, 1 play/pause, 2 next, 3 browse (knob focus)
+    property bool browsing: false
+    readonly property bool empty: Sim.trackCount === 0
+    readonly property var sources: Sim.mediaSources     // from hu-mediad: Library and the USB sticks
 
-    function knob(d) { sel = (sel + d + 3) % 3 }
-    function side(d) { knob(d) }
+    function openBrowser() { browser.reset(); browsing = true }
+    function knob(d) { if (browsing) browser.knob(d); else sel = (sel + d + 4) % 4 }
+    function side(d) { if (browsing) browser.side(d); else knob(d) }
     function press() {
-        if (sel === 0) Sim.prevTrack();
+        if (browsing) browser.press();
+        else if (sel === 0) Sim.prevTrack();
         else if (sel === 1) Sim.playing = !Sim.playing;
-        else Sim.nextTrack();
+        else if (sel === 2) Sim.nextTrack();
+        else openBrowser();
     }
+    // main.qml asks before going home: in the browser, back goes up one level
+    function back() { if (!browsing) return false; browser.back(); return true }
 
     Tabs {
         x: Theme.margin
@@ -22,8 +31,22 @@ Item {
         current: Math.max(0, root.sources.indexOf(Sim.mediaSource))
         onSelected: (i) => Sim.mediaSource = root.sources[i]
     }
+    LineButton {
+        anchors.right: parent.right
+        anchors.rightMargin: Theme.margin
+        y: 12
+        height: 52
+        icon: Icons.list
+        iconSize: 24
+        label: "Browse"
+        highlighted: root.sel === 3
+        onClicked: { root.sel = 3; root.openBrowser() }
+    }
 
-    // cover art (drawn: sunset over water, like the vision sheet)
+    // cover art: the track's picture tinted in the accent colour (image://cover, live
+    // only, hu/ui/covers.py); without one, the drawn sunset over water from the vision sheet
+    readonly property string coverUrl: Sim.track && Sim.track.cover
+        ? "image://cover/" + Theme.accent.toString().slice(1) + "/" + encodeURIComponent(Sim.track.cover) : ""
     Rectangle {
         id: cover
         x: Theme.margin
@@ -32,11 +55,32 @@ Item {
         color: Theme.bg
         border.color: Theme.accent
         border.width: 2
+        Image {
+            id: coverImage
+            anchors.fill: parent
+            anchors.margins: 14
+            source: root.coverUrl
+            sourceSize.width: width
+            sourceSize.height: height
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            visible: status === Image.Ready
+        }
+        Icon {
+            // nothing to play: what the source is
+            anchors.centerIn: parent
+            width: 120; height: 120
+            visible: root.empty
+            path: Sim.mediaSource === "Library" ? Icons.music : Icons.usb
+            color: Theme.accentDim
+            stroke: 1.2
+        }
         Item {
             id: art
             anchors.centerIn: parent
             width: 200; height: 200
             clip: true
+            visible: !root.empty && coverImage.status !== Image.Ready
             Rectangle {
                 width: 200; height: 200; radius: 100
                 color: Theme.accent
@@ -57,8 +101,37 @@ Item {
     }
 
     Column {
+        // an empty source: nothing to play, and what to do about it
         x: cover.x + cover.width + 40
         y: 96
+        width: 850 - x
+        spacing: 14
+        visible: root.empty
+        T { width: parent.width; text: "No music on " + Sim.mediaSource; font.pixelSize: 40; elide: Text.ElideRight }
+        T {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            color: Theme.accentMid
+            text: Sim.mediaSource === "Library"
+                  ? "Copy music into the Library, or plug in a USB stick."
+                  : "No audio files found on this stick."
+        }
+    }
+
+    T {
+        // reading the tags of a big stick takes a while; until then names come from the files
+        anchors.horizontalCenter: transport.horizontalCenter
+        y: transport.y + transport.height + 34
+        visible: Sim.mediaScanned < Sim.mediaTotal
+        text: "Reading tags  ·  " + Sim.mediaScanned + " of " + Sim.mediaTotal
+        color: Theme.accentMid
+        font.pixelSize: Theme.fontSmall
+    }
+
+    Column {
+        x: cover.x + cover.width + 40
+        y: 96
+        visible: Sim.trackCount > 0
         width: 850 - x
         spacing: 10
         T { width: parent.width; text: Sim.track.title; font.pixelSize: 40 }
@@ -79,6 +152,7 @@ Item {
     }
 
     Row {
+        id: transport
         x: Theme.margin + (850 - Theme.margin - width) / 2
         y: cover.y + cover.height + 70
         spacing: 44
@@ -101,12 +175,20 @@ Item {
         y: 80
         width: parent.width - x - Theme.margin
         spacing: 4
-        T { text: "Up next"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall; bottomPadding: 8 }
+        T {
+            width: parent.width
+            visible: !root.empty
+            text: "Up next  ·  " + Sim.queueTitle
+            color: Theme.accentMid; font.pixelSize: Theme.fontSmall; bottomPadding: 8
+            elide: Text.ElideRight
+        }
         Repeater {
-            model: 5
+            // what really comes next, in play order (shuffle included): from hu-mediad
+            model: Sim.upNext
             Item {
-                readonly property int ti: Sim.tracks.length ? (Sim.trackIndex + 1 + index) % Sim.tracks.length : 0
-                readonly property var next: Sim.tracks.length ? Sim.tracks[ti] : null
+                required property var modelData
+                required property int index
+                readonly property var next: modelData
                 width: parent.width
                 height: 104
                 Row {
@@ -116,12 +198,19 @@ Item {
                     Column {
                         width: 280
                         T { width: parent.width; text: next ? next.title : ""; font.pixelSize: Theme.fontSmall + 2 }
-                        T { width: parent.width; text: next ? (next.artist + "  ·  " + Sim.fmtTime(next.duration)) : ""; color: Theme.accentMid; font.pixelSize: Theme.fontSmall - 1 }
+                        T { width: parent.width; text: next ? ((next.artist ? next.artist + "  ·  " : "") + Sim.fmtTime(next.duration)) : ""; color: Theme.accentMid; font.pixelSize: Theme.fontSmall - 1 }
                     }
                 }
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.accentFaint }
-                MouseArea { anchors.fill: parent; onClicked: { Sim.trackIndex = ti; Sim.trackPos = 0; Sim.playing = true } }
+                MouseArea { anchors.fill: parent; onClicked: { Sim.trackIndex = next.index; Sim.trackPos = 0; Sim.playing = true } }
             }
         }
+    }
+
+    MediaBrowser {
+        id: browser
+        anchors.fill: parent
+        visible: root.browsing
+        onDone: (played) => { root.browsing = false; if (played) root.sel = 1 }   // knob back on play/pause
     }
 }

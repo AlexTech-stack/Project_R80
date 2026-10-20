@@ -1,0 +1,14 @@
+// Template: install-units.sh fills in @USER@ and installs it to /etc/polkit-1/rules.d/.
+// The HU runs as a systemd user service, outside the desktop's active session, so
+// udisks2 would ask for a password for everything below; the bench user may:
+//  - mount filesystems (hu-mediad mounts USB sticks read-only, hu/services/removable.py),
+//  - set up and remove loop devices: a disk image as a test stick (docs/bench-pi.md).
+polkit.addRule(function(action, subject) {
+    if (subject.user == "@USER@" &&
+        (action.id == "org.freedesktop.udisks2.filesystem-mount" ||
+         action.id == "org.freedesktop.udisks2.filesystem-mount-other-seat" ||
+         action.id == "org.freedesktop.udisks2.loop-setup" ||
+         action.id == "org.freedesktop.udisks2.loop-delete-others")) {
+        return polkit.Result.YES;
+    }
+});

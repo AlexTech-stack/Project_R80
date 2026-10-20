@@ -80,6 +80,7 @@ Window {
             case Qt.Key_Escape: case Qt.Key_Backspace: case Qt.Key_H:
                 if (Sim.callState === "incoming") Sim.hangUp();
                 else if (volumePopup.open) volumePopup.close();
+                else if (loader.item && loader.item.back && loader.item.back()) {}   // the screen went back itself
                 else win.go("home"); break;
             case Qt.Key_C: Sim.simulateIncomingCall(); break;
             case Qt.Key_W: Sim.simulateWarnings(); break;

@@ -3,13 +3,14 @@
 the position runs while playing and stands still while paused, metadata matches the track."""
 import time
 
-from common import check, finish, media_reset, wait_media
+from common import check, finish, media_queue, media_reset, wait_media
 
 m = media_reset()
 ok, p, _ = wait_media(lambda p: p["PlaybackStatus"] == "playing" and p["Position"] > 500_000, timeout=5.0)
 check(ok, f"SetTrack(0) -> playing, position runs (status {p.get('PlaybackStatus')}, pos {p.get('Position')})")
 check(p.get("TrackCount", 0) >= 2, f"at least 2 tracks in the library (got {p.get('TrackCount')})")
-want = p["Playlist"][p["TrackIndex"]]["title"] if p.get("Playlist") else None
+q = media_queue()
+want = q[p["TrackIndex"]]["title"] if q else None
 check(p.get("Metadata", {}).get("title") == want, f"Metadata title matches the playlist entry ({want!r})")
 
 m.Pause()

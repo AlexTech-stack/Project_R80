@@ -15,8 +15,9 @@
 #                HU_DUT=external (up starts only buses + gateway; the DUT, i.e. MCU emulator,
 #                vehicled, mediad, audiod, warnd, tripd, navd and sysd, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
 #                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort),
-#                MUSIC_DIR (media library; unset = demo tones in $RUN/music),
-#                MEDIA_ARGS (extra hu/mediad.py arguments),
+#                MUSIC_DIR (media library; unset = the test library in $RUN/test-music, dev/media_tags.py),
+#                MEDIA_ARGS (extra hu/mediad.py arguments), MEDIA_USB (session: the tests' udisks2 stand-in, default;
+#                system: this PC's real USB sticks),
 #                AUDIO_ARGS (extra hu/audiod.py arguments; volumes are saved in $RUN/audio-state.json),
 #                WARN_ARGS (extra hu/warnd.py arguments, e.g. --config my-warnings.ini),
 #                TRIP_ARGS (extra hu/tripd.py arguments; trips are saved in $RUN/trip-state.json),
@@ -88,10 +89,11 @@ up() {
   start mcu python3 "$HERE/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 "${MCU_CAN2:-vcan_motor}" --can2-bus "${MCU_CAN2_BUS:-motor}"
   sleep 0.5
   start vehicled python3 "$REPO/hu/services/vehicled.py"
-  # A demo tone library keeps the Media screen alive until MUSIC_DIR is set.
-  local extras="${MEDIA_ARGS:-}"
-  if [[ -z "${MUSIC_DIR:-}" ]]; then extras="$extras --demo"; fi
-  start mediad python3 "$REPO/hu/services/mediad.py" --music-dir "${MUSIC_DIR:-$RUN/music}" $extras
+  # Without MUSIC_DIR: the test library (tags, covers; dev/media_tags.py), which the tests expect.
+  [[ -n "${MUSIC_DIR:-}" ]] || python3 "$HERE/media_tags.py" library "$RUN/test-music"
+  # shellcheck disable=SC2086  # MEDIA_ARGS is a list of flags
+  start mediad python3 "$REPO/hu/services/mediad.py" --music-dir "${MUSIC_DIR:-$RUN/test-music}" \
+    --cache-dir "$RUN/media-cache" --state "$RUN/media-state.json" --usb "${MEDIA_USB:-session}" ${MEDIA_ARGS:-}
   # shellcheck disable=SC2086  # AUDIO_ARGS is a list of flags
   start audiod python3 "$REPO/hu/services/audiod.py" --state "$RUN/audio-state.json" ${AUDIO_ARGS:-}
   # shellcheck disable=SC2086  # WARN_ARGS is a list of flags

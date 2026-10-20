@@ -23,7 +23,7 @@ virtual CAN buses and the vehicle MCU replaced by an emulator process.
 | MCU ↔ Linux | UART, e.g. `/dev/ttyAMA0` | pty, symlinked at `$XDG_RUNTIME_DIR/r80-mcu-uart` |
 | Knob / buttons | MCU pins | `dev/mcu_emu/mcuctl.py` over a control socket |
 | Linux vehicle service | `hu/services/vehicled.py --system --uart /dev/ttyAMA0` | `hu/services/vehicled.py` (session bus) |
-| Linux media service | `hu/services/mediad.py --system --music-dir /media/usb` (GStreamer) | `hu/services/mediad.py` (session bus, demo tones unless `MUSIC_DIR` is set) |
+| Linux media service | `hu/services/mediad.py --system --music-dir /media/usb` (GStreamer) | `hu/services/mediad.py` (session bus, the test library unless `MUSIC_DIR` is set) |
 | Other HU services | `audiod` (audio, D9), `warnd` and `tripd` (D10), `navd` (D11), `sysd` (system and settings, D12), all with `--system` | the same files on the session bus |
 | Driver's phone | R80 Companion app over Bluetooth (D11) | `dev/phone_emu/`: a route player and the phone panel |
 | UI | Qt 6 / QML, `hu/ui/run.py` (live) | the same |
@@ -90,21 +90,37 @@ MCU link is not there, so `hu/ui/run.py` also works on its own.
 
 ## Media (hu-mediad)
 
-`hu/services/mediad.py` is the Linux media service: it scans a folder for audio files
-(the USB / SD-card source) and plays them with GStreamer `playbin`, publishing
+`hu/services/mediad.py` is the Linux media service: it plays the audio files of its
+sources with GStreamer `playbin`: the Library (`--music-dir`, the HU's own music) and
+every USB stick udisks2 reports (`hu/services/removable.py`, `--usb system|session`).
+It publishes
 on D-Bus `de.r80.Media` at `/de/r80/Media` (interface `de.r80.Media1`):
 
 - properties `PlaybackStatus`, `Source`, `Sources`, `TrackIndex`, `TrackCount`,
-  `Position` (µs), `Metadata`, `Playlist`, `Shuffle`, `RepeatAll`, `CanGoNext`,
-  `CanGoPrevious`
+  `QueueTitle`, `Queue`, `UpNext`, `SourceTrackCount`, `Scanned`, `Position` (µs),
+  `Metadata`, `Shuffle`, `RepeatAll`, `CanGoNext`, `CanGoPrevious`
 - methods `Play`, `Pause`, `PlayPause`, `Next`, `Previous`, `SetTrack`, `Seek`,
   `SetPosition`, `SetPlaying`, `SetShuffle`, `SetRepeatAll`, `SetSource`,
-  `SetGain(gain, fade_ms)` (the playback level, set by hu-audiod)
+  `SetGain(gain, fade_ms)` (the playback level, set by hu-audiod),
+  `GetQueue(offset, count)`, `Browse(path, offset, count)`, `PlayFrom(path, index)`
 - signals `Seeked` and `PropertiesChanged`
 
-`./r80 virtual up` starts it on a demo folder of short WAV tones. Point it at
-your own library with `MUSIC_DIR` (then no tones are written), or pass extra
-flags with `MEDIA_ARGS`:
+`./r80 virtual up` starts it on the test library in `$XDG_RUNTIME_DIR/r80-hu/test-music`,
+written by `dev/media_tags.py library` (short tones: an album with ID3 tags and an
+embedded cover, a folder with `cover.png` and untagged files, a loose file; the tests
+expect it). Point it at your own library with `MUSIC_DIR`, or pass extra flags
+with `MEDIA_ARGS`. Sticks: by default mediad watches a udisks2 stand-in on the session
+bus (the tests bring one, TC_HU_030); `MEDIA_USB=system` uses this PC's real sticks
+(and mounts them read-only).
+
+A stick is mounted read-only (or used where it already is mounted), named after its
+label (`USB`, `USB 2` without one), and plays as soon as it is plugged in; pulling the
+playing stick falls back to the Library, paused. A stick already in at start does not
+take over: resume decides. Each source keeps its track and position; the active source,
+whether it played and those resume points are saved to `--state`
+(`$XDG_RUNTIME_DIR/r80-hu/media-state.json` here) on a source change, before a
+shutdown (mediad is a saver of hu-sysd) and on SIGTERM, and restored at start.
+
 
 ```bash
 MUSIC_DIR=~/Music ./r80 virtual up
@@ -114,9 +130,35 @@ gdbus call --session -d de.r80.Media -o /de/r80/Media \
   -m org.freedesktop.DBus.Properties.Get de.r80.Media1 Metadata
 ```
 
-Title / artist come from the file name (`Artist - Title.ext`), the album from
-the folder, and the duration is learned once GStreamer prerolls the track.
-Bluetooth A2DP and MPRIS are not wired up yet. `hu/ui/qml/Sim.qml` binds the
+Title, artist, album, track number, duration and cover come from the files'
+tags, read in the background one file after the other (a preroll in a second
+`playbin`, core GStreamer only); `Scanned` counts how many are read. Until then,
+and for what a tag lacks, the file name (`Artist - Title.ext`) and the folder
+(album) stand in. An MP3 without a VBR header has no duration before it plays; it
+is estimated from size and bitrate. The cover is the embedded picture (saved once
+per album) or `cover`/`folder`/`front`/`album` `.jpg|.png` next to the tracks.
+What was read is cached in `--cache-dir` (default `~/.cache/r80/media`, under
+`./r80 virtual` `$XDG_RUNTIME_DIR/r80-hu/media-cache`), keyed by the medium, the path
+on it, size and mtime, so a stick mounted somewhere else next time is not read again;
+the medium is never written. The Media screen shows "Reading tags · n of m" while
+it reads. On a Pi 3B: about 30 tracks/s (2000 tracks in 68 s, the stick plays from
+the start), a browse page in under 0.2 s, mediad about 55 MB. The UI shows the cover tinted in the accent
+colour (`hu/ui/covers.py`). Tag test files with `dev/media_tags.py tag` (ID3v2.3,
+generated covers).
+
+What plays is a queue: a list of the browse tree (`hu/services/browse.py`): `Folders`
+(sub-folders, then the folder's tracks), `Artists` (artist → albums → tracks),
+`Albums` (A–Z, tracks by number) and `All tracks` (path order, what a source starts
+with). `Browse` returns a page of a list, `PlayFrom(path, index)` makes it the queue
+and starts at that track. TrackIndex and TrackCount count the queue, `GetQueue`
+hands it out in pages, and `UpNext` holds the next five in play order. Shuffle is
+one shuffled order of the queue, which `UpNext` shows and `Next` follows. The queue
+is part of the resume point.
+
+```bash
+gdbus call --session -d de.r80.Media -o /de/r80/Media -m de.r80.Media1.Browse "albums" 0 20
+gdbus call --session -d de.r80.Media -o /de/r80/Media -m de.r80.Media1.PlayFrom "tracks" 2
+``` Bluetooth A2DP and MPRIS are not wired up yet. `hu/ui/qml/Sim.qml` binds the
 Media screen to this service and falls back to the mockup's own playlist when
 `hu-mediad` is not on the bus, so `hu/ui/run.py` still works alone.
 
@@ -380,6 +422,9 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_026 | shutdown (D12): bus sleep -> sysd asks audiod/tripd to save -> acknowledgement -> MCU off, settings on disk; a saver that never answers delays it by `save_timeout_s` at most; ignition back during saving cancels (MCU stays on); a saver whose process ended is not waited for |
 | TC_HU_027 | display brightness (D12) from LightState over the bus: by day the user's brightness; at night the car's dimmer shifted by the user's setting; dim at night off; floor (sysd's formula and `system.ini`) |
 | TC_HU_028 | system information (Settings → System): all HU services of `[info] services` reported running, version / OS / uptime / memory / storage plausible, refreshed every `refresh_s`, Bluetooth fields present |
+| TC_HU_029 | media tags: title, artist, album, track number and embedded cover (one file per album) from ID3; name, folder and `cover.png` without a tag; durations before playing; int32 / `aa{sv}` types; unknown source refused |
+| TC_HU_030 | media sources: a udisks2 stand-in plugs in a stick (an fstab disk is ignored), read-only mount without a prompt, named after its label, plays at once; resume per source Library <-> stick; state file; a stick without a label is `USB`; pulling the playing stick -> Library, paused |
+| TC_HU_031 | media browsing: menu, folders, albums (artist, cover), artists → albums → tracks, paging; `PlayFrom` makes a list the queue (`QueueTitle`, `GetQueue`); `UpNext` with and without repeat; shuffle order shown by `UpNext` and followed by `Next`; queue in the state file; `NotFound` |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).
@@ -415,6 +460,7 @@ mcu_emu/mcuctl.py             control client (also used by the tests)
 phone_emu/phone_emu.py        phone emulator (companion app stand-in), also the tests' Phone class
 phone_emu/phone_panel.py      phone panel: GUI that plays the phone (routes, any guidance, link loss)
 phone_emu/route_demo.json     demo route the emulator plays
+media_tags.py                 test media: ID3 tags with generated covers, the test library
 ../test/boat/restbus.py       BoAt restbus node / library
 ../test/boat/restbus_panel.py tester GUI: the restbus with live signal editing + HU controls
 ../test/boat/env_hu_virtual.json  BoAt test environment (gateway started by hu-virtual.sh)

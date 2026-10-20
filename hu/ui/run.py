@@ -41,8 +41,9 @@ Rectangle {
 }
 """
 
-SHOTS = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media", "radio",
-         "phone", "vehicle", "cluster", "clock", "settings", "call", "volume", "audio", "system", "trip", "warning", "warnings"]
+SHOTS = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media",
+         "media_browse", "media_album", "radio", "phone", "vehicle", "cluster", "clock", "settings", "call", "volume", "audio",
+         "system", "trip", "warning", "warnings"]
 
 
 def register_backends(system_bus: bool):
@@ -118,7 +119,7 @@ def connect_mcu_input(vehicle, win):
 
 def run_screenshots(app, win, out: Path):
     """Step through every screen (demo flags of main.qml), save PNGs and an overview sheet."""
-    from PySide6.QtCore import QObject, QTimer
+    from PySide6.QtCore import Q_ARG, QMetaObject, QObject, QTimer
     out.mkdir(parents=True, exist_ok=True)
     state = {"i": 0, "images": []}
 
@@ -158,6 +159,18 @@ def run_screenshots(app, win, out: Path):
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")
             QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 4))
+        elif name in ("media_browse", "media_album"):
+            win.setProperty("demoWarnings", False)
+            win.setProperty("current", "media")
+
+            def call(method, *args):
+                screen = win.findChild(QObject, "mediaScreen")
+                QMetaObject.invokeMethod(screen, method, *[Q_ARG("QVariant", x) for x in args])
+            # each list answers asynchronously, so give every step a moment
+            steps = ([("openBrowser",), ("knob", 2)] if name == "media_browse"     # the menu, "Albums" selected
+                     else [("press",), ("knob", 4), ("press",)])                    # Albums -> the 5th album
+            for k, todo in enumerate(steps):
+                QTimer.singleShot(300 + 300 * k, lambda st=todo: call(*st))
         elif name == "audio":
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")
@@ -212,6 +225,9 @@ def main():
     backends = None if demo else register_backends(a.system)
 
     engine = QQmlApplicationEngine()
+    if not demo:
+        from covers import CoverProvider            # register_backends put HERE on sys.path
+        engine.addImageProvider("cover", CoverProvider())
     if demo:
         engine.addImportPath(str(HERE / "qml-demo"))      # demo stand-ins for R80.Backend
     engine.load(QUrl.fromLocalFile(str(HERE / "qml" / "main.qml")))
