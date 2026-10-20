@@ -26,23 +26,24 @@ class CallAudio:
             log("call audio: no pw-dump / wpctl here, level and microphone mute are not applied")
 
     def run(self, *args) -> str | None:
-        try:
-            return subprocess.run(args, capture_output=True, text=True, timeout=3, env=self.env, check=True).stdout
+        try:   # pw-dump can take seconds on a busy Pi 3B during a call
+            return subprocess.run(args, capture_output=True, text=True, timeout=5, env=self.env, check=True).stdout
         except (OSError, subprocess.SubprocessError) as e:
             self.log(f"call audio: {args[0]} failed: {e}")
             return None
 
-    def streams(self, address: str) -> dict:
-        """{"down": node id, "up": node id} of the phone's call streams that exist now."""
+    def streams(self, address: str) -> dict | None:
+        """{"down": node id, "up": node id} of the phone's call streams that exist now;
+        None if PipeWire could not be asked (keep what was known)."""
         if not self.ok or not address:
             return {}
         out = self.run("pw-dump")
         if out is None:
-            return {}
+            return None
         try:
             objects = json.loads(out)
         except ValueError:
-            return {}
+            return None
         tag = address.replace(":", "_").upper()
         found = {}
         for o in objects:

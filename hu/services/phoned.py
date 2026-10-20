@@ -356,6 +356,8 @@ class Phone(dbus.service.Object):
         if len(self.streams) == 2 and self.stream_ticks % 5:
             return True                              # both known: check every 5 s only (pw-dump costs)
         found = self.audio.streams(self.device["address"])
+        if found is None:
+            return True                              # PipeWire did not answer this time: keep the streams
         if found != self.streams:
             self.streams = found
             if found:
