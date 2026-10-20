@@ -13,5 +13,9 @@ if ! grep -q "DRIVER=hci_uart_bcm" "$dev" 2>/dev/null; then
   exit 0
 fi
 for _ in $(seq 20); do hciconfig hci0 2>/dev/null | grep -q "UP RUNNING" && break; sleep 0.5; done
-hcitool -i hci0 cmd 0x3f 0x1c 0x01 0x02 0x00 0x01 0x01 >/dev/null
-echo "hci0: SCO routed to HCI (read back: $(hcitool -i hci0 cmd 0x3f 0x1d | tail -1 | xargs))"
+# a wedged chip never answers: do not hang the bench on it
+if ! timeout 5 hcitool -i hci0 cmd 0x3f 0x1c 0x01 0x02 0x00 0x01 0x01 >/dev/null; then
+  echo "hci0 did not answer the vendor command (reset it: sudo hciconfig hci0 reset, or reboot)" >&2
+  exit 1
+fi
+echo "hci0: SCO routed to HCI (read back: $(timeout 5 hcitool -i hci0 cmd 0x3f 0x1d | tail -1 | xargs))"

@@ -7,6 +7,7 @@ RequiresMountsFor=@REPO@
 
 [Service]
 Type=oneshot
+TimeoutStartSec=40
 ExecStart=@REPO@/bench/pi/r80-bt-sco.sh
 
 [Install]
