@@ -8,6 +8,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.longOrNull
 
 /**
  * Companion link protocol v1, the phone's side (docs/companion-protocol.md).
@@ -86,6 +87,7 @@ object Protocol {
         /** caps: what the HU wants besides guidance ("weather", "position"). */
         data class Hello(val proto: Int, val heartbeatS: Double?, val caps: List<String> = emptyList()) : HuMessage()
         data object Heartbeat : HuMessage()
+        data class Status(val status: CarStatus) : HuMessage()
         data class Bye(val reason: String?) : HuMessage()
         /** A type this version does not know: ignore it (forward compatibility). */
         data object Unknown : HuMessage()
@@ -109,8 +111,26 @@ object Protocol {
             "heartbeat" -> HuMessage.Heartbeat
             "bye" -> HuMessage.Bye((obj["reason"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
             "guidance" -> if ((obj["active"] as? JsonPrimitive)?.booleanOrNull == null) null else HuMessage.Unknown
+            "car_status" -> carStatus(obj)?.let { HuMessage.Status(it) }
             else -> HuMessage.Unknown
         }
+    }
+
+    /** car_status -> [CarStatus]; null if time or final is missing. Unknown fields are ignored. */
+    private fun carStatus(o: JsonObject): CarStatus? {
+        fun num(obj: JsonObject?, k: String) = (obj?.get(k) as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull
+        fun str(obj: JsonObject?, k: String) = (obj?.get(k) as? JsonPrimitive)?.takeIf { it.isString }?.content?.take(MAX_TEXT)
+        val time = (o["time"] as? JsonPrimitive)?.longOrNull ?: return null
+        val final = (o["final"] as? JsonPrimitive)?.booleanOrNull ?: return null
+        val trip = (o["trip"] as? JsonObject)?.let { CarStatus.Trip(num(it, "km"), num(it, "minutes"), num(it, "avg_kmh")) }
+        val warnings = (o["warnings"] as? JsonArray)?.mapNotNull { w ->
+            val wo = w as? JsonObject ?: return@mapNotNull null
+            val sev = str(wo, "severity") ?: return@mapNotNull null
+            val text = str(wo, "text") ?: return@mapNotNull null
+            CarStatus.Warning(sev, text)
+        }.orEmpty()
+        return CarStatus(time, final, num(o, "fuel_pct"), num(o, "range_km"), num(o, "odometer_km"), num(o, "battery_v"),
+            num(o, "outside_c"), num(o, "service_km"), num(o, "service_days"), trip, warnings, str(o, "accent"))
     }
 
     private fun text(s: String) = JsonPrimitive(s.take(MAX_TEXT))
@@ -126,6 +146,26 @@ object Protocol {
         require(s.toByteArray(Charsets.UTF_8).size <= MAX_LINE) { "message longer than $MAX_LINE bytes" }
         return s
     }
+}
+
+/** How the car is, from the HU (car_status); null = the HU did not know it. final: the ignition went off. */
+data class CarStatus(
+    val time: Long,
+    val final: Boolean,
+    val fuelPct: Double? = null,
+    val rangeKm: Double? = null,
+    val odometerKm: Double? = null,
+    val batteryV: Double? = null,
+    val outsideC: Double? = null,
+    val serviceKm: Double? = null,
+    val serviceDays: Double? = null,
+    val trip: Trip? = null,
+    val warnings: List<Warning> = emptyList(),
+    val accent: String? = null,
+) {
+    data class Trip(val km: Double?, val minutes: Double?, val avgKmh: Double?)
+    /** severity: warning | information | notice */
+    data class Warning(val severity: String, val text: String)
 }
 
 /** The weather as the protocol carries it: time in unix s, temperatures in °C, WMO codes. */

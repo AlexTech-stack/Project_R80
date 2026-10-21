@@ -43,6 +43,8 @@ class Link(
     private val device: String?,
     private val version: String,
     private val onStatus: (Status) -> Unit,
+    /** How the car is (car_status), on the link's thread. */
+    private val onCarStatus: (CarStatus) -> Unit = {},
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     enum class State { STOPPED, CONNECTING, CONNECTED, WAITING }
@@ -166,9 +168,12 @@ class Link(
                     send(Protocol.heartbeat())
                     lastTx = clock()
                 }
-                when (val m = incoming.poll()) {
-                    is Protocol.HuMessage.Bye -> throw IllegalStateException("HU closed the link (${m.reason ?: "no reason"})")
-                    else -> {}
+                while (true) {
+                    when (val m = incoming.poll() ?: break) {
+                        is Protocol.HuMessage.Bye -> throw IllegalStateException("HU closed the link (${m.reason ?: "no reason"})")
+                        is Protocol.HuMessage.Status -> onCarStatus(m.status)
+                        else -> {}
+                    }
                 }
                 if (clock() - lastRx.get() > 3 * heartbeatMs) throw IllegalStateException("HU silent")
             }
@@ -181,7 +186,7 @@ class Link(
 
     companion object {
         /** What this app can send. */
-        val CAPS = listOf("guidance", "weather", "position")
+        val CAPS = listOf("guidance", "weather", "position", "car_status")
     }
 }
 

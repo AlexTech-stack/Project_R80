@@ -31,6 +31,8 @@ object AppState {
     }
 
     fun setWeather(w: Weather) { weather = w; fire() }
+    /** CarStore changed (a car_status or the parking position). */
+    fun carChanged() = fire()
     fun setPosition(p: Position) { position = p; fire() }
 
     fun setLink(s: Link.Status) {

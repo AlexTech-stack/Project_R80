@@ -22,6 +22,8 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    // the HU's own fonts (B612, OSP-DIN) with their licence files, as the app's assets: one source
+    sourceSets["main"].assets.srcDir("../../hu/ui/fonts")
     testOptions {
         unitTests.isReturnDefaultValues = true
     }

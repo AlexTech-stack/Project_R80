@@ -51,12 +51,9 @@ class Surroundings(
         executor = null
     }
 
-    private fun allowed() = ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-        ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-
     private fun tick() {
-        if (!allowed()) return
-        val loc = try { fix() } catch (e: Exception) { null } ?: return
+        if (!allowed(ctx)) return
+        val loc = try { locate(ctx) } catch (e: Exception) { null } ?: return
         position(loc)?.let { onPosition(it) }
         val now = System.currentTimeMillis()
         val due = now - lastWeatherAt >= WEATHER_MS && now - lastTryAt >= RETRY_MS
@@ -71,18 +68,6 @@ class Surroundings(
         }
     }
 
-    /** A current location: the fused provider (GNSS, Wi-Fi, cells) if the phone has one, else GNSS. */
-    @android.annotation.SuppressLint("MissingPermission")    // allowed() checked it
-    private fun fix(): Location? {
-        val lm = ctx.getSystemService(LocationManager::class.java) ?: return null
-        val provider = listOf(LocationManager.FUSED_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            .firstOrNull { lm.hasProvider(it) && lm.isProviderEnabled(it) } ?: return null
-        var result: Location? = null
-        val done = CountDownLatch(1)
-        lm.getCurrentLocation(provider, null, Runnable::run) { result = it; done.countDown() }
-        done.await(FIX_TIMEOUT_S, TimeUnit.SECONDS)
-        return result ?: lm.getLastKnownLocation(provider)?.takeIf { System.currentTimeMillis() - it.time < 2 * 60_000 }
-    }
 
     private fun position(loc: Location): Position? {
         var alt: Double? = null
@@ -116,6 +101,25 @@ class Surroundings(
     }
 
     companion object {
+        fun allowed(ctx: Context) =
+            ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+        /** A current location (blocks up to FIX_TIMEOUT_S): the fused provider (GNSS, Wi-Fi, cells)
+         *  if the phone has one, else GNSS; null without permission or fix. Not on the main thread. */
+        @android.annotation.SuppressLint("MissingPermission")    // allowed() checks it
+        fun locate(ctx: Context): Location? {
+            if (!allowed(ctx)) return null
+            val lm = ctx.getSystemService(LocationManager::class.java) ?: return null
+            val provider = listOf(LocationManager.FUSED_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .firstOrNull { lm.hasProvider(it) && lm.isProviderEnabled(it) } ?: return null
+            var result: Location? = null
+            val done = CountDownLatch(1)
+            lm.getCurrentLocation(provider, null, Runnable::run) { result = it; done.countDown() }
+            done.await(FIX_TIMEOUT_S, TimeUnit.SECONDS)
+            return result ?: lm.getLastKnownLocation(provider)?.takeIf { System.currentTimeMillis() - it.time < 2 * 60_000 }
+        }
+
         const val POSITION_S = 60L
         const val WEATHER_MS = 30 * 60_000L
         const val RETRY_MS = 5 * 60_000L

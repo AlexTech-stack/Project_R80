@@ -48,7 +48,19 @@ class LinkService : Service() {
                 transports = transports,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}",
                 version = BuildConfig.VERSION_NAME,
-                onStatus = { AppState.setLink(it) },
+                onStatus = { s ->
+                    // the link ends (the phone leaves the car, or the HU switched off): park here
+                    if (AppState.link.state == Link.State.CONNECTED && s.state != Link.State.CONNECTED) park()
+                    AppState.setLink(s)
+                },
+                onCarStatus = { s ->
+                    CarStore.saveStatus(this, s)
+                    AppState.carChanged()
+                    if (s.final) {
+                        park()
+                        notifyWarnings(s)
+                    }
+                },
             ).also {
                 it.update(AppState.guidance)
                 it.start()
@@ -62,6 +74,33 @@ class LinkService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    /** Where the car is parked: the phone's position now (it is at the car), on its own thread. */
+    private fun park() {
+        val ctx = applicationContext
+        Thread({
+            val loc = try { Surroundings.locate(ctx) } catch (_: Exception) { null } ?: return@Thread
+            CarStore.saveParked(ctx, CarStore.Parked(loc.latitude, loc.longitude,
+                if (loc.hasAccuracy()) loc.accuracy.toDouble() else null, System.currentTimeMillis() / 1000))
+            AppState.carChanged()
+        }, "r80-park").start()
+    }
+
+    /** Warnings still open when the ignition went off: a notification, so the driver sees them later too. */
+    private fun notifyWarnings(s: CarStatus) {
+        if (s.warnings.isEmpty()) return
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(CAR_CHANNEL, getString(R.string.channel_car), NotificationManager.IMPORTANCE_DEFAULT))
+        val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        nm.notify(2, Notification.Builder(this, CAR_CHANNEL)
+            .setSmallIcon(R.drawable.ic_r80)
+            .setContentTitle(resources.getQuantityString(R.plurals.warnings_open, s.warnings.size, s.warnings.size))
+            .setContentText(s.warnings.joinToString(" · ") { it.text })
+            .setStyle(Notification.BigTextStyle().bigText(s.warnings.joinToString("\n") { it.text }))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build())
     }
 
     private fun fail(why: String): Int {
@@ -94,6 +133,7 @@ class LinkService : Service() {
 
     companion object {
         private const val CHANNEL = "link"
+        private const val CAR_CHANNEL = "car"
         fun start(ctx: Context) = ctx.startForegroundService(Intent(ctx, LinkService::class.java))
         fun stop(ctx: Context) = ctx.stopService(Intent(ctx, LinkService::class.java))
     }

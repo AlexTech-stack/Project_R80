@@ -19,7 +19,7 @@
         android:allowBackup="false"
         android:icon="@drawable/ic_r80"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity
             android:name=".MainActivity"

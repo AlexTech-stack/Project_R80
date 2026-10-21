@@ -53,6 +53,7 @@ class ProtocolTest {
                 Weather.Day("2026-10-23", 0, 12.7, -1.5), Weather.Day("2026-10-24", 71, 2.0, -3.2)))),
             10 to Protocol.position(Position(1792584060, altM = 412.3, accuracyM = 6.0, headingDeg = 271.5)),
             11 to Protocol.position(Position(1792584120)),
+            12 to Protocol.hello("r80-companion", "0.2.0", "Redmi Note 12 Pro 5G", Link.CAPS),
         )
         for ((i, line) in ours) assertSameJson(examples[i], line)
     }
@@ -62,6 +63,12 @@ class ProtocolTest {
         assertEquals(Protocol.HuMessage.Heartbeat, Protocol.parse(examples[2]))
         assertEquals(Protocol.HuMessage.Bye("user"), Protocol.parse(examples[7]))
         assertEquals(Protocol.HuMessage.Hello(1, 2.0, listOf("weather", "position")), Protocol.parse(examples[8]))
+        assertEquals(Protocol.HuMessage.Status(CarStatus(1792590000, false, 62.5, 471.0, 187432.4, 14.2, -3.5, 6400.0, 112.0,
+            CarStatus.Trip(43.7, 52.0, 50.0), emptyList(), "signal_red")), Protocol.parse(examples[13]))
+        assertEquals(Protocol.HuMessage.Status(CarStatus(1792593600, true, fuelPct = 8.0, rangeKm = 60.0, serviceKm = -150.0,
+            warnings = listOf(CarStatus.Warning("information", "Fuel low (8 %)"), CarStatus.Warning("notice", "Service overdue by 150 km")))),
+            Protocol.parse(examples[14]))
+        assertNull(Protocol.parse("""{"type":"car_status","final":true}"""))
         assertEquals(Protocol.HuMessage.Unknown, Protocol.parse("""{"type":"lanes","lanes":[]}"""))
         assertNull(Protocol.parse("not json"))
         assertNull(Protocol.parse("""{"no":"type"}"""))

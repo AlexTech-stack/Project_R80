@@ -12,7 +12,7 @@
 
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="@string/access_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+            android:text="@string/access_title" android:textSize="18sp" android:tag="title" />
         <TextView
             android:id="@+id/access"
             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -25,7 +25,7 @@
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="@string/hu_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+            android:text="@string/hu_title" android:textSize="18sp" android:tag="title" />
         <RadioGroup
             android:id="@+id/transport"
             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -62,7 +62,7 @@
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="@string/guidance_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+            android:text="@string/guidance_title" android:textSize="18sp" android:tag="title" />
         <TextView
             android:id="@+id/guidance"
             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -71,7 +71,7 @@
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="@string/surroundings_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+            android:text="@string/surroundings_title" android:textSize="18sp" android:tag="title" />
         <Switch
             android:id="@+id/surroundings"
             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -84,7 +84,7 @@
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="@string/capture_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+            android:text="@string/capture_title" android:textSize="18sp" android:tag="title" />
         <Switch
             android:id="@+id/capture"
             android:layout_width="match_parent" android:layout_height="wrap_content"
