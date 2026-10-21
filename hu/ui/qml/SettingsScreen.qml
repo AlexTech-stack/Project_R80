@@ -15,13 +15,15 @@ Item {
         { label: "Audio",        icon: Icons.speaker },
         { label: "Phone",        icon: Icons.phone },
         { label: "Connectivity", icon: Icons.wifi },
-        { label: "System",       icon: Icons.chip }
+        { label: "System",       icon: Icons.chip },
+        { label: "Diagnostics",  icon: Icons.wrench }
     ]
     // not wired yet: they get a service with the phone / connectivity work
     property bool bt: true
     property bool wifi: false
 
-    readonly property var itemCounts: [2, 3, 9, 3, 2, 1]
+    readonly property var logApps: Sim.systemLog.apps || []
+    readonly property var itemCounts: [2, 3, 9, 3, 2, 1, logApps.length + 2]
     onCatChanged: item = 0
 
     function knob(d) {
@@ -34,7 +36,7 @@ Item {
         adjust(d);
     }
     function press() { if (!inPanel) inPanel = true; else adjust(1) }
-    function adjustable() { return (cat === 1 && item < 2) || cat === 2 }
+    function adjustable() { return (cat === 1 && item < 2) || cat === 2 || (cat === 6 && item < logApps.length) }
     function adjust(d) {
         if (cat === 0) {
             if (item === 0) Sim.setSetting("clock_24h", !Sim.clock24h);
@@ -60,6 +62,12 @@ Item {
             else Sim.phoneDeleteCopy();
         } else if (cat === 4) {
             if (item === 0) bt = !bt; else wifi = !wifi;
+        } else if (cat === 6) {
+            if (item < logApps.length) {
+                const a = logApps[item], n = Sim.logLevels.length;
+                Sim.setLogLevel(a.id, Sim.logLevels[(Sim.logLevels.indexOf(a.level) + d + n) % n]);
+            } else if (item === logApps.length) Sim.exportLog();
+            else Sim.clearLog();
         }
     }
 
@@ -288,6 +296,65 @@ Item {
                 width: 700; wrapMode: Text.WordWrap; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
             SettingRow { label: "Simulate incoming call"; idx: 0; x: -18
                 LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.phone; label: "Ring"; iconSize: 22; onClicked: Sim.simulateIncomingCall() } }
+        }
+
+        // Diagnostics: warnings and errors of the DLT log (hu-sysd), the log level per service
+        Column {
+            id: diagPage
+            visible: root.cat === 6
+            spacing: 2
+            readonly property var log: Sim.systemLog
+            function count(n, what) { return n + " " + what + (n === 1 ? "" : "s") }
+            T { x: 18; height: 34; color: Theme.accentMid; font.pixelSize: Theme.fontSmall
+                text: diagPage.log.connected ? "DLT log  ·  warnings and errors since start  ·  level per service"
+                                             : "DLT log not reachable: no dlt-daemon" }
+            Repeater {
+                model: root.logApps
+                Item {
+                    id: appRow
+                    width: 732; height: 42
+                    readonly property bool focused: root.inPanel && root.item === index
+                    Rectangle { anchors.fill: parent; color: Theme.accentFaint; visible: appRow.focused; border.color: Theme.accentDim }
+                    T { x: 18; width: 236; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight
+                        font.pixelSize: Theme.fontSmall + 2; text: modelData.description
+                        color: modelData.running ? Theme.accent : Theme.accentDim }
+                    T { x: 262; width: 330; anchors.verticalCenter: parent.verticalCenter; font.pixelSize: Theme.fontSmall
+                        color: modelData.errors ? Theme.accent : Theme.accentMid
+                        text: [modelData.errors ? diagPage.count(modelData.errors, "error") : "",
+                               modelData.warnings ? diagPage.count(modelData.warnings, "warning") : "",
+                               modelData.running ? "" : "not running"].filter(s => s).join("  ·  ") || "no warnings" }
+                    T { x: 594; width: 126; anchors.verticalCenter: parent.verticalCenter; horizontalAlignment: Text.AlignRight
+                        font.pixelSize: Theme.fontSmall + 2; color: appRow.focused ? Theme.accent : Theme.accentMid
+                        text: (appRow.focused ? "‹  " : "") + modelData.level + (appRow.focused ? "  ›" : "") }
+                    MouseArea { anchors.fill: parent; onClicked: { root.inPanel = true; root.item = index; root.adjust(1) } }
+                }
+            }
+            SettingRow { label: "Log files"; idx: root.logApps.length; height: 54
+                LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.usb; iconSize: 22
+                             enabled: Sim.logExport.state !== "writing"
+                             label: Sim.logExport.state === "writing" ? "Writing …" : "Export to USB"
+                             onClicked: Sim.exportLog() } }
+            T { x: 18; width: 700; height: 26; font.pixelSize: Theme.fontSmall; elide: Text.ElideRight
+                visible: Sim.logExport.state !== "idle"
+                color: Sim.logExport.state === "failed" ? Theme.accent : Theme.accentMid
+                text: (Sim.logExport.state === "failed" ? "Export failed: " : "") + Sim.logExport.message }
+            SettingRow { label: "Warnings and errors"; idx: root.logApps.length + 1; height: 54
+                LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.minus; iconSize: 22
+                             label: "Clear"; onClicked: Sim.clearLog() } }
+            Repeater {
+                model: (diagPage.log.entries || []).slice(0, 3)
+                Row {
+                    x: 18; spacing: 12; height: 30
+                    T { width: 92; text: Qt.formatTime(new Date(modelData.time * 1000), "hh:mm:ss")
+                        color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
+                    Icon { path: modelData.level === "warning" ? Icons.info : Icons.warning; width: 20; height: 20
+                           anchors.verticalCenter: parent.verticalCenter
+                           color: modelData.level === "warning" ? Theme.accentMid : Theme.accent }
+                    T { width: 104; text: modelData.app + " " + modelData.context; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
+                    T { width: 440; text: modelData.text; elide: Text.ElideRight; font.pixelSize: Theme.fontSmall
+                        color: modelData.level === "warning" ? Theme.accentMid : Theme.accent }
+                }
+            }
         }
     }
 }

@@ -437,6 +437,46 @@ QtObject {
     })
     readonly property var systemInfo: settingsLive && System.info.version !== undefined ? System.info : _fakeInfo
 
+    // ---- diagnostics (Settings -> Diagnostics): the DLT log's warnings and errors from hu-sysd;
+    // without it demo values. apps: {id, description, level, running, errors, warnings};
+    // entries, the newest first: {time (unix s), app, context, level, text}
+    readonly property var logLevels: ["default", "off", "fatal", "error", "warning", "info", "debug", "verbose"]
+    readonly property bool logLive: settingsLive && System.log.apps !== undefined
+    property var _demoLevels: ({ MED: "debug" })
+    property bool _demoCleared: false
+    readonly property var _demoLog: {
+        const t = _bootTime.getTime() / 1000;
+        const apps = [["HMI", "User interface", 0, 1], ["VEH", "Vehicle service", 0, 0], ["MED", "Media service", 0, 2],
+                      ["AUD", "Audio service", 1, 0], ["WRN", "Vehicle warnings", 0, 0], ["TRP", "Trip computer", 0, 0],
+                      ["NAV", "Navigation service", 0, 1], ["SYS", "System service", 0, 0], ["PHN", "Phone service", 0, 2]];
+        return {
+            connected: true,
+            apps: apps.map(a => ({ id: a[0], description: a[1], level: _demoLevels[a[0]] || "default", running: true,
+                                   errors: _demoCleared ? 0 : a[2], warnings: _demoCleared ? 0 : a[3] })),
+            entries: _demoCleared ? [] : [
+                { time: t + 10620, app: "AUD", context: "MAIN", level: "error", text: "could not save audio-state.json: No space left on device" },
+                { time: t + 10010, app: "PHN", context: "MAIN", level: "warning", text: "copying contacts failed: the phone did not answer" },
+                { time: t + 9480, app: "MED", context: "MAIN", level: "warning", text: "cannot read Road Trip/07 Unknown.mp3: Could not determine type of stream" },
+                { time: t + 7310, app: "NAV", context: "MAIN", level: "warning", text: "phone link lost: no message for 10 s" },
+                { time: t + 5020, app: "PHN", context: "MAIN", level: "warning", text: "PipeWire's telephony service is gone" },
+                { time: t + 4100, app: "MED", context: "USB", level: "warning", text: "removable medium 1A2B-3C4D: no audio files" },
+                { time: t + 35, app: "HMI", context: "QML", level: "warning", text: "Failed to register with host portal" }]
+        };
+    }
+    readonly property var systemLog: logLive ? System.log : _demoLog
+    function setLogLevel(app, level) {
+        if (logLive) { System.setLogLevel(app, level); return }
+        const l = Object.assign({}, _demoLevels); l[app] = level; _demoLevels = l;
+    }
+    function clearLog() { if (logLive) System.clearLog(); else _demoCleared = true }
+    // the log onto a USB stick (hu-sysd): {state: idle | writing | done | failed, message, dir}
+    property var _demoExport: ({ state: "done", message: "8 log files, 15.8 MB in R80-logs/2026-10-21_111530", dir: "" })
+    readonly property var logExport: logLive && System.logExport.state !== undefined ? System.logExport : _demoExport
+    function exportLog() {
+        if (logLive) { System.exportLog(); return }
+        _demoExport = { state: "done", message: "8 log files, 15.8 MB in R80-logs/" + Qt.formatDateTime(now, "yyyy-MM-dd_HHmmss"), dir: "" };
+    }
+
     // ---- tone (D9): kept by hu-audiod; without it local values ------------------------------
     readonly property bool toneLive: Audio.available && Audio.tone.bass !== undefined
     property var _tone: ({ bass: 0, treble: 0, balance: 0, loudness: true })

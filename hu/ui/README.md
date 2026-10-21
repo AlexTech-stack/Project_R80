@@ -68,7 +68,9 @@ service), Drive (virtual cluster), Clock & Weather, Settings. Under
 Settings → Display you can change brightness and the accent colour (red, amber,
 white, ice blue) live; Settings → Phone keeps, syncs or deletes the copy of the
 phone's contacts (D13); Settings → System shows what runs (live: the values
-of `hu-sysd`, D12).
+of `hu-sysd`, D12); Settings → Diagnostics shows the log's warnings and errors per
+service, sets a service's log level with the knob and exports the log onto a USB stick (D14).
+The UI logs into DLT as application `HMI`, Qt's and QML's own messages as its context `QML`.
 
 The master volume is shown in the header on every screen, right of the outside
 temperature; clicking it opens the volume popup. Settings → Audio has one volume

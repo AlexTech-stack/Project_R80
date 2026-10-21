@@ -37,7 +37,7 @@ ci/dut/                           emulated aarch64 DUT for CI: Dockerfile, start
 ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
 ci/boat_report.py                 BoAt reports as Markdown (CI job summaries)
 ci/build_android.sh               builds and unit-tests the companion app (companion-android/)
-docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D13
+docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D14
 docs/companion-protocol.md        phone (R80 Companion app) <-> HU link protocol (D11)
 docs/companion-protocol-examples.jsonl  protocol examples both sides test against
 docs/bench-pi.md                  the Raspberry Pi bench: setup and operation
@@ -64,6 +64,10 @@ hu/                               the headunit software (target software: runs u
     phoned.py                     phone service (D13): calls over hands-free, D-Bus de.r80.Phone
     phonebook.py, vcard.py        the phone's contacts and call history (PBAP via obexd), the copy per phone
     callaudio.py                  Bluetooth sound on PipeWire: call and phone-music stages, levels, mic mute
+    dlt.py                        the services' log: DLT (Diagnostic Log and Trace) through libdlt, Python logging
+    dlt.conf, dlt-daemon.sh       the HU's own DLT daemon (COVESA dlt-daemon): files on the HU, DLT Viewer on TCP 3490
+    dltclient.py                  reads DLT (protocol version 1) from the daemon or a file; control messages
+    diagnostics.py                Settings -> Diagnostics: warnings and errors per service (sysd)
   ui/                             Qt 6 / QML UI, launched with PySide6
     run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
     backend.py                    the R80.Backend QML singletons, one per service, over D-Bus
@@ -91,6 +95,7 @@ dev/                              PC stand-ins for the virtual mode (PC only)
   phone_emu/                      phone emulator and phone panel (GUI): companion app stand-ins; stand-ins
                                   for PipeWire's telephony, obexd (PBAP) and BlueZ's AVRCP player
   media_tags.py                   test media: ID3 tags with generated covers, the test library
+  udisks_emu.py                   stand-in for udisks2 with USB sticks (folders), for the tests
 test/boat/                        BoAt restbus node, tester panel and the BoAt tests (PC only; list in dev/README.md)
 bench/pi/                         Raspberry Pi bench: kiosk script, systemd units, CAN tunnel, PC helpers,
                                   PipeWire / WirePlumber settings, the built-in Bluetooth's SCO routing
@@ -252,7 +257,12 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
   phonebooks only. Phone sound (calls, phone music) keeps the phone at full level and sets
   the level on the HU's own PipeWire stages (`bench/pi/r80-pipewire.conf`).
 - The stock instrument cluster stays (decision D1).
-- The architecture decisions D1 to D13 are in `docs/architecture/HU_architecture_v0.3.md`.
+- Logging (D14): the services and the UI log through `hu/services/dlt.py` (Python `logging`, one DLT
+  application per service, a context per part), not with `print`. Pick the level: error for what
+  the HU did wrong, warning for what is off but handled, info for what happens. Log lines leave the
+  car (the export): never phone numbers, contact or device names, streets; Bluetooth addresses
+  only through `dlt.address()`.
+- The architecture decisions D1 to D14 are in `docs/architecture/HU_architecture_v0.3.md`.
   Do not contradict them. If a change needs a different decision, ask Alex first.
 
 ## 9. Code conventions

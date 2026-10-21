@@ -15,11 +15,23 @@ saves them as state, so they survive a restart.
                                 kernel, host, uptime_s, cpu_temp_c, load, mem_total_mb, mem_available_mb,
                                 disk_free_mb, services_up / services_missing (as, of [info] services),
                                 bt_name, bt_address, bt_powered (BlueZ adapter; bt_name "" = none)
+                  Log (a{sv}): Settings -> System -> Diagnostics, from the HU's DLT daemon (dltclient.py,
+                               diagnostics.py): connected (b), apps (aa{sv}: id, description, level,
+                               running, errors, warnings; in [diagnostics] apps order), entries (aa{sv}:
+                               time, app, context, level, text; the newest first, at most [diagnostics] keep)
+                  Export (a{sv}): the last ExportLog: state (idle|writing|done|failed), message, dir
                   Shutdown (a{sv}): state (idle|saving|acked|cancelled), savers (as), waiting (as),
                                     last_saved (as), last_timed_out (as), last_ms (u), last_cancelled (b)
       methods     Set(s name, v value)   checked against system.ini; errors:
                                          de.r80.System1.Error.UnknownSetting / InvalidValue
                   Reset(s name), ResetAll()
+                  SetLogLevel(s app, s level)  default | off | fatal | error | warning | info | debug |
+                                         verbose, for every context of the DLT application (kept by
+                                         the daemon); errors InvalidValue / UnknownApp / NotConnected
+                  ClearLog()             the page's counters and list back to zero
+                  ExportLog()            the DLT files (--log-dir) and a summary.txt onto a USB stick,
+                                         into R80-logs/<date_time>/ (hu-mediad lends the stick out
+                                         writable); error Busy while one runs
                   RegisterSaver(s name)  a service that has to save before a shutdown
                   Saved(s name)          ... has saved after PrepareForShutdown
       signals     PrepareForShutdown()
@@ -43,18 +55,24 @@ import configparser
 import json
 import math
 import os
+import shutil
+import socket
 import subprocess
+import threading
 import sys
 import time
 from pathlib import Path
+
+import dlt
+import dltclient as dc
+from diagnostics import Diagnostics
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "system.ini"
 SYSTEM_CONFIG = Path("/etc/r80/system.ini")
 TYPES = ("bool", "number", "choice")
 
 
-def log(*a):
-    print("[sysd]", *a, flush=True)
+log = dlt.context("MAIN", "System service")
 
 
 class ConfigError(ValueError):
@@ -71,7 +89,8 @@ class SettingError(ValueError):
 
 def load_config(extra: str | None = None) -> dict:
     """{"settings": {name: {"type", "default", "min", "max" | "choices"}},
-        "shutdown": {"save_timeout_s", "after_ack"}}, checked."""
+        "shutdown": {"save_timeout_s", "after_ack"}, "brightness": {...}, "info": {...},
+        "diagnostics": {"keep", "apps"}}, checked."""
     cp = configparser.ConfigParser()
     if extra and not Path(extra).is_file():
         raise ConfigError(f"config file not found: {extra}")
@@ -80,7 +99,20 @@ def load_config(extra: str | None = None) -> dict:
     shutdown = {}
     brightness = {}
     info = {}
+    diag = {}
     for section in cp.sections():
+        if section == "diagnostics":
+            unknown = set(cp.options(section)) - {"keep", "apps"}
+            if unknown:
+                raise ConfigError(f"[diagnostics] unknown key(s): {', '.join(sorted(unknown))}")
+            try:
+                diag["keep"] = int(cp.get(section, "keep"))
+                diag["apps"] = [x.strip() for x in cp.get(section, "apps").split(",") if x.strip()]
+            except (configparser.Error, ValueError) as e:
+                raise ConfigError(f"[diagnostics] {e}") from None
+            if not 1 <= diag["keep"] <= 1000:
+                raise ConfigError(f"[diagnostics] keep = {diag['keep']} is outside 1..1000")
+            continue
         if section == "info":
             unknown = set(cp.options(section)) - {"refresh_s", "services"}
             if unknown:
@@ -158,10 +190,12 @@ def load_config(extra: str | None = None) -> dict:
         raise ConfigError("[brightness] is missing")
     if not info:
         raise ConfigError("[info] is missing")
+    if not diag:
+        raise ConfigError("[diagnostics] is missing")
     for need, t in (("brightness", "number"), ("night_dimming", "bool")):
         if settings.get(need, {}).get("type") != t:
             raise ConfigError(f"[setting {need}] ({t}) is needed for the display brightness")
-    return {"settings": settings, "shutdown": shutdown, "brightness": brightness, "info": info}
+    return {"settings": settings, "shutdown": shutdown, "brightness": brightness, "info": info, "diagnostics": diag}
 
 
 def display_brightness(cfg: dict, values: dict, night: bool, dim_level: float) -> float:
@@ -202,12 +236,12 @@ class Settings:
         self.values = {n: s["default"] for n, s in schema.items()}
         for n, v in (saved if isinstance(saved, dict) else {}).items():
             if n not in schema:
-                log(f"ignoring saved setting {n!r}: not in system.ini")
+                log.warning(f"ignoring saved setting {n!r}: not in system.ini")
                 continue
             try:
                 self.values[n] = check(n, schema[n], v)
             except SettingError as e:
-                log(f"saved setting ignored, back to default: {e}")
+                log.warning(f"saved setting ignored, back to default: {e}")
 
     def set(self, name: str, value) -> bool:
         """True if the value changed."""
@@ -330,13 +364,54 @@ class Shutdown:
             self.waiting = set()
 
 
+def export_logs(src: Path, dest_root: Path, summary: str, now: float | None = None) -> dict:
+    """Copy the DLT files (src/*.dlt, oldest first) and summary.txt into
+    dest_root/R80-logs/<date_time>/. {"dir", "files", "bytes"}; OSError when it does not fit
+    or a write fails (then the half-written folder is removed)."""
+    files = sorted(src.glob("*.dlt"), key=lambda f: f.stat().st_mtime) if src.is_dir() else []
+    need = sum(f.stat().st_size for f in files) + len(summary.encode()) + 65536
+    free = shutil.disk_usage(dest_root).free
+    if free < need:
+        raise OSError(f"not enough space on the stick ({free // 1_000_000} MB free, {need // 1_000_000 + 1} MB needed)")
+    stamp = time.strftime("%Y-%m-%d_%H%M%S", time.localtime(now))
+    dest = dest_root / "R80-logs" / stamp
+    try:
+        dest.mkdir(parents=True)
+        for f in files:
+            shutil.copyfile(f, dest / f.name)
+        (dest / "summary.txt").write_text(summary, encoding="utf-8")
+        os.sync()
+    except OSError:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    return {"dir": f"R80-logs/{stamp}", "files": len(files), "bytes": need - 65536}
+
+
+def log_summary(info: dict, apps: list, entries, now: float | None = None) -> str:
+    """summary.txt next to the exported DLT files: what was where, the counts, the last entries."""
+    lines = ["R80 headunit: log export", f"exported   {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))}"]
+    for k in ("version", "os", "kernel", "uptime_s", "mem_total_mb", "mem_available_mb", "disk_free_mb"):
+        if k in info:
+            lines.append(f"{k:<10} {info[k]}")
+    lines += ["", "The log: *.dlt (DLT protocol version 1, ECU R80), opens in DLT Viewer.", "",
+              "service                   level     errors  warnings  running"]
+    for a in apps:
+        lines.append(f"{a['id']:<4} {a['description'][:20]:<20} {a['level']:<9} {a['errors']:>6}  {a['warnings']:>8}  "
+                     f"{'yes' if a['running'] else 'no'}")
+    lines += ["", "the last warnings and errors, newest first:"]
+    for e in entries:
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(e["time"]))
+        lines.append(f"{stamp}  {e['level']:<7} {e['app']:<4} {e['context']:<4} {e['text']}")
+    return "\n".join(lines) + "\n"
+
+
 def read_state(path: Path):
     try:
         return json.loads(path.read_text())
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as e:
-        log(f"ignoring unreadable state {path}: {e}")
+        log.warning(f"ignoring unreadable state {path}: {e}")
         return None
 
 
@@ -347,7 +422,7 @@ def write_state(path: Path, values: dict):
     os.replace(tmp, path)
 
 
-def run_service(cfg: dict, state_path: Path, system: bool):
+def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path):
     import dbus
     import dbus.service
     from dbus.mainloop.glib import DBusGMainLoop
@@ -356,6 +431,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
     BUS_NAME, OBJ_PATH, IFACE = "de.r80.System", "/de/r80/System", "de.r80.System1"
     PROPS = "org.freedesktop.DBus.Properties"
     VEHICLE = ("de.r80.Vehicle", "/de/r80/Vehicle", "de.r80.Vehicle1")
+    MEDIA = ("de.r80.Media", "/de/r80/Media", "de.r80.Media1")
 
     def plain(v):
         if isinstance(v, dbus.Boolean):
@@ -389,6 +465,142 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             GLib.timeout_add(int(cfg["info"]["refresh_s"] * 1000), self.refresh_info)
             bus.add_signal_receiver(self.on_owner, "NameOwnerChanged", "org.freedesktop.DBus",
                                     "org.freedesktop.DBus", "/org/freedesktop/DBus")
+            self.diag = Diagnostics(cfg["diagnostics"]["apps"], cfg["diagnostics"]["keep"])
+            self.dlt_sock, self.dlt_parser, self.log_pending = None, None, False
+            self.dlt_connect()
+            self.export = {"state": "idle", "message": "", "dir": ""}
+
+        # ---- diagnostics: the DLT daemon's warnings and errors (Settings -> System) ---
+        def dlt_connect(self):
+            port = int(os.environ.get("DLT_DAEMON_TCP_PORT", "3490"))
+            try:
+                s = socket.create_connection(("127.0.0.1", port), timeout=1.0)
+            except OSError:
+                GLib.timeout_add(2000, self.dlt_connect)
+                return False
+            s.setblocking(False)
+            self.dlt_sock, self.dlt_parser = s, dc.Parser()
+            GLib.io_add_watch(s.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.dlt_read)
+            self.dlt_send(dc.get_log_info())
+            self.publish_log()
+            return False
+
+        def dlt_send(self, data: bytes) -> bool:
+            try:
+                self.dlt_sock.sendall(data)
+                return True
+            except (OSError, AttributeError):
+                return False
+
+        def dlt_read(self, _fd, cond):
+            data = b""
+            try:
+                data = self.dlt_sock.recv(65536)
+            except BlockingIOError:
+                return True
+            except OSError:
+                pass
+            if not data or cond & (GLib.IO_HUP | GLib.IO_ERR):
+                self.dlt_sock.close()
+                self.dlt_sock = None
+                self.publish_log()
+                GLib.timeout_add(2000, self.dlt_connect)
+                return False
+            changed = False
+            for m in self.dlt_parser.feed(data):
+                changed |= self.diag.message(m)
+            if changed:
+                self.publish_log()
+            return True
+
+        def log_v(self):
+            def var(v):
+                return (dbus.Boolean(v) if isinstance(v, bool) else dbus.UInt32(v) if isinstance(v, int)
+                        else dbus.Double(v) if isinstance(v, float) else dbus.String(v))
+            return dbus.Dictionary({
+                "connected": dbus.Boolean(self.dlt_sock is not None),
+                "apps": dbus.Array([dbus.Dictionary({k: var(v) for k, v in a.items()}, signature="sv")
+                                    for a in self.diag.apps()], signature="a{sv}"),
+                "entries": dbus.Array([dbus.Dictionary({k: var(v) for k, v in e.items()}, signature="sv")
+                                       for e in self.diag.entries], signature="a{sv}")}, signature="sv")
+
+        def publish_log(self):
+            # at most twice a second: a burst of warnings is one update for the UI
+            if not self.log_pending:
+                self.log_pending = True
+                GLib.timeout_add(500, self.send_log)
+
+        def send_log(self):
+            self.log_pending = False
+            self.PropertiesChanged(IFACE, dbus.Dictionary({"Log": self.log_v()}, signature="sv"),
+                                   dbus.Array([], signature="s"))
+            return False
+
+        @dbus.service.method(IFACE, in_signature="ss")
+        def SetLogLevel(self, app, level):
+            app, level = str(app), str(level)
+            if level != "default" and level not in dc.LEVELS:
+                raise dbus.exceptions.DBusException(f"level {level!r}: default, {', '.join(dc.LEVELS)}",
+                                                    name=IFACE + ".Error.InvalidValue")
+            if not 1 <= len(app) <= 4:
+                raise dbus.exceptions.DBusException(f"no application {app!r}", name=IFACE + ".Error.UnknownApp")
+            n = -1 if level == "default" else dc.LEVELS.index(level)
+            if not (self.dlt_send(dc.set_log_level(app, "", n)) and self.dlt_send(dc.store_configuration())
+                    and self.dlt_send(dc.get_log_info())):
+                raise dbus.exceptions.DBusException("no DLT daemon", name=IFACE + ".Error.NotConnected")
+            log.info(f"log level of {app}: {level}")
+
+        # ---- the log onto a USB stick: hu-mediad lends it out writable ----------
+        @dbus.service.method(IFACE)
+        def ExportLog(self):
+            if self.export["state"] == "writing":
+                raise dbus.exceptions.DBusException("an export is running", name=IFACE + ".Error.Busy")
+            self.set_export("writing", "waiting for the USB stick")
+            self.bus.call_async(MEDIA[0], MEDIA[1], MEDIA[2], "LendMedium", "s", ("",), self.export_to,
+                                lambda e: self.set_export("failed", "no USB stick" if "NoMedium" in (e.get_dbus_name() or "")
+                                                          else e.get_dbus_message() or "the media service did not answer"),
+                                timeout=60.0)
+
+        def export_to(self, key, mount):
+            self.set_export("writing", "writing to the USB stick")
+            summary = log_summary(self.info, self.diag.apps(), list(self.diag.entries))
+            result = {}
+
+            def work():                                    # copying megabytes: not on the main loop
+                try:
+                    result.update(export_logs(log_dir, Path(str(mount)), summary))
+                except OSError as e:
+                    result["error"] = str(e)
+                GLib.idle_add(give_back)
+
+            def give_back():
+                def returned(*_):
+                    if "error" in result:
+                        log.warning(f"log export failed: {result['error']}")
+                        self.set_export("failed", result["error"])
+                    else:
+                        mb = result["bytes"] / 1e6
+                        files = f"{result['files']} log file" + ("" if result["files"] == 1 else "s")
+                        log.info(f"log exported: {files}, {mb:.1f} MB to {result['dir']}")
+                        self.set_export("done", f"{files}, {mb:.1f} MB in {result['dir']}",
+                                        result["dir"])
+                self.bus.call_async(MEDIA[0], MEDIA[1], MEDIA[2], "ReturnMedium", "s", (key,), returned, returned,
+                                    timeout=60.0)
+                return False
+            threading.Thread(target=work, daemon=True).start()
+
+        def set_export(self, state, message, path=""):
+            self.export = {"state": state, "message": message, "dir": path}
+            self.PropertiesChanged(IFACE, dbus.Dictionary({"Export": self.export_v()}, signature="sv"),
+                                   dbus.Array([], signature="s"))
+
+        def export_v(self):
+            return dbus.Dictionary({k: dbus.String(v) for k, v in self.export.items()}, signature="sv")
+
+        @dbus.service.method(IFACE)
+        def ClearLog(self):
+            self.diag.clear()
+            self.publish_log()
 
         # ---- shutdown (D12) -------------------------------------------------------
         # ---- system information (Settings -> System) ------------------------------
@@ -446,7 +658,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 before = set(self.shutdown.savers)
                 self.shutdown.gone(name)
                 for n in sorted(before - set(self.shutdown.savers)):
-                    log(f"saver {n} is gone")
+                    log.warning(f"saver {n} is gone")
                 if before != set(self.shutdown.savers):
                     self.publish_shutdown()
 
@@ -462,8 +674,8 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             power = str(changed["Power"])
             if power == "shutdown" and self.shutdown.state != "saving":
                 waiting = self.shutdown.start(time.monotonic())
-                log(f"shutdown: asking {', '.join(waiting) or 'nobody'} to save "
-                    f"(at most {cfg['shutdown']['save_timeout_s']:g} s)")
+                log.info(f"shutdown: asking {', '.join(waiting) or 'nobody'} to save "
+                         f"(at most {cfg['shutdown']['save_timeout_s']:g} s)")
                 if self.save_pending:
                     self.save()
                 self.PrepareForShutdown()
@@ -471,7 +683,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 GLib.timeout_add(50, self.shutdown_tick)
             elif power in ("on", "acc", "crank", "standby"):
                 if self.shutdown.state == "saving":
-                    log("shutdown cancelled: power is back")
+                    log.info("shutdown cancelled: power is back")
                     self.shutdown.cancel(time.monotonic())
                 elif self.shutdown.state != "idle":
                     self.shutdown.state = "idle"
@@ -484,14 +696,14 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             if self.save_pending:
                 self.save()
             os.sync()
-            log(f"shutdown: saved {', '.join(last['saved']) or 'nothing'}"
-                + (f", no answer from {', '.join(last['timed_out'])}" if last["timed_out"] else "")
-                + f" after {last['ms']} ms; acknowledging to the MCU")
+            log.info(f"shutdown: saved {', '.join(last['saved']) or 'nothing'}"
+                     + (f", no answer from {', '.join(last['timed_out'])}" if last["timed_out"] else "")
+                     + f" after {last['ms']} ms; acknowledging to the MCU")
             self.bus.call_async(VEHICLE[0], VEHICLE[1], VEHICLE[2], "ShutdownReady", "", (),
-                                lambda *_: None, lambda e: log(f"vehicled refused the acknowledgement: {e}"), timeout=2.0)
+                                lambda *_: None, lambda e: log.error(f"vehicled refused the acknowledgement: {e}"), timeout=2.0)
             self.publish_shutdown()
             if cfg["shutdown"]["after_ack"] == "poweroff":
-                log("powering off")
+                log.info("powering off")
                 subprocess.Popen(["systemctl", "poweroff"])
             return False
 
@@ -513,7 +725,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
         @dbus.service.method(IFACE, in_signature="s", sender_keyword="sender")
         def RegisterSaver(self, name, sender=None):
             self.shutdown.register(str(name), str(sender or ""))
-            log(f"saver registered: {name}")
+            log.info(f"saver registered: {name}")
             self.publish_shutdown()
 
         @dbus.service.method(IFACE, in_signature="s")
@@ -544,7 +756,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             try:
                 write_state(state_path, self.settings.values)
             except OSError as e:
-                log(f"could not save {state_path}: {e}")
+                log.error(f"could not save {state_path}: {e}")
             return False
 
         def changed(self):
@@ -564,7 +776,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
         def Set(self, name, value):
             try:
                 if self.settings.set(str(name), plain(value)):
-                    log(f"{name} = {self.settings.values[str(name)]}")
+                    log.info(f"{name} = {self.settings.values[str(name)]}")
                     self.changed()
             except SettingError as e:
                 self.fail(e)
@@ -580,7 +792,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
         @dbus.service.method(IFACE)
         def ResetAll(self):
             if self.settings.reset_all():
-                log("all settings back to their defaults")
+                log.info("all settings back to their defaults")
                 self.changed()
 
         @dbus.service.method(PROPS, in_signature="ss", out_signature="v")
@@ -595,13 +807,18 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 return dbus.Double(self.display)
             if name == "Info":
                 return self.info_v()
+            if name == "Log":
+                return self.log_v()
+            if name == "Export":
+                return self.export_v()
             raise dbus.exceptions.DBusException(f"no property {name}", name="org.freedesktop.DBus.Error.UnknownProperty")
 
         @dbus.service.method(PROPS, in_signature="s", out_signature="a{sv}")
         def GetAll(self, iface):
             return dbus.Dictionary({"Settings": self.settings_v(), "Schema": self.schema_v(),
                                     "Shutdown": self.shutdown_v(), "DisplayBrightness": dbus.Double(self.display),
-                                    "Info": self.info_v()},
+                                    "Info": self.info_v(), "Log": self.log_v(),
+                                    "Export": self.export_v()},
                                    signature="sv")
 
         @dbus.service.signal(PROPS, signature="sa{sv}as")
@@ -612,8 +829,8 @@ def run_service(cfg: dict, state_path: Path, system: bool):
     bus = dbus.SystemBus() if system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     System(bus)
-    log(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, "
-        f"{len(cfg['settings'])} settings, state {state_path}")
+    log.info(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, "
+             f"{len(cfg['settings'])} settings, state {state_path}")
     GLib.MainLoop().run()
 
 
@@ -623,6 +840,8 @@ def main():
     state_home = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
     ap.add_argument("--state", default=str(state_home / "r80" / "settings.json"), help="where the settings are saved")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
+    ap.add_argument("--log-dir", default=str(state_home / "r80" / "dlt" / "trace"),
+                    help="the DLT daemon's files, what ExportLog copies (hu/services/dlt-daemon.sh STATE_DIR/trace)")
     ap.add_argument("--check", action="store_true", help="check the config, list the settings and exit")
     a = ap.parse_args()
     try:
@@ -634,7 +853,8 @@ def main():
             rng = f"{s['min']:g}..{s['max']:g}" if s["type"] == "number" else ", ".join(s.get("choices", [])) or "true/false"
             print(f"{n:16s} {s['type']:7s} {rng:45s} default {s['default']}")
         return
-    run_service(cfg, Path(a.state), a.system)
+    dlt.app("SYS", "System service", "sysd")
+    run_service(cfg, Path(a.state), a.system, Path(a.log_dir).expanduser())
 
 
 if __name__ == "__main__":

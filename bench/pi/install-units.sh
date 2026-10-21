@@ -33,6 +33,9 @@ echo "installed ~/.config/wireplumber/wireplumber.conf.d/80-r80-telephony.conf (
 echo "installed ~/.config/pipewire/pipewire.conf.d/80-r80.conf (the R80 call stage)"
 sed -e "s|@USER@|$USER_NAME|g" "$HERE/r80-media.rules" | sudo tee /etc/polkit-1/rules.d/50-r80-media.rules >/dev/null
 echo "installed /etc/polkit-1/rules.d/50-r80-media.rules (user $USER_NAME may mount sticks, set up loop devices)"
+# the HU runs its own DLT daemon (hu/services/dlt-daemon.sh, from r80-kiosk.sh): Debian's would hold port 3490
+sudo systemctl disable --now dlt.service dlt-system.service dlt-dbus.service 2>/dev/null || true
+echo "disabled Debian's dlt units (the HU starts its own DLT daemon)"
 if [[ ! -f /etc/r80-bench.conf ]]; then
   sudo cp "$HERE/r80-bench.conf.example" /etc/r80-bench.conf
   [[ -z "${1:-}" ]] || sudo sed -i "s/^PC_IP=.*/PC_IP=$1/" /etc/r80-bench.conf

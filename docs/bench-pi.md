@@ -114,7 +114,7 @@ sudo apt install -y python3-venv python3-dbus python3-gi gir1.2-glib-2.0 gir1.2-
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-tools \
   gstreamer1.0-alsa libegl1 libgles2 libgbm1 libdrm2 libinput10 \
   libxkbcommon0 libfontconfig1 libxcb-cursor0 libxkbcommon-x11-0 \
-  can-utils cmake build-essential
+  can-utils cmake build-essential dlt-daemon dlt-tools
 
 python3 -m venv --system-site-packages ~/r80-venv
 ~/r80-venv/bin/pip install --upgrade pip
@@ -183,7 +183,7 @@ Without a spare stick, a disk image attached by the bench user plays the stick
 truncate -s 64M /mnt/r80/teststick.img && /usr/sbin/mkfs.vfat -n R80STICK /mnt/r80/teststick.img
 mcopy -i /mnt/r80/teststick.img ~/Music/*.mp3 ::/       # some music onto it
 udisksctl loop-setup -f /mnt/r80/teststick.img           # "plug in" (the desktop mounts it)
-udisksctl unmount -b /dev/loopN && udisksctl loop-delete -b /dev/loopN   # "pull"
+udisksctl loop-delete -b /dev/loopN && udisksctl unmount -b /dev/loopN   # "pull" (this order: else mediad mounts it again)
 ```
 
 A big test stick for scan and browse speed (2000 short tagged tones, 100 albums):
@@ -412,7 +412,7 @@ sudo systemctl disable --now lightdm 2>/dev/null || true
 sudo usermod -aG video,render,input,audio $USER
 ```
 
-`r80-kiosk.sh` starts mcu emu, `vehicled`, `mediad`, `audiod`, `warnd`, `tripd`, `sysd` and `navd`
+`r80-kiosk.sh` starts the DLT daemon, mcu emu, `vehicled`, `mediad`, `audiod`, `warnd`, `tripd`, `sysd` and `navd`
 (`--bluetooth system`), then execs the UI with
 `QT_QPA_PLATFORM=eglfs`. `r80-hu.service` wraps it in `dbus-run-session` so the
 services and the UI share one session bus (`de.r80.Vehicle` / `de.r80.Media`),
@@ -428,6 +428,16 @@ somewhere other than `~/Project_R80`, `~/r80-venv` and `~/Music`; `r80-kiosk.sh`
 also honours `R80_REPO`, `R80_VENV` and `R80_MUSIC`. `./r80 bench run` starts it in
 the foreground, for debugging.
 
+### The log (DLT, D14)
+
+`r80-kiosk.sh` starts the HU's DLT daemon first (`hu/services/dlt-daemon.sh`; Debian's own
+`dlt` units are disabled by `./r80 bench install`, they would hold the port). Its files: a
+16 MB ring in `~/.local/state/r80/dlt/trace/` (`dlt-convert -a <file>`). From the PC, DLT
+Viewer or `dlt-receive -a <PI_IP>` read it live on port 3490. On the HU: Settings →
+Diagnostics (warnings and errors per service, log level per service), and Export to USB
+writes the files and a `summary.txt` onto the stick in `R80-logs/<date_time>/` (the music
+from that stick stops for a few seconds).
+
 ## 12. Verify
 
 - `journalctl -u r80-can -u r80-hu -f` and `cat /tmp/r80-*.log`.
@@ -439,6 +449,8 @@ the foreground, for debugging.
 - `/tmp/r80-sysd.log` says "saver registered: audiod / tripd / mediad"; Settings → System on
   the HU lists 7 of 7 services running. The settings are kept in
   `~/.local/state/r80/settings.json`.
+- `dlt-receive -a localhost` shows the services' lines (ECU `R80`); Settings → Diagnostics
+  lists every service as running.
 - `vcgencmd measure_temp` under load; add cooling if it throttles.
 
 ## 13. Troubleshooting

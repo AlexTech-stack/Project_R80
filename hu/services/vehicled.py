@@ -39,6 +39,7 @@ from gi.repository import GLib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import dlt  # noqa: E402
 import mcu_link as L  # noqa: E402
 from dbc import Database  # noqa: E402
 
@@ -49,8 +50,7 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
 
 
-def log(*a):
-    print("[vehicled]", *a, flush=True)
+log = dlt.context("MAIN", "Vehicle service")
 
 
 def variant(v):
@@ -138,7 +138,7 @@ class Vehicle(dbus.service.Object):
             self.fd = L.open_serial(self.uart_path)
         except OSError:
             return
-        log(f"opened MCU UART {self.uart_path}")
+        log.info(f"opened MCU UART {self.uart_path}")
         GLib.io_add_watch(self.fd, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.on_uart)
         self.send(L.HOST_HELLO, bytes([L.PROTO_VERSION]) + b"hu-vehicled 0.1")
 
@@ -147,7 +147,7 @@ class Vehicle(dbus.service.Object):
             os.close(self.fd)
             self.fd = None
             self.set("LinkUp", False)
-            log("MCU UART closed")
+            log.info("MCU UART closed")
 
     def send(self, msg_type, payload=b""):
         if self.fd is None:
@@ -179,7 +179,7 @@ class Vehicle(dbus.service.Object):
             self.last_mcu_hb = time.monotonic()
             self.set("LinkUp", True)
         elif m.type == L.HELLO:
-            log(f"MCU: {m.payload[1:].decode(errors='replace')} (protocol {m.payload[0]})")
+            log.info(f"MCU: {m.payload[1:].decode(errors='replace')} (protocol {m.payload[0]})")
         elif m.type == L.CAN_RX:
             bus, can_id, data = L.unpack_can(m.payload)
             msg = self.db.get(can_id & 0x1FFFFFFF, bool(can_id & L.CAN_EFF_FLAG))
@@ -213,7 +213,7 @@ class Vehicle(dbus.service.Object):
         if self.props["Power"] == "shutdown":
             self.send(L.SHUTDOWN_READY)
             self.set("Power", "off")
-            log("told MCU we are ready for shutdown")
+            log.info("told MCU we are ready for shutdown")
         return False
 
     def tick(self):
@@ -234,12 +234,13 @@ def main():
     ap.add_argument("--uart", default=str(RUNTIME / "r80-mcu-uart"))
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     a = ap.parse_args()
+    dlt.app("VEH", "Vehicle service", "vehicled")
 
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     Vehicle(bus, Database(a.dbc), a.uart)
-    log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus")
+    log.info(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus")
     GLib.MainLoop().run()
 
 

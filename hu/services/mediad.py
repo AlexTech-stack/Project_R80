@@ -29,6 +29,10 @@ The phone's music starting while nothing else plays switches to Bluetooth.
                   Browse(s path, i offset, i count) -> (s title, i total, aa{sv} entries),
                   PlayFrom(s path, i index): that list's tracks become the queue
                   (errors: de.r80.Media1.Error.NotFound)
+                  LendMedium(s key) -> (s key, s mount): a stick ("" = the first) mounted writable
+                  for hu-sysd's log export; music from it stops and is remembered. ReturnMedium(s
+                  key): read-only again, the music carries on. Taken back by itself after
+                  LEND_S s. Errors: de.r80.Media1.Error.NoMedium, Failed
       signal      Seeked(x position)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
@@ -79,6 +83,7 @@ gi.require_version("GstController", "1.0")
 from gi.repository import GLib, Gst, GstController  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dlt  # noqa: E402
 from browse import browse, tracks_of  # noqa: E402
 from btmedia import PhonePlayer  # noqa: E402
 from callaudio import CallAudio  # noqa: E402
@@ -96,11 +101,11 @@ FOLDER_COVERS = ("cover", "folder", "front", "album")
 COVER_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/gif": "gif", "image/bmp": "bmp"}
 INT32_PROPS = {"TrackIndex", "TrackCount", "Scanned", "SourceTrackCount"}
 UP_NEXT = 5
+LEND_S = 120                    # a stick lent out writable comes back after this at the latest
 TRACK_KEYS = ("title", "artist", "album", "trackNumber", "duration", "cover")
 
 
-def log(*a):
-    print("[mediad]", *a, flush=True)
+log = dlt.context("MAIN", "Media service")
 
 
 def variant(v):
@@ -219,7 +224,7 @@ class Scanner:
         self.queue = [t for t in order if not self.cached(t)]
         self.started, self.count = time.monotonic(), len(self.queue)
         if self.queue:
-            log(f"reading tags of {len(self.queue)} track(s)")
+            log.info(f"reading tags of {len(self.queue)} track(s)")
         self.next()
 
     def stop(self) -> None:
@@ -237,7 +242,7 @@ class Scanner:
             self.timer = None
         if not self.queue:
             if self.count:
-                log(f"read the tags of {self.count} track(s) in {time.monotonic() - self.started:.1f} s")
+                log.info(f"read the tags of {self.count} track(s) in {time.monotonic() - self.started:.1f} s")
                 self.count = 0
             self.current = None
             self.save()
@@ -252,7 +257,7 @@ class Scanner:
     def give_up(self) -> bool:
         self.timer = None
         if self.current:
-            log(f"no tags from {self.current['path']} within {self.TIMEOUT_MS} ms")
+            log.warning(f"no tags from {self.current['path']} within {self.TIMEOUT_MS} ms")
             self.done()
         return False
 
@@ -266,7 +271,7 @@ class Scanner:
             self.done()
         elif t == Gst.MessageType.ERROR:
             err, _dbg = msg.parse_error()
-            log(f"cannot read {self.current['path']}: {err.message if err else '?'}")
+            log.warning(f"cannot read {self.current['path']}: {err.message if err else '?'}")
             self.done()
         return True
 
@@ -402,13 +407,14 @@ class Media(dbus.service.Object):
         GLib.timeout_add(1000, self.publish_scanned)
         self.scanner = Scanner(cache_dir, self.on_scanned)
         self.awaited = None            # (key, play): the stick the last session ended on
+        self.lent = {}                 # stick key -> {"play": it played, "timer": GLib source}
         self.restore(resume_wait)
-        register_saver(bus, "mediad", self.save_state, log)
+        register_saver(bus, "mediad", self.save_state)
         if usb_bus is not None:
-            self.usb = RemovableMedia(usb_bus, self.on_medium_added, self.on_medium_removed, log)
+            self.usb = RemovableMedia(usb_bus, self.on_medium_added, self.on_medium_removed)
         self.bt_audio, self.bt_stage, self.bt_timer, self.bt_ticks = bt_audio, {}, None, 0
         self.bt_was_playing = False
-        self.bt = PhonePlayer(bt_bus, self.on_bt_change, log) if bt_bus is not None else None
+        self.bt = PhonePlayer(bt_bus, self.on_bt_change) if bt_bus is not None else None
         self.refresh_props()
 
     # ---- output and gain --------------------------------------------------
@@ -591,7 +597,7 @@ class Media(dbus.service.Object):
                 self.seek_abs(int(r["position"]))
         self.refresh_props()
         self.save_state()
-        log(f"source {name}: {len(self.library)} track(s) in {self.dir}, queue {self.queue_path!r}, track {self.index}")
+        log.info(f"source {name}: {len(self.library)} track(s) in {self.dir}, queue {self.queue_path!r}, track {self.index}")
 
     # ---- the queue -----------------------------------------------------------
     def set_queue(self, path: str, title: str, tracks: list):
@@ -645,7 +651,7 @@ class Media(dbus.service.Object):
             self.bt_timer = GLib.timeout_add(1000, self.find_bt_stage)
         self.refresh_props()
         self.save_state()
-        log(f"source {name}: {self.bt.name}")
+        log.info(f"source {name}: {dlt.address(self.bt.address)}")
 
     def on_bt_change(self):
         if self.bt.present and BLUETOOTH not in self.sources:
@@ -686,7 +692,7 @@ class Media(dbus.service.Object):
         found = self.bt_audio.music(self.bt.address)
         if found is not None and found != self.bt_stage:
             self.bt_stage = found
-            log(f"Bluetooth music: {found}")
+            log.info(f"Bluetooth music: {found}")
             self.bt_level()
         return True
 
@@ -718,7 +724,7 @@ class Media(dbus.service.Object):
         if self.awaited:
             _key, play = self.awaited
             self.awaited = None
-            log("the last stick did not come back: staying on the Library")
+            log.info("the last stick did not come back: staying on the Library")
             if play and self.tracks:
                 self.Play()
         return False
@@ -734,7 +740,7 @@ class Media(dbus.service.Object):
             tmp.write_text(json.dumps(st))
             tmp.replace(self.state_file)
         except OSError as e:
-            log(f"cannot save {self.state_file}: {e}")
+            log.error(f"cannot save {self.state_file}: {e}")
 
     def on_medium_added(self, key: str, label: str, mount: str, initial: bool):
         same = next((n for n, s in self.sources.items() if s["key"] == key), None)
@@ -857,7 +863,7 @@ class Media(dbus.service.Object):
             self.advance(1, natural=True)
         elif t == Gst.MessageType.ERROR:
             err, dbg = msg.parse_error()
-            log(f"playback error: {err.message if err else '?'} ({dbg or ''})")
+            log.error(f"playback error: {err.message if err else '?'} ({dbg or ''})")
             self.stop()
         elif t == Gst.MessageType.STATE_CHANGED and msg.src == self.player:
             if self.pending:
@@ -1156,6 +1162,70 @@ class Media(dbus.service.Object):
         self.set("Gain", self.gain)
         self.bt_level()
 
+    # ---- a stick lent out writable (hu-sysd's log export) -----------------------
+    @dbus.service.method(IFACE, in_signature="s", out_signature="ss", async_callbacks=("ok", "err"))
+    def LendMedium(self, key, ok, err):
+        if self.usb is None:
+            err(dbus.exceptions.DBusException("no USB sticks here", name="de.r80.Media1.Error.NoMedium"))
+            return
+        key = str(key)
+        found = next((k for k in self.usb.present.values() if not key or k == key), None)
+        if found is None:
+            err(dbus.exceptions.DBusException("no USB stick", name="de.r80.Media1.Error.NoMedium"))
+            return
+        name = next((n for n, s in self.sources.items() if s["key"] == found), None)
+        play = False
+        if name is not None and name == self.source:      # it plays from that stick: stop, keep the place
+            play = self.status == "playing"
+            self.remember()
+            self.scanner.stop()
+            self.stop()
+            self.status = "paused"
+            self.set("PlaybackStatus", "paused")
+
+        def done(k, mount):
+            self.lent[k] = {"play": play, "timer": GLib.timeout_add_seconds(LEND_S, self.take_back, k)}
+            log.info(f"lent {k} out writable")
+            ok(k, mount)
+
+        def failed(reason):
+            self.carry_on(found, play)
+            err(dbus.exceptions.DBusException(reason, name="de.r80.Media1.Error.Failed"))
+        self.usb.open_for_writing(found, done, failed)
+
+    @dbus.service.method(IFACE, in_signature="s", async_callbacks=("ok", "err"))
+    def ReturnMedium(self, key, ok, err):
+        self.take_back(str(key), ok)
+
+    def take_back(self, key, ok=None):
+        lent = self.lent.pop(key, None)
+        if lent is None:
+            if ok:
+                ok()
+            return False
+        if ok:                                             # asked for: the time limit is not needed any more
+            GLib.source_remove(lent["timer"])
+        else:
+            log.warning(f"{key} was not given back within {LEND_S} s: taken back")
+
+        def done(mount):
+            if mount:
+                for s in self.sources.values():
+                    if s.get("key") == key:
+                        s["dir"] = Path(mount)
+            log.info(f"{key} read-only again")
+            self.carry_on(key, lent["play"])
+            if ok:
+                ok()
+        self.usb.close_for_writing(key, done)
+        return False
+
+    def carry_on(self, key, play):
+        """The music from a stick that was lent out: from where it was."""
+        name = next((n for n, s in self.sources.items() if s.get("key") == key), None)
+        if name is not None and name == self.source:
+            self.use_source(name, play)                   # the same source: nothing remembered over it
+
     @dbus.service.method(IFACE, in_signature="s")
     def SetSource(self, source):
         # The Library, the sticks and (while a phone is connected) Bluetooth
@@ -1190,6 +1260,7 @@ def main():
     ap.add_argument("--resume-wait", type=float, default=15.0,
                     help="how long to wait at start for the stick the last session played (s, default 15)")
     a = ap.parse_args()
+    dlt.app("MED", "Media service", "mediad")
 
     music_dir = Path(a.music_dir).expanduser()
 
@@ -1198,11 +1269,11 @@ def main():
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     usb_bus = None if not a.usb else dbus.SystemBus() if a.usb == "system" else dbus.SessionBus()
-    log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, Library {music_dir}"
-        + (f", USB sticks via udisks2 on the {a.usb} bus" if a.usb else ""))
+    log.info(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, Library {music_dir}"
+             + (f", USB sticks via udisks2 on the {a.usb} bus" if a.usb else ""))
     bt_bus = None if not a.bluetooth else dbus.SystemBus() if a.bluetooth == "system" else dbus.SessionBus()
     media = Media(bus, music_dir, Path(a.cache_dir).expanduser(), Path(a.state).expanduser(), a.sink, a.buffer_ms,
-                  usb_bus, a.resume_wait, bt_bus, CallAudio(log) if a.bluetooth and a.bt_audio == "pipewire" else None)
+                  usb_bus, a.resume_wait, bt_bus, CallAudio() if a.bluetooth and a.bt_audio == "pipewire" else None)
     loop = GLib.MainLoop()
 
     def terminate(*_):

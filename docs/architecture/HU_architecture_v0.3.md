@@ -1,6 +1,6 @@
 # R80 Headunit – Architecture (v0.3)
 
-Status: v0.3, last updated 2026-10-20 with Alex's decisions D1 to D13 (see §0). §4 to §6 say what is built
+Status: v0.3, last updated 2026-10-21 with Alex's decisions D1 to D14 (see §0). §4 to §6 say what is built
 in `hu/` (runs on a PC and on the Raspberry Pi bench, started with `./r80`) and what is still a proposal.
 
 ## 0. Decisions so far (2026-09-28)
@@ -20,6 +20,7 @@ in `hu/` (runs on a PC and on the Raspberry Pi bench, started with `./r80`) and 
 | D11 | Navigation | Agreed 2026-10-14: the phone navigates, the HU displays. A full offline navigation on the HU is not built: it would be the most resource-hungry part of the device, always worse than the phone's, and a readable map in the HU's style is a project of its own. An own Android app (R80 Companion, in this repo, Android 14 and newer) reads the turn-by-turn guidance of the phone's navigation app (Google Maps' navigation notification first, OsmAnd's interface as a second source) and sends it over Bluetooth RFCOMM to the HU (`docs/companion-protocol.md`). A navigation service (`navd`) publishes it; the UI shows the next maneuver, distance, street and arrival in its own style. Navigation needs the phone; that is accepted. The voice prompts come from the phone. Later: a reduced overview map drawn by the HU itself (main roads only), more phone sensors, and extending the HU's UI from the phone (concept open). A pointer towards the destination is dropped for now: there is no easy way to get the destination's coordinates. |
 | D12 | System and settings | Agreed 2026-10-15: a system service (`sysd`) keeps the user's settings and saves them, so they survive a restart; what each setting may be (type, range, default) lives in a file, not in code. It also coordinates the shutdown: when the MCU announces off, the services save their state, then the MCU gets its acknowledgement, and on the target Linux powers off cleanly before the MCU cuts the power (off on the bench). Display brightness at night follows the car's dimmer as the base, with the user's brightness setting on top (like modern devices). English only, no language setting, at least until feature complete. The HU always starts on Home. Logging and software updates come later. |
 | D13 | Phone | Agreed 2026-10-20: a phone service (`phoned`) does calls over Bluetooth hands-free on PipeWire's own telephony service (no oFono): ringing with caller ID, answer, reject, end, dial, microphone mute; one phone at a time, the one that connected last. Contacts and call history are copied from the phone (PBAP) and kept on the HU per phone, only with the driver's consent (asked the first time a phone connects; Settings → Phone syncs again or deletes the copy); favourites are local to the HU. Phone sound keeps the phone at full level; the HU sets the level itself on PipeWire stages of its own (calls: phone volume plus a call boost; music from the phone: the media volume). Music from the phone is a media source (A2DP + AVRCP): the phone plays and keeps the queue. |
+| D14 | Logging and diagnostics | Agreed 2026-10-21: the HU logs with DLT (AUTOSAR Diagnostic Log and Trace), protocol version 1 so DLT Viewer and the COVESA tools read it: the HU runs the COVESA dlt-daemon (ECU ID `R80`), every service and the UI is a DLT application with contexts per part, and log levels can be changed from outside (DLT Viewer, Settings → Diagnostics) and are kept. The daemon keeps a 16 MB ring of files on the HU. Settings → Diagnostics shows the warnings and errors per service and exports the files onto a USB stick; the stick, mounted read-only for music, is mounted writable only for that (the music from it stops for a few seconds). Logs never hold personal data (D13). The vehicle MCU's own log can join later as a second ECU (AUTOSAR CP Dlt). |
 
 Car: Audi A3 Sportback 8PA, 2005 (PQ35 platform), heavily modified.
 Starting point: the QML mockup v0.3 (now the UI in `hu/ui/`).
@@ -160,7 +161,8 @@ All open source, in line with the project rule:
 | phone | own code (`phoned`, D13) on PipeWire's Bluetooth telephony, BlueZ obexd (PBAP) | Built: calls (HFP: caller ID, answer, reject, end, dial, microphone mute), contacts and call history copied per phone with consent, local favourites, the call's own PipeWire stage at the phone volume plus a call boost. Planned: echo cancellation (a PipeWire filter in the call stage), messages (MAP). |
 | radio | own driver for the tuner module | Planned: FM/DAB+, RDS/DLS text, presets (tuner not chosen). |
 | navigation | own code (`navd`), guidance from the R80 Companion app over BlueZ RFCOMM (D11) | Built: the phone's navigation app routes; the HU shows its guidance in the line-art style. Later: a small overview map drawn by the HU. |
-| system | own code (`sysd`, D12) | Built: settings storage, shutdown coordination with the MCU, display brightness, system information. Later: logging, updates. |
+| system | own code (`sysd`, D12) | Built: settings storage, shutdown coordination with the MCU, display brightness, system information. Later: software updates. |
+| logging | COVESA dlt-daemon and libdlt (D14) | Built: one DLT log for the services and the UI (`hu/services/dlt.py`), a 16 MB ring of files on the HU, DLT Viewer over TCP 3490; sysd reads it as a client for Settings → Diagnostics (warnings and errors per service, log level per service) and the export onto a USB stick. Later: the system's own log (PipeWire, BlueZ, kernel) through `dlt-system`, the MCU's log as a second ECU. |
 
 Why D-Bus: BlueZ, oFono, PipeWire, MPRIS and systemd already speak it, Qt has
 native support, and each service can be restarted or tested on its own.
@@ -199,6 +201,7 @@ Done:
 - Phone (D13): calls over hands-free, contacts and call history with consent, local
   favourites, music from the phone; stand-ins for PipeWire's telephony, obexd and BlueZ's
   player in the virtual environment.
+- Logging and diagnostics (D14): one DLT log, Settings → Diagnostics, export onto a stick.
 - One product, three run modes (`./r80 demo | virtual | bench`).
 - Raspberry Pi 3B bench: CAN tunnel from the test PC, headless display over VNC, the
   phone over real Bluetooth, USB sticks (`docs/bench-pi.md`).
@@ -207,8 +210,7 @@ Next:
 1. Bench: a USB Bluetooth adapter instead of the Pi 3B's built-in one, then the long call
    and phone-music tests; echo cancellation for the car's speakers and microphone.
 2. Startup time and memory on the Pi against the targets of §5 (UI < 8 s).
-3. Logging and diagnostics: one log, errors under Settings → System, export to a stick;
-   then software updates (D12).
+3. Software updates (D12); the system's own log (PipeWire, BlueZ, kernel) into DLT.
 4. Radio with a simulated tuner behind a thin hardware layer (needs: FM only or FM + DAB+).
 5. Log the three real buses and replace the test DBC with the real messages (also: DIS
    text to the cluster, the dimmer input).

@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import companion_link as cl  # noqa: E402
+import dlt  # noqa: E402
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "nav.ini"
 SYSTEM_CONFIG = Path("/etc/r80/nav.ini")
@@ -49,8 +50,7 @@ KEYS = {"link": {"heartbeat_s": (0.2, 60), "link_timeout_s": (0.5, 600), "hello_
         "guidance": {"keep_after_loss_s": (0, 3600)}}
 
 
-def log(*a):
-    print("[navd]", *a, flush=True)
+log = dlt.context("MAIN", "Navigation service")
 
 
 class ConfigError(ValueError):
@@ -223,7 +223,7 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                 tcp.listen(2)
                 self.tcp = tcp
                 GLib.io_add_watch(tcp.fileno(), GLib.IO_IN, self.on_accept, tcp)
-                log(f"phone link also on TCP port {tcp_port} (development only: no authentication)")
+                log.warning(f"phone link also on TCP port {tcp_port} (development only: no authentication)")
             GLib.timeout_add(200, self.on_tick)
 
         # ---- transport ------------------------------------------------------
@@ -235,13 +235,13 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
         def adopt(self, conn: socket.socket, how: str):
             """Takes over a new phone connection, whichever way it came in."""
             if self.conn:
-                log("a new phone connection replaces the old one")
+                log.info("a new phone connection replaces the old one")
                 self.drop()
             conn.setblocking(False)
             self.conn, self.decoder, self.conn_from = conn, cl.Decoder(), how
             self.link.connect(time.monotonic())
             self.watch = GLib.io_add_watch(conn.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.on_data)
-            log(f"phone connection opened ({how})")
+            log.info(f"phone connection opened ({how})")
 
         def on_data(self, _fd, cond):
             try:
@@ -251,7 +251,7 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             except OSError:
                 data = b""
             if not data:
-                log("phone link closed by the phone")
+                log.info("phone link closed by the phone")
                 self.watch = None          # returning False removes this watch
                 self.drop()
                 return False
@@ -263,14 +263,14 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             for _ in range(self.decoder.errors - before):
                 self.link.bad_line()
             if self.decoder.errors > before:
-                log(f"dropped {self.decoder.errors - before} bad line(s): {self.decoder.last_error}")
+                log.warning(f"dropped {self.decoder.errors - before} bad line(s): {self.decoder.last_error}")
             if self.link.close:
-                log(f"closing the phone link: {self.link.why}")
+                log.info(f"closing the phone link: {self.link.why}")
                 self.watch = None
                 self.drop()
                 return False
             if self.link.greeted and not self.published.get("Phone", {}).get("connected"):
-                log(f"phone hello: {self.link.device or 'unnamed device'}, {self.link.app}")
+                log.info(f"phone hello: {self.link.app}")      # not the device's name: it is often the driver's
             self.publish()
             return True
 
@@ -301,7 +301,7 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
         def on_tick(self):
             self.send(self.link.tick(time.monotonic()))
             if self.link.close and self.conn:
-                log(f"phone link lost: {self.link.why}")
+                log.warning(f"phone link lost: {self.link.why}")
                 self.drop()
             self.publish()
             return True
@@ -348,7 +348,7 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             if bt_bus.name_has_owner(BLUEZ):
                 self.register()
             else:
-                log(f"waiting for BlueZ on the {bluez_bus} bus")
+                log.info(f"waiting for BlueZ on the {bluez_bus} bus")
 
         def on_owner(self, _name, _old, new):
             if new:
@@ -363,8 +363,8 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                                    signature="sv")
             self.bt_bus.call_async(BLUEZ, "/org/bluez", "org.bluez.ProfileManager1", "RegisterProfile", "osa{sv}",
                                    (dbus.ObjectPath(PROFILE_PATH), cl.SERVICE_UUID, opts),
-                                   lambda: log(f"Bluetooth: companion service registered with BlueZ ({cl.SERVICE_UUID})"),
-                                   lambda e: log(f"Bluetooth: BlueZ refused the companion service: {e.get_dbus_message()}"),
+                                   lambda: log.info(f"Bluetooth: companion service registered with BlueZ ({cl.SERVICE_UUID})"),
+                                   lambda e: log.error(f"Bluetooth: BlueZ refused the companion service: {e.get_dbus_message()}"),
                                    timeout=5.0)
 
         @dbus.service.method("org.bluez.Profile1", in_signature="oha{sv}")
@@ -377,18 +377,18 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
         def RequestDisconnection(self, device):
             conn = self.devices.pop(str(device), None)
             if conn is not None and conn is self.nav.conn:
-                log("Bluetooth: BlueZ asks to disconnect the phone")
+                log.info("Bluetooth: BlueZ asks to disconnect the phone")
                 self.nav.drop()
 
         @dbus.service.method("org.bluez.Profile1")
         def Release(self):
-            log("Bluetooth: BlueZ released the companion service")
+            log.info("Bluetooth: BlueZ released the companion service")
 
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus() if system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     nav = Nav(bus)
-    log(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, phone link on {sock_path}")
+    log.info(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, phone link on {sock_path}")
     if bluez_bus:
         bt_bus = dbus.SystemBus() if bluez_bus == "system" else dbus.SessionBus()
         Profile(bt_bus, nav)
@@ -406,6 +406,7 @@ def main():
                          "Bluetooth stack, session = the tests' stand-in)")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     a = ap.parse_args()
+    dlt.app("NAV", "Navigation service", "navd")
     try:
         cfg = load_config(a.config)
     except ConfigError as e:

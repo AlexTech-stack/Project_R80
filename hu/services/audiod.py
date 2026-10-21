@@ -59,6 +59,7 @@ import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
+import dlt
 from saver import register_saver
 
 BUS_NAME = "de.r80.Audio"
@@ -73,8 +74,7 @@ DEFAULT_CONFIG = Path(__file__).resolve().parent / "audio.ini"
 SYSTEM_CONFIG = Path("/etc/r80/audio.ini")
 
 
-def log(*a):
-    print("[audiod]", *a, flush=True)
+log = dlt.context("MAIN", "Audio service")
 
 
 class ConfigError(ValueError):
@@ -239,7 +239,7 @@ def read_state(path: Path) -> dict | None:
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as e:
-        log(f"ignoring unreadable state {path}: {e}")
+        log.warning(f"ignoring unreadable state {path}: {e}")
         return None
 
 
@@ -275,8 +275,8 @@ class Audio(dbus.service.Object):
         self.media_gain = None          # last gain sent to mediad
         self.phone_gain = None          # ... and to phoned
         self.refresh()
-        log(f"master {self.master}/{cfg['max']} (saved {saved.get('master') if isinstance(saved, dict) else None}, "
-            f"cap {cfg['startup_cap']}), volumes {self.volumes}, state {state_path}")
+        log.info(f"master {self.master}/{cfg['max']} (saved {saved.get('master') if isinstance(saved, dict) else None}, "
+                 f"cap {cfg['startup_cap']}), volumes {self.volumes}, state {state_path}")
 
         bus.add_signal_receiver(self.on_input, "Input", VEHICLE[2], None, VEHICLE[1])
         bus.add_signal_receiver(self.on_vehicle_props, "PropertiesChanged", PROPS_IFACE, None, VEHICLE[1])
@@ -285,7 +285,7 @@ class Audio(dbus.service.Object):
         GLib.timeout_add(100, self.flush)
         GLib.idle_add(self.push_media)
         GLib.idle_add(self.push_phone)
-        register_saver(bus, "audiod", self.save, log)      # volumes and tone saved before a shutdown (D12)
+        register_saver(bus, "audiod", self.save)      # volumes and tone saved before a shutdown (D12)
 
     # ---- state -------------------------------------------------------------
     def gains(self) -> dict:
@@ -318,7 +318,7 @@ class Audio(dbus.service.Object):
         try:
             write_state(self.state_path, self.master, self.volumes, self.tone)
         except OSError as e:
-            log(f"could not save {self.state_path}: {e}")
+            log.error(f"could not save {self.state_path}: {e}")
         return False
 
     def set(self, name, value):
@@ -459,12 +459,12 @@ class Audio(dbus.service.Object):
         # otherwise reach audiod before the news that the HU is on, and get lost.
         self.bus.call_async(VEHICLE[0], VEHICLE[1], PROPS_IFACE, "Get", "ss", (VEHICLE[2], "Power"),
                             lambda power: self.on_key(kind, str(power)),
-                            lambda e: log(f"ignoring {kind}: no power state from hu-vehicled ({e})"),
+                            lambda e: log.warning(f"ignoring {kind}: no power state from hu-vehicled ({e})"),
                             timeout=1.0)
 
     def on_key(self, kind, power):
         if power in ("off", "shutdown"):
-            log(f"ignoring {kind}: HU power is {power}")
+            log.info(f"ignoring {kind}: HU power is {power}")
         elif kind == "button:VOL_UP":
             self.Step(1)
         elif kind == "button:VOL_DOWN":
@@ -571,6 +571,7 @@ def main():
     ap.add_argument("--state", default=str(state_home / "r80" / "audio.json"), help="where the volumes are saved")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     a = ap.parse_args()
+    dlt.app("AUD", "Audio service", "audiod")
     try:
         cfg = load_config(a.config)
     except ConfigError as e:
@@ -580,7 +581,7 @@ def main():
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     Audio(bus, cfg, Path(a.state))
-    log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus")
+    log.info(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus")
     GLib.MainLoop().run()
 
 

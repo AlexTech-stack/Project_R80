@@ -30,13 +30,14 @@ import sys
 import time
 from pathlib import Path
 
+import dlt
+
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "trip.ini"
 SYSTEM_CONFIG = Path("/etc/r80/trip.ini")
 WHICH = ("since_start", "long_term")
 
 
-def log(*a):
-    print("[tripd]", *a, flush=True)
+log = dlt.context("MAIN", "Trip computer")
 
 
 class ConfigError(ValueError):
@@ -153,7 +154,7 @@ def read_state(path: Path):
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as e:
-        log(f"ignoring unreadable state {path}: {e}")
+        log.warning(f"ignoring unreadable state {path}: {e}")
         return None
 
 
@@ -190,7 +191,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                                     "org.freedesktop.DBus", "/org/freedesktop/DBus")
             GLib.idle_add(self.read_all)
             GLib.timeout_add(1000, self.tick)
-            register_saver(bus, "tripd", self.save, log)   # trips saved before a shutdown (D12)
+            register_saver(bus, "tripd", self.save)   # trips saved before a shutdown (D12)
 
         def read_all(self):
             self.bus.call_async(VEHICLE[0], VEHICLE[1], PROPS, "GetAll", "s", (VEHICLE[2],),
@@ -206,7 +207,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 return
             if "Power" in changed:
                 if self.trips.on_power(time.time(), str(changed["Power"])):
-                    log("ignition was off longer than auto_reset_h: 'since start' starts over")
+                    log.info("ignition was off longer than auto_reset_h: 'since start' starts over")
                 self.save()
             if "Odometer" in changed:
                 self.trips.on_odometer(float(changed["Odometer"]))
@@ -229,7 +230,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             try:
                 write_state(state_path, self.trips.state(time.time()))
             except OSError as e:
-                log(f"could not save {state_path}: {e}")
+                log.error(f"could not save {state_path}: {e}")
 
         def variant(self, which):
             v = self.trips.values(which)
@@ -269,7 +270,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 raise dbus.exceptions.DBusException(f"unknown trip {which!r}; known: {', '.join(WHICH)}",
                                                     name="de.r80.Trip1.Error.UnknownTrip")
             self.trips.reset(which)
-            log(f"reset {which}")
+            log.info(f"reset {which}")
             self.publish()
             self.save()
 
@@ -277,7 +278,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
     bus = dbus.SystemBus() if system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     Trip(bus)
-    log(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, state {state_path}")
+    log.info(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, state {state_path}")
     GLib.MainLoop().run()
 
 
@@ -288,6 +289,7 @@ def main():
     ap.add_argument("--state", default=str(state_home / "r80" / "trip.json"), help="where the trips are saved")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     a = ap.parse_args()
+    dlt.app("TRP", "Trip computer", "tripd")
     try:
         cfg = load_config(a.config)
     except ConfigError as e:

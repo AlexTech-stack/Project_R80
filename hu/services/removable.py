@@ -10,10 +10,17 @@ test stick, docs/bench-pi.md). Such a filesystem is used where it is mounted, or
 rule must allow that for the HU's user). It is gone when udisks removes it or it is
 unmounted.
 
-    watcher = RemovableMedia(bus, on_added, on_removed, log)
+    watcher = RemovableMedia(bus, on_added, on_removed)
     on_added(key, name, mount_path, initial)    key: "usb:<filesystem UUID>", name: its label or "",
                                                 initial: it was there when udisks2 was first asked
     on_removed(key)
+
+    watcher.open_for_writing(key, done, failed)  # key "" = the first stick: unmount, mount writable,
+                                                 # done(key, mount_path) | failed(reason)
+    watcher.close_for_writing(key, done)         # unmount, mount read-only again: done(mount_path | None)
+
+While a stick is lent out for writing (hu-sysd's log export), its mounts changing is not a
+medium going or coming; pulling it still is.
 
 Runs udisks2 on the system bus on the target; the BoAt tests put a stand-in on the
 session bus (mediad --usb session). Needs a dbus-python bus with a GLib main loop.
@@ -22,11 +29,18 @@ from __future__ import annotations
 
 import dbus
 
+import dlt
+
+log = dlt.context("USB", "USB sticks (udisks2)")
 UDISKS = "org.freedesktop.UDisks2"
 ROOT = "/org/freedesktop/UDisks2"
 OM = "org.freedesktop.DBus.ObjectManager"
 PROPS = "org.freedesktop.DBus.Properties"
 BLOCK, FS, DRIVE, LOOP = UDISKS + ".Block", UDISKS + ".Filesystem", UDISKS + ".Drive", UDISKS + ".Loop"
+
+
+def _message(e) -> str:
+    return e.get_dbus_message() if hasattr(e, "get_dbus_message") else str(e)
 
 
 def _path(mount_point) -> str:
@@ -35,13 +49,14 @@ def _path(mount_point) -> str:
 
 
 class RemovableMedia:
-    def __init__(self, bus, on_added, on_removed, log=print):
+    def __init__(self, bus, on_added, on_removed):
         self.bus = bus
-        self.on_added, self.on_removed, self.log = on_added, on_removed, log
+        self.on_added, self.on_removed = on_added, on_removed
         self.objects: dict[str, dict] = {}     # object path -> {interface: {property: value}}
         self.present: dict[str, str] = {}      # object path -> key of a medium in use
         self.mounting: set[str] = set()
         self.initial: set[str] = set()         # filesystems udisks2 listed at our start
+        self.writing: set[str] = set()         # object paths lent out writable (or on their way)
         bus.add_signal_receiver(self.on_ifaces_added, "InterfacesAdded", OM, UDISKS, ROOT)
         bus.add_signal_receiver(self.on_ifaces_removed, "InterfacesRemoved", OM, UDISKS, ROOT)
         bus.add_signal_receiver(self.on_props, "PropertiesChanged", PROPS, UDISKS, None, path_keyword="path")
@@ -50,12 +65,12 @@ class RemovableMedia:
         if bus.name_has_owner(UDISKS):
             self.load()
         else:
-            log("waiting for udisks2")
+            log.info("waiting for udisks2")
 
     # ---- udisks2 objects -------------------------------------------------
     def load(self):
         self.bus.call_async(UDISKS, ROOT, OM, "GetManagedObjects", "", (), self.on_objects,
-                            lambda e: self.log(f"udisks2: {e}"), timeout=5.0)
+                            lambda e: log.error(f"udisks2: {e}"), timeout=5.0)
 
     def on_objects(self, objects):
         self.objects = {str(p): {str(i): dict(props) for i, props in ifaces.items()} for p, ifaces in objects.items()}
@@ -118,34 +133,82 @@ class RemovableMedia:
             if path in self.present:
                 self.gone(path)
             return
+        if path in self.writing:                           # unmounted / remounted on purpose
+            return
         mounts = [_path(m) for m in self.objects[path][FS].get("MountPoints", [])]
         if mounts:
             if path not in self.present:
                 key = self.key(path)
                 self.present[path] = key                   # the same medium on a new device: on_added again
-                self.log(f"removable medium {key} at {mounts[0]}")
+                log.info(f"removable medium {key} at {mounts[0]}")
                 self.on_added(key, str(self.objects[path][BLOCK].get("IdLabel", "")), mounts[0], path in self.initial)
         elif path in self.present:
             self.gone(path)                                # unmounted under us
         elif path not in self.mounting:
             self.mount(path)
 
-    def mount(self, path: str):
+    def mount(self, path: str, options: str = "ro", done=None, failed=None):
         self.mounting.add(path)
-        opts = dbus.Dictionary({"options": "ro", "auth.no_user_interaction": True}, signature="sv")
+        opts = dbus.Dictionary({"options": options, "auth.no_user_interaction": True}, signature="sv")
 
-        def done(mount_path):
+        def ok(mount_path):
             self.mounting.discard(path)
             if path in self.objects:                       # MountPoints may not have changed yet
                 self.objects[path][FS]["MountPoints"] = [dbus.ByteArray(str(mount_path).encode() + b"\x00")]
+            if done:
+                done(str(mount_path))
+            else:
                 self.check(path)
 
-        def failed(e):
-            self.log(f"cannot mount {path}: {e.get_dbus_message() if hasattr(e, 'get_dbus_message') else e}")
-        self.bus.call_async(UDISKS, path, FS, "Mount", "a{sv}", (opts,), done, failed, timeout=30.0)
+        def err(e):
+            self.mounting.discard(path)
+            log.warning(f"cannot mount {path} ({options}): {_message(e)}")
+            if failed:
+                failed(_message(e))
+        self.bus.call_async(UDISKS, path, FS, "Mount", "a{sv}", (opts,), ok, err, timeout=30.0)
+
+    def unmount(self, path: str, done, failed):
+        opts = dbus.Dictionary({"auth.no_user_interaction": True}, signature="sv")
+
+        def err(e):
+            log.error(f"cannot unmount {path}: {_message(e)}")
+            failed(_message(e))
+        self.bus.call_async(UDISKS, path, FS, "Unmount", "a{sv}", (opts,), lambda *_: done(), err, timeout=30.0)
+
+    # ---- lent out writable (the log export) ---------------------------------
+    def open_for_writing(self, key: str, done, failed):
+        path = next((p for p, k in self.present.items() if not key or k == key), None)
+        if path is None or path in self.writing:
+            failed("no USB stick" if path is None else "the stick is already lent out")
+            return
+        key = self.present[path]
+        self.writing.add(path)
+
+        def back(reason):
+            self.writing.discard(path)
+            self.check(path)                               # mounted read-only again if it can be
+            failed(reason)
+        self.unmount(path, lambda: self.mount(path, "rw", lambda mp: done(key, mp), back), back)
+
+    def close_for_writing(self, key: str, done):
+        path = next((p for p, k in self.present.items() if k == key and p in self.writing), None)
+        if path is None:
+            done(None)
+            return
+
+        def mounted(mp):
+            self.writing.discard(path)
+            done(mp)
+
+        def failed(_reason):
+            self.writing.discard(path)
+            self.check(path)
+            done(None)
+        self.unmount(path, lambda: self.mount(path, "ro", mounted, failed), failed)
 
     def gone(self, path: str):
+        self.writing.discard(path)
         key = self.present.pop(path, None)
         if key and key not in self.present.values():      # not still there on another device
-            self.log(f"removable medium {key} gone")
+            log.info(f"removable medium {key} gone")
             self.on_removed(key)

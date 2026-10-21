@@ -7,7 +7,7 @@ on changes only), Shuffle (off | alltracks | group), Repeat (off | singletrack |
 group); Play, Pause, Next, Previous. The sound itself is PipeWire's (A2DP stream, see
 mediad); this only watches and remote-controls the player.
 
-    player = PhonePlayer(bus, on_change, log)     # on_change(): appeared, gone or changed
+    player = PhonePlayer(bus, on_change)     # on_change(): appeared, gone or changed
     player.present, player.address, player.name, player.track(), player.playing(), player.position_us()
     player.call("Play" | "Pause" | "Next" | "Previous"), player.set_shuffle(b), player.set_repeat(b)
 
@@ -20,6 +20,9 @@ import time
 
 import dbus
 
+import dlt
+
+log = dlt.context("BTPL", "The phone's music player (AVRCP)")
 BLUEZ = "org.bluez"
 OM, PROPS = "org.freedesktop.DBus.ObjectManager", "org.freedesktop.DBus.Properties"
 PLAYER, DEVICE = BLUEZ + ".MediaPlayer1", BLUEZ + ".Device1"
@@ -40,8 +43,8 @@ def _py(v):
 
 
 class PhonePlayer:
-    def __init__(self, bus, on_change, log=print):
-        self.bus, self.on_change, self.log = bus, on_change, log
+    def __init__(self, bus, on_change):
+        self.bus, self.on_change = bus, on_change
         self.players: dict[str, dict] = {}         # player path -> props (+ "_order", "_at")
         self.devices: dict[str, dict] = {}         # device path -> Device1 props
         self.order = 0
@@ -81,7 +84,7 @@ class PhonePlayer:
         elif PLAYER in ifaces:
             self.order += 1
             self.players[path] = dict(_py(ifaces[PLAYER]), _order=self.order, _at=time.monotonic())
-            self.log(f"phone player: {path.rsplit('/', 1)[-1]} of {self.device_of(path).get('Address', '?')}")
+            log.info(f"phone player: {path.rsplit('/', 1)[-1]} of {dlt.address(self.device_of(path).get('Address', '?'))}")
             if notify:
                 self.on_change()
 
@@ -89,7 +92,7 @@ class PhonePlayer:
         path = str(path)
         if PLAYER in ifaces and path in self.players:
             del self.players[path]
-            self.log("phone player gone")
+            log.info("phone player gone")
             self.on_change()
         if DEVICE in ifaces:
             self.devices.pop(path, None)
@@ -160,13 +163,13 @@ class PhonePlayer:
         p = self.current()
         if p:
             self.bus.call_async(BLUEZ, p, PLAYER, method, "", (), lambda *_: None,
-                                lambda e: self.log(f"phone player {method}: {e}"), timeout=5.0)
+                                lambda e: log.warning(f"phone player {method}: {e}"), timeout=5.0)
 
     def set(self, prop: str, value: str):
         p = self.current()
         if p:
             self.bus.call_async(BLUEZ, p, PROPS, "Set", "ssv", (PLAYER, prop, dbus.String(value, variant_level=1)),
-                                lambda *_: None, lambda e: self.log(f"phone player {prop}: {e}"), timeout=5.0)
+                                lambda *_: None, lambda e: log.warning(f"phone player {prop}: {e}"), timeout=5.0)
 
     def set_shuffle(self, on: bool):
         self.set("Shuffle", "alltracks" if on else "off")

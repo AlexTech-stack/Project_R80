@@ -65,6 +65,7 @@ from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dlt  # noqa: E402
 import vcard  # noqa: E402
 from callaudio import CallAudio  # noqa: E402
 from phonebook import PbapClient, Store  # noqa: E402
@@ -80,8 +81,7 @@ LIVE_STATES = ("active", "held", "dialing", "alerting", "incoming", "waiting")
 SYNC_TIMEOUT_S = 300                     # a phone that never answers the PBAP request
 
 
-def log(*a):
-    print("[phoned]", *a, flush=True)
+log = dlt.context("MAIN", "Phone service")
 
 
 def plain(v):
@@ -145,14 +145,14 @@ class Phone(dbus.service.Object):
         if tel_bus.name_has_owner(TEL):
             self.load()
         else:
-            log("waiting for PipeWire's telephony service (org.pipewire.Telephony)")
+            log.info("waiting for PipeWire's telephony service (org.pipewire.Telephony)")
         GLib.timeout_add(100, self.flush)
         self.refresh()
 
     # ---- PipeWire telephony ------------------------------------------------
     def load(self):
         self.tel.call_async(TEL, TEL_ROOT, OM, "GetManagedObjects", "", (), self.on_ags,
-                            lambda e: log(f"telephony: {e}"), timeout=5.0)
+                            lambda e: log.info(f"telephony: {e}"), timeout=5.0)
 
     def on_ags(self, objects):
         for path, ifaces in objects.items():
@@ -164,9 +164,9 @@ class Phone(dbus.service.Object):
             return
         self.order += 1
         self.ags[path] = {"address": props.get("Address", ""), "added": self.order}
-        log(f"phone connected: {path} ({self.ags[path]['address']})")
+        log.info(f"phone connected: {path} ({dlt.address(self.ags[path]['address'])})")
         self.tel.call_async(TEL, path, OM, "GetManagedObjects", "", (), lambda objs: self.on_calls(path, objs),
-                            lambda e: log(f"calls of {path}: {e}"), timeout=5.0)
+                            lambda e: log.info(f"calls of {path}: {e}"), timeout=5.0)
         self.refresh()
 
     def on_calls(self, ag: str, objects):
@@ -181,7 +181,7 @@ class Phone(dbus.service.Object):
         self.calls[path] = {"ag": ag, "number": props.get("LineIdentification", ""), "name": props.get("Name", ""),
                             "state": state, "direction": "in" if state in ("incoming", "waiting") else "out",
                             "since": int(time.time() * 1000) if state == "active" else 0}
-        log(f"call {path.rsplit('/', 1)[-1]}: {state}")
+        log.info(f"call {path.rsplit('/', 1)[-1]}: {state}")
         self.refresh()
 
     def on_tel_owner(self, _name, _old, new):
@@ -191,7 +191,7 @@ class Phone(dbus.service.Object):
         if new:
             self.load()
         else:
-            log("PipeWire's telephony service is gone")
+            log.warning("PipeWire's telephony service is gone")
 
     def on_added(self, path, ifaces):
         path = str(path)
@@ -203,10 +203,10 @@ class Phone(dbus.service.Object):
     def on_removed(self, path, ifaces):
         path = str(path)
         if path in self.calls and CALL_IFACE in ifaces:
-            log(f"call {path.rsplit('/', 1)[-1]}: ended")
+            log.info(f"call {path.rsplit('/', 1)[-1]}: ended")
             del self.calls[path]
         elif path in self.ags and AG_IFACE in ifaces:
-            log(f"phone disconnected: {path}")
+            log.info(f"phone disconnected: {path}")
             del self.ags[path]
             for c in [c for c, call in self.calls.items() if call["ag"] == path]:
                 del self.calls[c]
@@ -221,7 +221,7 @@ class Phone(dbus.service.Object):
             if changed["State"] == "active" and not call["since"]:
                 call["since"] = int(time.time() * 1000)
             call["state"] = changed["State"]
-            log(f"call {path.rsplit('/', 1)[-1]}: {call['state']}")
+            log.info(f"call {path.rsplit('/', 1)[-1]}: {call['state']}")
         if "LineIdentification" in changed:
             call["number"] = changed["LineIdentification"]
         if "Name" in changed:
@@ -268,7 +268,7 @@ class Phone(dbus.service.Object):
             self.refresh()
             return False
         self.sync_state, self.sync_error = "syncing", ""
-        log("copying contacts and call history from the phone")
+        log.info("copying contacts and call history from the phone")
         self.refresh()
 
         def done(contacts, history, error):
@@ -279,11 +279,11 @@ class Phone(dbus.service.Object):
                 return                                   # another phone by now, or timed out
             if error:
                 self.sync_state, self.sync_error = "failed", error
-                log(f"copying contacts failed: {error}")
+                log.warning(f"copying contacts failed: {error}")
             else:
                 self.book.update(contacts=contacts, history=history, synced=int(time.time()))
                 self.sync_state = "idle"
-                log(f"copied {len(contacts)} contact(s) and {len(history)} call(s)")
+                log.info(f"copied {len(contacts)} contact(s) and {len(history)} call(s)")
                 self.save_book()
             self.refresh()
 
@@ -291,7 +291,7 @@ class Phone(dbus.service.Object):
             self.sync_timer = None
             if self.sync_state == "syncing":
                 self.sync_state, self.sync_error = "failed", "the phone did not answer"
-                log("copying contacts failed: the phone did not answer")
+                log.warning("copying contacts failed: the phone did not answer")
                 self.refresh()
             return False
         self.sync_timer = GLib.timeout_add_seconds(SYNC_TIMEOUT_S, timeout)
@@ -363,7 +363,7 @@ class Phone(dbus.service.Object):
         if found != self.streams:
             self.streams = found
             if found:
-                log(f"call audio: streams {found}" + ("" if found.get("mic", True) else " - no microphone: muted"))
+                log.info(f"call audio: streams {found}" + ("" if found.get("mic", True) else " - no microphone: muted"))
             self.apply_audio()
             self.refresh()
         return True                                  # keep looking: SCO can come and go
@@ -484,7 +484,7 @@ class Phone(dbus.service.Object):
         number = str(number).strip()
         if not number or any(ch not in "+0123456789*#" for ch in number.replace(" ", "")):
             raise self.error("Failed", f"not a phone number: {number!r}")
-        log("dialling")                           # never the number: the logs stay free of personal data
+        log.info("dialling")                           # never the number: the logs stay free of personal data
         self.tel_call(ag, AG_IFACE, "Dial", "s", (number.replace(" ", ""),), reply, error)
 
     @dbus.service.method(IFACE, async_callbacks=("reply", "error"))
@@ -548,7 +548,7 @@ class Phone(dbus.service.Object):
             raise self.error("NoPhone", "no phone connected")
         self.book.update(consent=False, synced=0, contacts=[], history=[], favourites=[])
         self.save_book()
-        log("deleted the copy of the phone's contacts and call history")
+        log.info("deleted the copy of the phone's contacts and call history")
         self.refresh()
 
     @dbus.service.method(IFACE, in_signature="ii", out_signature="aa{sv}")
@@ -598,16 +598,17 @@ def main():
     ap.add_argument("--call-audio", choices=("pipewire", "none"), default="pipewire",
                     help="put the phone volume and the microphone mute on the call's PipeWire streams (default pipewire)")
     a = ap.parse_args()
+    dlt.app("PHN", "Phone service", "phoned")
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     tel = bus_for(a.telephony)
     bluez = None if a.bluez == "none" else bus_for(a.bluez)
-    pbap = None if a.obex == "none" else PbapClient(bus_for(a.obex), log, a.history_max)
+    pbap = None if a.obex == "none" else PbapClient(bus_for(a.obex), a.history_max)
     Phone(bus, tel, bluez, pbap, Store(Path(a.state_dir).expanduser()),
-          CallAudio(log) if a.call_audio == "pipewire" else None)
-    log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus; telephony on {a.telephony}, "
-        f"BlueZ on {a.bluez}, OBEX on {a.obex}")
+          CallAudio() if a.call_audio == "pipewire" else None)
+    log.info(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus; telephony on {a.telephony}, "
+             f"BlueZ on {a.bluez}, OBEX on {a.obex}")
     GLib.MainLoop().run()
 
 

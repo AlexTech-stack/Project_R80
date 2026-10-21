@@ -43,13 +43,17 @@ Rectangle {
 
 SHOTS = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media",
          "media_browse", "media_album", "radio", "phone", "phone_contact", "vehicle", "cluster", "clock", "settings", "call",
-         "volume", "audio", "phone_settings", "system", "trip", "warning", "warnings"]
+         "volume", "audio", "phone_settings", "system", "diagnostics", "trip", "warning", "warnings"]
 
 
 def register_backends(system_bus: bool):
     """Create the D-Bus backends and register them as the R80.Backend singletons."""
     from PySide6.QtQml import qmlRegisterSingletonInstance
     sys.path.insert(0, str(HERE))
+    sys.path.insert(0, str(HERE.parent / "services"))
+    import dlt
+    dlt.app("HMI", "User interface", "ui")
+    log_qt_messages(dlt.context("QML", "Qt and QML messages"))
     import backend
     objs = {}
     for name in ("Vehicle", "Media", "Audio", "Warnings", "Trip", "Nav", "System", "Phone"):
@@ -57,6 +61,18 @@ def register_backends(system_bus: bool):
         objs[name] = cls(system_bus=system_bus)
         qmlRegisterSingletonInstance(cls, "R80.Backend", 1, 0, name, objs[name])
     return objs
+
+
+def log_qt_messages(log):
+    """Qt's and QML's own messages (binding errors, console.log) into the DLT log."""
+    from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+    levels = {QtMsgType.QtDebugMsg: log.debug, QtMsgType.QtInfoMsg: log.info, QtMsgType.QtWarningMsg: log.warning,
+              QtMsgType.QtCriticalMsg: log.error, QtMsgType.QtFatalMsg: log.critical}
+
+    def handler(kind, ctx, text):
+        where = f"{Path(ctx.file).name}:{ctx.line}: " if ctx.file else ""
+        levels.get(kind, log.info)(where + text)
+    qInstallMessageHandler(handler)
 
 
 def add_power_overlay(engine, win):
@@ -159,6 +175,16 @@ def run_screenshots(app, win, out: Path):
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")
             QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 5))
+        elif name == "diagnostics":
+            win.setProperty("demoVolume", False)
+            win.setProperty("current", "settings")
+
+            def diagnostics():
+                screen = win.findChild(QObject, "settingsScreen")
+                screen.setProperty("cat", 6)
+                screen.setProperty("inPanel", True)
+                screen.setProperty("item", 2)               # the media service, its level switch
+            QTimer.singleShot(300, diagnostics)
         elif name in ("media_browse", "media_album"):
             win.setProperty("demoWarnings", False)
             win.setProperty("current", "media")
