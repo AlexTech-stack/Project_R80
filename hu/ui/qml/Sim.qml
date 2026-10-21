@@ -461,13 +461,16 @@ QtObject {
         const t = _bootTime.getTime() / 1000;
         const apps = [["HMI", "User interface", 0, 1], ["VEH", "Vehicle service", 0, 0], ["MED", "Media service", 0, 2],
                       ["AUD", "Audio service", 1, 0], ["WRN", "Vehicle warnings", 0, 0], ["TRP", "Trip computer", 0, 0],
-                      ["NAV", "Navigation service", 0, 1], ["SYS", "System service", 0, 0], ["PHN", "Phone service", 0, 2]];
+                      ["NAV", "Navigation service", 0, 1], ["SYS", "System service", 0, 0], ["PHN", "Phone service", 0, 2],
+                      ["OS", "System log (journal)", 1, 1]];
         return {
             connected: true,
             apps: apps.map(a => ({ id: a[0], description: a[1], level: _demoLevels[a[0]] || "default", running: true,
                                    errors: _demoCleared ? 0 : a[2], warnings: _demoCleared ? 0 : a[3] })),
             entries: _demoCleared ? [] : [
+                { time: t + 11240, app: "OS", context: "KERN", level: "error", text: "Bluetooth: hci0: Frame reassembly failed (-84) (and 563 more times in 10 s)" },
                 { time: t + 10620, app: "AUD", context: "MAIN", level: "error", text: "could not save audio-state.json: No space left on device" },
+                { time: t + 10400, app: "OS", context: "BT", level: "warning", text: "/org/bluez/hci0/dev_..:7E:42: connection lost (Connection timed out)" },
                 { time: t + 10010, app: "PHN", context: "MAIN", level: "warning", text: "copying contacts failed: the phone did not answer" },
                 { time: t + 9480, app: "MED", context: "MAIN", level: "warning", text: "cannot read Road Trip/07 Unknown.mp3: Could not determine type of stream" },
                 { time: t + 7310, app: "NAV", context: "MAIN", level: "warning", text: "phone link lost: no message for 10 s" },

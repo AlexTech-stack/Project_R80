@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # R80 headunit kiosk for the Raspberry Pi: the DLT daemon, the MCU stand-in, the vehicle, media, audio,
-# warning, trip, navigation, system and phone service, then the UI on Qt eglfs. r80-hu.service wraps this in
-# dbus-run-session so all of them share one session bus.
+# warning, trip, navigation, system and phone service, the system log reader, then the UI on Qt eglfs.
+# r80-hu.service wraps this in dbus-run-session so all of them share one session bus.
 #
 # Override paths with R80_REPO, R80_VENV and R80_MUSIC; extra navd flags with R80_NAV_ARGS.
 # Start-up (docs/bench-measurements.md): the services that are not on the audio path run at a lower
@@ -35,6 +35,9 @@ export DLT_PIPE_DIR="${XDG_RUNTIME_DIR:-/tmp}/r80-dlt"
 # the desktop's session bus
 DESKTOP_BUS="unix:path=/run/user/$(id -u)/bus"
 "${LOW[@]}" "$R/hu/services/phoned.py" --telephony "$DESKTOP_BUS" --obex "$DESKTOP_BUS" --bluez system >/tmp/r80-phoned.log 2>&1 &
+# the system's own log (kernel, BlueZ, PipeWire, ...: the journal, cleaned) into DLT; reading the
+# system journal needs the user in the group adm (or systemd-journal)
+"${LOW[@]}" "$R/hu/services/syslogd.py" >/tmp/r80-syslogd.log 2>&1 &
 
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-eglfs}"
 export QT_QPA_EGLFS_HIDECURSOR="${QT_QPA_EGLFS_HIDECURSOR:-1}"

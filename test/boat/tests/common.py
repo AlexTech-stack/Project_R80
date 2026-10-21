@@ -7,7 +7,9 @@ i.e. from what the Linux side of the headunit actually saw.
 """
 from __future__ import annotations
 
+import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -362,3 +364,66 @@ def sys_logic():
     sys.path.insert(0, str(SERVICES))
     import sysd
     return sysd, sysd.load_config()
+
+
+# ---- the DLT log (hu/services/dlt-daemon.sh, as DLT Viewer reads it) ----------------------------
+DLT_PORT = int(os.environ.get("DLT_DAEMON_TCP_PORT", "3490"))
+
+
+def _dc():
+    sys.path.insert(0, str(SERVICES))
+    import dltclient
+    return dltclient
+
+
+class DltStream:
+    """A DLT client: every message the daemon sends, collected in the background."""
+
+    def __init__(self):
+        self.sock = socket.create_connection(("127.0.0.1", DLT_PORT), timeout=3.0)
+        self.sock.settimeout(None)          # a quiet stream (seconds without a message) must not end the reader
+        self.parser, self.messages, self.lock = _dc().Parser(), [], threading.Lock()
+        threading.Thread(target=self.read, daemon=True).start()
+
+    def read(self):
+        while True:
+            try:
+                data = self.sock.recv(65536)
+            except OSError:
+                return
+            if not data:
+                return
+            with self.lock:
+                self.messages += self.parser.feed(data)
+
+    def send(self, data: bytes):
+        self.sock.sendall(data)
+
+    def wait(self, cond, timeout=4.0):
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout:
+            with self.lock:
+                hit = [m for m in self.messages if cond(m)]
+            if hit:
+                return hit[-1]
+            time.sleep(0.05)
+        return None
+
+    def log_info(self, timeout=3.0) -> dict:
+        """Get Log Info: {apid: {"description", "contexts": {ctid: {"level", "description"}}}}."""
+        with self.lock:
+            self.messages = [m for m in self.messages if m.service != _dc().GET_LOG_INFO]
+        self.send(_dc().get_log_info())
+        m = self.wait(lambda m: m.service == _dc().GET_LOG_INFO and m.subtype == _dc().CONTROL_RESPONSE, timeout)
+        return _dc().log_info(m.data, m.big_endian) if m and m.status == 7 else {}
+
+
+# ---- the system log (hu-syslogd reads the virtual mode's stand-in journal) ---------------------
+JOURNAL = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu" / "journal.jsonl"
+
+
+def journal(message, priority=6, **fields):
+    """Appends one entry to the stand-in journal, as journalctl -o json would print it."""
+    entry = {"MESSAGE": message, "PRIORITY": str(priority), **fields}
+    with JOURNAL.open("a") as f:
+        f.write(json.dumps(entry) + "\n")

@@ -42,7 +42,7 @@ NAMES = {"off": 0, "fatal": 1, "error": 2, "warning": 3, "info": 4, "debug": 5, 
 _CALLBACK = ctypes.CFUNCTYPE(None, ctypes.POINTER(ctypes.c_char), ctypes.c_uint8, ctypes.c_uint8)
 _lib = None
 _app = None
-_contexts: dict[str, tuple[logging.Logger, str]] = {}   # id -> (logger, description)
+_contexts: dict[str, tuple[logging.Logger, str, int | None]] = {}   # id -> (logger, description, start level)
 _handles: dict[str, ctypes.Array] = {}                   # id -> DltContext (opaque)
 _stderr = logging.StreamHandler(sys.stderr)
 
@@ -71,6 +71,7 @@ def _load():
             continue
         lib.dlt_register_app.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
         lib.dlt_register_context.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
+        lib.dlt_register_context_ll_ts.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_int]
         lib.dlt_log_string.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
         lib.dlt_register_log_level_changed_callback.argtypes = [ctypes.c_void_p, _CALLBACK]
         lib.dlt_set_resend_timeout_atexit.argtypes = [ctypes.c_uint32]
@@ -110,25 +111,31 @@ class DltHandler(logging.Handler):
 
 
 def _register(cid: str):
-    logger, description = _contexts[cid]
+    logger, description, level = _contexts[cid]
     handle = ctypes.create_string_buffer(256)        # DltContext, opaque (its layout differs per libdlt version)
-    if _lib.dlt_register_context(handle, cid.encode(), description.encode()) != 0:
+    if level is None:
+        ok = _lib.dlt_register_context(handle, cid.encode(), description.encode()) == 0
+    else:                                            # the daemon takes it unless a level was stored for it
+        ok = _lib.dlt_register_context_ll_ts(handle, cid.encode(), description.encode(), dlt_level(level), 0) == 0
+    if not ok:
         return
     _handles[cid] = handle
     _lib.dlt_register_log_level_changed_callback(handle, _level_changed)
     logger.addHandler(DltHandler(cid))
 
 
-def context(cid: str, description: str = "") -> logging.Logger:
-    """The logger of one context (up to 4 characters). Registered with DLT once app() ran."""
+def context(cid: str, description: str = "", level: int | None = None) -> logging.Logger:
+    """The logger of one context (up to 4 characters). Registered with DLT once app() ran.
+    It starts at the daemon's default level (info), or at `level` (a logging level). A level
+    set from outside replaces it; "default" from outside is the daemon's default again."""
     cid = cid[:4]
     if cid in _contexts:
         return _contexts[cid][0]
     logger = logging.getLogger("r80." + cid)
     logger.propagate = False
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.INFO if level is None else level)
     logger.addHandler(_stderr)
-    _contexts[cid] = (logger, description or cid)
+    _contexts[cid] = (logger, description or cid, level)
     if _app is not None and _lib is not None:
         _register(cid)
     return logger

@@ -431,8 +431,8 @@ sudo systemctl disable --now lightdm 2>/dev/null || true
 sudo usermod -aG video,render,input,audio $USER
 ```
 
-`r80-kiosk.sh` starts the DLT daemon, mcu emu, `vehicled`, `mediad`, `audiod`, `warnd`, `tripd`, `sysd` and `navd`
-(`--bluetooth system`), then execs the UI with
+`r80-kiosk.sh` starts the DLT daemon, mcu emu, `vehicled`, `mediad`, `audiod`, `warnd`, `tripd`, `sysd`, `navd`
+(`--bluetooth system`), `phoned` and `syslogd`, then execs the UI with
 `QT_QPA_PLATFORM=eglfs`. `r80-hu.service` wraps it in `dbus-run-session` so the
 services and the UI share one session bus (`de.r80.Vehicle` / `de.r80.Media`),
 and requires `r80-can.service`:
@@ -457,6 +457,15 @@ Diagnostics (warnings and errors per service, log level per service), and Export
 writes the files and a `summary.txt` onto the stick in `R80-logs/<date_time>/` (the music
 from that stick stops for a few seconds).
 
+The system's own log is in it too: `hu/services/syslogd.py` follows the journal and writes the
+kernel's, BlueZ's, PipeWire's, NetworkManager's and the `r80-*` units' lines, cleaned
+(`hu/services/syslog.ini`), as the DLT application `OS` (contexts `KERN BT PW NET UNIT SYSD`).
+Reading the system journal needs the user in the group `adm` (Raspberry Pi OS: already) or
+`systemd-journal`. It keeps its place in `~/.local/state/r80/syslog.cursor`; the first start
+reads the whole boot. The Pi 3B's built-in Bluetooth shows up there as
+`Bluetooth: hci0: Frame reassembly failed` (lost data on its UART), hundreds of times per call
+or music session.
+
 ## 12. Verify
 
 `./r80 bench measure` reports the start-up times and the memory; `--restart` restarts the HU
@@ -471,8 +480,8 @@ and times that start. Results: [bench-measurements.md](bench-measurements.md).
 - `/tmp/r80-sysd.log` says "saver registered: audiod / tripd / mediad"; Settings → System on
   the HU lists 7 of 7 services running. The settings are kept in
   `~/.local/state/r80/settings.json`.
-- `dlt-receive -a localhost` shows the services' lines (ECU `R80`); Settings → Diagnostics
-  lists every service as running.
+- `dlt-receive -a localhost` shows the services' lines (ECU `R80`) and the system's (`OS`);
+  Settings → Diagnostics lists every service as running, and "System log (journal)".
 - `vcgencmd measure_temp` under load; add cooling if it throttles.
 
 ## 13. Troubleshooting

@@ -70,6 +70,7 @@ hu/                               the headunit software (target software: runs u
     dlt.conf, dlt-daemon.sh       the HU's own DLT daemon (COVESA dlt-daemon): files on the HU, DLT Viewer on TCP 3490
     dltclient.py                  reads DLT (protocol version 1) from the daemon or a file; control messages
     diagnostics.py                Settings -> Diagnostics: warnings and errors per service (sysd)
+    syslogd.py, syslog.ini        the system's own log (journal: kernel, BlueZ, PipeWire, ...) into DLT, cleaned
   ui/                             Qt 6 / QML UI, launched with PySide6
     run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
     backend.py                    the R80.Backend QML singletons, one per service, over D-Bus
@@ -269,7 +270,8 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
   application per service, a context per part), not with `print`. Pick the level: error for what
   the HU did wrong, warning for what is off but handled, info for what happens. Log lines leave the
   car (the export): never phone numbers, contact or device names, streets; Bluetooth addresses
-  only through `dlt.address()`.
+  only through `dlt.address()`. The system's own log goes in only through `hu/services/syslogd.py`,
+  which cleans it (`syslog.ini`); never forward the journal or syslog raw (COVESA `dlt-system`).
 - The architecture decisions D1 to D14 are in `docs/architecture/HU_architecture_v0.3.md`.
   Do not contradict them. If a change needs a different decision, ask Alex first.
 
