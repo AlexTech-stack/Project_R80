@@ -50,6 +50,10 @@ def register_backends(system_bus: bool):
     """Create the D-Bus backends and register them as the R80.Backend singletons."""
     from PySide6.QtQml import qmlRegisterSingletonInstance
     sys.path.insert(0, str(HERE))
+    sys.path.insert(0, str(HERE.parent / "services"))
+    import dlt
+    dlt.app("HMI", "User interface", "ui")
+    log_qt_messages(dlt.context("QML", "Qt and QML messages"))
     import backend
     objs = {}
     for name in ("Vehicle", "Media", "Audio", "Warnings", "Trip", "Nav", "System", "Phone"):
@@ -57,6 +61,18 @@ def register_backends(system_bus: bool):
         objs[name] = cls(system_bus=system_bus)
         qmlRegisterSingletonInstance(cls, "R80.Backend", 1, 0, name, objs[name])
     return objs
+
+
+def log_qt_messages(log):
+    """Qt's and QML's own messages (binding errors, console.log) into the DLT log."""
+    from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+    levels = {QtMsgType.QtDebugMsg: log.debug, QtMsgType.QtInfoMsg: log.info, QtMsgType.QtWarningMsg: log.warning,
+              QtMsgType.QtCriticalMsg: log.error, QtMsgType.QtFatalMsg: log.critical}
+
+    def handler(kind, ctx, text):
+        where = f"{Path(ctx.file).name}:{ctx.line}: " if ctx.file else ""
+        levels.get(kind, log.info)(where + text)
+    qInstallMessageHandler(handler)
 
 
 def add_power_overlay(engine, win):

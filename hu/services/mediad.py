@@ -79,6 +79,7 @@ gi.require_version("GstController", "1.0")
 from gi.repository import GLib, Gst, GstController  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dlt  # noqa: E402
 from browse import browse, tracks_of  # noqa: E402
 from btmedia import PhonePlayer  # noqa: E402
 from callaudio import CallAudio  # noqa: E402
@@ -99,8 +100,7 @@ UP_NEXT = 5
 TRACK_KEYS = ("title", "artist", "album", "trackNumber", "duration", "cover")
 
 
-def log(*a):
-    print("[mediad]", *a, flush=True)
+log = dlt.context("MAIN", "Media service")
 
 
 def variant(v):
@@ -219,7 +219,7 @@ class Scanner:
         self.queue = [t for t in order if not self.cached(t)]
         self.started, self.count = time.monotonic(), len(self.queue)
         if self.queue:
-            log(f"reading tags of {len(self.queue)} track(s)")
+            log.info(f"reading tags of {len(self.queue)} track(s)")
         self.next()
 
     def stop(self) -> None:
@@ -237,7 +237,7 @@ class Scanner:
             self.timer = None
         if not self.queue:
             if self.count:
-                log(f"read the tags of {self.count} track(s) in {time.monotonic() - self.started:.1f} s")
+                log.info(f"read the tags of {self.count} track(s) in {time.monotonic() - self.started:.1f} s")
                 self.count = 0
             self.current = None
             self.save()
@@ -252,7 +252,7 @@ class Scanner:
     def give_up(self) -> bool:
         self.timer = None
         if self.current:
-            log(f"no tags from {self.current['path']} within {self.TIMEOUT_MS} ms")
+            log.warning(f"no tags from {self.current['path']} within {self.TIMEOUT_MS} ms")
             self.done()
         return False
 
@@ -266,7 +266,7 @@ class Scanner:
             self.done()
         elif t == Gst.MessageType.ERROR:
             err, _dbg = msg.parse_error()
-            log(f"cannot read {self.current['path']}: {err.message if err else '?'}")
+            log.error(f"cannot read {self.current['path']}: {err.message if err else '?'}")
             self.done()
         return True
 
@@ -403,12 +403,12 @@ class Media(dbus.service.Object):
         self.scanner = Scanner(cache_dir, self.on_scanned)
         self.awaited = None            # (key, play): the stick the last session ended on
         self.restore(resume_wait)
-        register_saver(bus, "mediad", self.save_state, log)
+        register_saver(bus, "mediad", self.save_state)
         if usb_bus is not None:
-            self.usb = RemovableMedia(usb_bus, self.on_medium_added, self.on_medium_removed, log)
+            self.usb = RemovableMedia(usb_bus, self.on_medium_added, self.on_medium_removed)
         self.bt_audio, self.bt_stage, self.bt_timer, self.bt_ticks = bt_audio, {}, None, 0
         self.bt_was_playing = False
-        self.bt = PhonePlayer(bt_bus, self.on_bt_change, log) if bt_bus is not None else None
+        self.bt = PhonePlayer(bt_bus, self.on_bt_change) if bt_bus is not None else None
         self.refresh_props()
 
     # ---- output and gain --------------------------------------------------
@@ -591,7 +591,7 @@ class Media(dbus.service.Object):
                 self.seek_abs(int(r["position"]))
         self.refresh_props()
         self.save_state()
-        log(f"source {name}: {len(self.library)} track(s) in {self.dir}, queue {self.queue_path!r}, track {self.index}")
+        log.info(f"source {name}: {len(self.library)} track(s) in {self.dir}, queue {self.queue_path!r}, track {self.index}")
 
     # ---- the queue -----------------------------------------------------------
     def set_queue(self, path: str, title: str, tracks: list):
@@ -645,7 +645,7 @@ class Media(dbus.service.Object):
             self.bt_timer = GLib.timeout_add(1000, self.find_bt_stage)
         self.refresh_props()
         self.save_state()
-        log(f"source {name}: {self.bt.name}")
+        log.info(f"source {name}: {dlt.address(self.bt.address)}")
 
     def on_bt_change(self):
         if self.bt.present and BLUETOOTH not in self.sources:
@@ -686,7 +686,7 @@ class Media(dbus.service.Object):
         found = self.bt_audio.music(self.bt.address)
         if found is not None and found != self.bt_stage:
             self.bt_stage = found
-            log(f"Bluetooth music: {found}")
+            log.info(f"Bluetooth music: {found}")
             self.bt_level()
         return True
 
@@ -718,7 +718,7 @@ class Media(dbus.service.Object):
         if self.awaited:
             _key, play = self.awaited
             self.awaited = None
-            log("the last stick did not come back: staying on the Library")
+            log.warning("the last stick did not come back: staying on the Library")
             if play and self.tracks:
                 self.Play()
         return False
@@ -734,7 +734,7 @@ class Media(dbus.service.Object):
             tmp.write_text(json.dumps(st))
             tmp.replace(self.state_file)
         except OSError as e:
-            log(f"cannot save {self.state_file}: {e}")
+            log.error(f"cannot save {self.state_file}: {e}")
 
     def on_medium_added(self, key: str, label: str, mount: str, initial: bool):
         same = next((n for n, s in self.sources.items() if s["key"] == key), None)
@@ -857,7 +857,7 @@ class Media(dbus.service.Object):
             self.advance(1, natural=True)
         elif t == Gst.MessageType.ERROR:
             err, dbg = msg.parse_error()
-            log(f"playback error: {err.message if err else '?'} ({dbg or ''})")
+            log.error(f"playback error: {err.message if err else '?'} ({dbg or ''})")
             self.stop()
         elif t == Gst.MessageType.STATE_CHANGED and msg.src == self.player:
             if self.pending:
@@ -1190,6 +1190,7 @@ def main():
     ap.add_argument("--resume-wait", type=float, default=15.0,
                     help="how long to wait at start for the stick the last session played (s, default 15)")
     a = ap.parse_args()
+    dlt.app("MED", "Media service", "mediad")
 
     music_dir = Path(a.music_dir).expanduser()
 
@@ -1198,11 +1199,11 @@ def main():
     bus = dbus.SystemBus() if a.system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     usb_bus = None if not a.usb else dbus.SystemBus() if a.usb == "system" else dbus.SessionBus()
-    log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, Library {music_dir}"
-        + (f", USB sticks via udisks2 on the {a.usb} bus" if a.usb else ""))
+    log.info(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, Library {music_dir}"
+             + (f", USB sticks via udisks2 on the {a.usb} bus" if a.usb else ""))
     bt_bus = None if not a.bluetooth else dbus.SystemBus() if a.bluetooth == "system" else dbus.SessionBus()
     media = Media(bus, music_dir, Path(a.cache_dir).expanduser(), Path(a.state).expanduser(), a.sink, a.buffer_ms,
-                  usb_bus, a.resume_wait, bt_bus, CallAudio(log) if a.bluetooth and a.bt_audio == "pipewire" else None)
+                  usb_bus, a.resume_wait, bt_bus, CallAudio() if a.bluetooth and a.bt_audio == "pipewire" else None)
     loop = GLib.MainLoop()
 
     def terminate(*_):

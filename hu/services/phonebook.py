@@ -24,8 +24,10 @@ from pathlib import Path
 
 import dbus
 
+import dlt
 import vcard
 
+log = dlt.context("PBAP", "Contacts from the phone (PBAP)")
 OBEX = "org.bluez.obex"
 CLIENT_PATH, CLIENT = "/org/bluez/obex", "org.bluez.obex.Client1"
 PBAP, TRANSFER = "org.bluez.obex.PhonebookAccess1", "org.bluez.obex.Transfer1"
@@ -42,8 +44,8 @@ def readable(message: str) -> str:
 
 
 class PbapClient:
-    def __init__(self, bus, log=print, history_max: int = 50):
-        self.bus, self.log, self.history_max = bus, log, history_max
+    def __init__(self, bus, history_max: int = 50):
+        self.bus, self.history_max = bus, history_max
         self.transfers: dict[str, tuple] = {}            # transfer path -> (filename, done)
         bus.add_signal_receiver(self.on_transfer, "PropertiesChanged", PROPS, OBEX, None, path_keyword="path")
 

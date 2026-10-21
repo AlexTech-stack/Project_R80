@@ -10,7 +10,7 @@ test stick, docs/bench-pi.md). Such a filesystem is used where it is mounted, or
 rule must allow that for the HU's user). It is gone when udisks removes it or it is
 unmounted.
 
-    watcher = RemovableMedia(bus, on_added, on_removed, log)
+    watcher = RemovableMedia(bus, on_added, on_removed)
     on_added(key, name, mount_path, initial)    key: "usb:<filesystem UUID>", name: its label or "",
                                                 initial: it was there when udisks2 was first asked
     on_removed(key)
@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import dbus
 
+import dlt
+
+log = dlt.context("USB", "USB sticks (udisks2)")
 UDISKS = "org.freedesktop.UDisks2"
 ROOT = "/org/freedesktop/UDisks2"
 OM = "org.freedesktop.DBus.ObjectManager"
@@ -35,9 +38,9 @@ def _path(mount_point) -> str:
 
 
 class RemovableMedia:
-    def __init__(self, bus, on_added, on_removed, log=print):
+    def __init__(self, bus, on_added, on_removed):
         self.bus = bus
-        self.on_added, self.on_removed, self.log = on_added, on_removed, log
+        self.on_added, self.on_removed = on_added, on_removed
         self.objects: dict[str, dict] = {}     # object path -> {interface: {property: value}}
         self.present: dict[str, str] = {}      # object path -> key of a medium in use
         self.mounting: set[str] = set()
@@ -50,12 +53,12 @@ class RemovableMedia:
         if bus.name_has_owner(UDISKS):
             self.load()
         else:
-            log("waiting for udisks2")
+            log.info("waiting for udisks2")
 
     # ---- udisks2 objects -------------------------------------------------
     def load(self):
         self.bus.call_async(UDISKS, ROOT, OM, "GetManagedObjects", "", (), self.on_objects,
-                            lambda e: self.log(f"udisks2: {e}"), timeout=5.0)
+                            lambda e: log.error(f"udisks2: {e}"), timeout=5.0)
 
     def on_objects(self, objects):
         self.objects = {str(p): {str(i): dict(props) for i, props in ifaces.items()} for p, ifaces in objects.items()}
@@ -123,7 +126,7 @@ class RemovableMedia:
             if path not in self.present:
                 key = self.key(path)
                 self.present[path] = key                   # the same medium on a new device: on_added again
-                self.log(f"removable medium {key} at {mounts[0]}")
+                log.info(f"removable medium {key} at {mounts[0]}")
                 self.on_added(key, str(self.objects[path][BLOCK].get("IdLabel", "")), mounts[0], path in self.initial)
         elif path in self.present:
             self.gone(path)                                # unmounted under us
@@ -141,11 +144,11 @@ class RemovableMedia:
                 self.check(path)
 
         def failed(e):
-            self.log(f"cannot mount {path}: {e.get_dbus_message() if hasattr(e, 'get_dbus_message') else e}")
+            log.error(f"cannot mount {path}: {e.get_dbus_message() if hasattr(e, 'get_dbus_message') else e}")
         self.bus.call_async(UDISKS, path, FS, "Mount", "a{sv}", (opts,), done, failed, timeout=30.0)
 
     def gone(self, path: str):
         key = self.present.pop(path, None)
         if key and key not in self.present.values():      # not still there on another device
-            self.log(f"removable medium {key} gone")
+            log.info(f"removable medium {key} gone")
             self.on_removed(key)

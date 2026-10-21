@@ -48,13 +48,14 @@ import sys
 import time
 from pathlib import Path
 
+import dlt
+
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "system.ini"
 SYSTEM_CONFIG = Path("/etc/r80/system.ini")
 TYPES = ("bool", "number", "choice")
 
 
-def log(*a):
-    print("[sysd]", *a, flush=True)
+log = dlt.context("MAIN", "System service")
 
 
 class ConfigError(ValueError):
@@ -202,12 +203,12 @@ class Settings:
         self.values = {n: s["default"] for n, s in schema.items()}
         for n, v in (saved if isinstance(saved, dict) else {}).items():
             if n not in schema:
-                log(f"ignoring saved setting {n!r}: not in system.ini")
+                log.warning(f"ignoring saved setting {n!r}: not in system.ini")
                 continue
             try:
                 self.values[n] = check(n, schema[n], v)
             except SettingError as e:
-                log(f"saved setting ignored, back to default: {e}")
+                log.warning(f"saved setting ignored, back to default: {e}")
 
     def set(self, name: str, value) -> bool:
         """True if the value changed."""
@@ -336,7 +337,7 @@ def read_state(path: Path):
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as e:
-        log(f"ignoring unreadable state {path}: {e}")
+        log.warning(f"ignoring unreadable state {path}: {e}")
         return None
 
 
@@ -446,7 +447,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 before = set(self.shutdown.savers)
                 self.shutdown.gone(name)
                 for n in sorted(before - set(self.shutdown.savers)):
-                    log(f"saver {n} is gone")
+                    log.warning(f"saver {n} is gone")
                 if before != set(self.shutdown.savers):
                     self.publish_shutdown()
 
@@ -462,8 +463,8 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             power = str(changed["Power"])
             if power == "shutdown" and self.shutdown.state != "saving":
                 waiting = self.shutdown.start(time.monotonic())
-                log(f"shutdown: asking {', '.join(waiting) or 'nobody'} to save "
-                    f"(at most {cfg['shutdown']['save_timeout_s']:g} s)")
+                log.info(f"shutdown: asking {', '.join(waiting) or 'nobody'} to save "
+                         f"(at most {cfg['shutdown']['save_timeout_s']:g} s)")
                 if self.save_pending:
                     self.save()
                 self.PrepareForShutdown()
@@ -471,7 +472,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 GLib.timeout_add(50, self.shutdown_tick)
             elif power in ("on", "acc", "crank", "standby"):
                 if self.shutdown.state == "saving":
-                    log("shutdown cancelled: power is back")
+                    log.info("shutdown cancelled: power is back")
                     self.shutdown.cancel(time.monotonic())
                 elif self.shutdown.state != "idle":
                     self.shutdown.state = "idle"
@@ -484,14 +485,14 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             if self.save_pending:
                 self.save()
             os.sync()
-            log(f"shutdown: saved {', '.join(last['saved']) or 'nothing'}"
-                + (f", no answer from {', '.join(last['timed_out'])}" if last["timed_out"] else "")
-                + f" after {last['ms']} ms; acknowledging to the MCU")
+            log.info(f"shutdown: saved {', '.join(last['saved']) or 'nothing'}"
+                     + (f", no answer from {', '.join(last['timed_out'])}" if last["timed_out"] else "")
+                     + f" after {last['ms']} ms; acknowledging to the MCU")
             self.bus.call_async(VEHICLE[0], VEHICLE[1], VEHICLE[2], "ShutdownReady", "", (),
-                                lambda *_: None, lambda e: log(f"vehicled refused the acknowledgement: {e}"), timeout=2.0)
+                                lambda *_: None, lambda e: log.error(f"vehicled refused the acknowledgement: {e}"), timeout=2.0)
             self.publish_shutdown()
             if cfg["shutdown"]["after_ack"] == "poweroff":
-                log("powering off")
+                log.info("powering off")
                 subprocess.Popen(["systemctl", "poweroff"])
             return False
 
@@ -513,7 +514,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
         @dbus.service.method(IFACE, in_signature="s", sender_keyword="sender")
         def RegisterSaver(self, name, sender=None):
             self.shutdown.register(str(name), str(sender or ""))
-            log(f"saver registered: {name}")
+            log.info(f"saver registered: {name}")
             self.publish_shutdown()
 
         @dbus.service.method(IFACE, in_signature="s")
@@ -544,7 +545,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             try:
                 write_state(state_path, self.settings.values)
             except OSError as e:
-                log(f"could not save {state_path}: {e}")
+                log.error(f"could not save {state_path}: {e}")
             return False
 
         def changed(self):
@@ -564,7 +565,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
         def Set(self, name, value):
             try:
                 if self.settings.set(str(name), plain(value)):
-                    log(f"{name} = {self.settings.values[str(name)]}")
+                    log.info(f"{name} = {self.settings.values[str(name)]}")
                     self.changed()
             except SettingError as e:
                 self.fail(e)
@@ -580,7 +581,7 @@ def run_service(cfg: dict, state_path: Path, system: bool):
         @dbus.service.method(IFACE)
         def ResetAll(self):
             if self.settings.reset_all():
-                log("all settings back to their defaults")
+                log.info("all settings back to their defaults")
                 self.changed()
 
         @dbus.service.method(PROPS, in_signature="ss", out_signature="v")
@@ -612,8 +613,8 @@ def run_service(cfg: dict, state_path: Path, system: bool):
     bus = dbus.SystemBus() if system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     System(bus)
-    log(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, "
-        f"{len(cfg['settings'])} settings, state {state_path}")
+    log.info(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, "
+             f"{len(cfg['settings'])} settings, state {state_path}")
     GLib.MainLoop().run()
 
 
@@ -625,6 +626,7 @@ def main():
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     ap.add_argument("--check", action="store_true", help="check the config, list the settings and exit")
     a = ap.parse_args()
+    dlt.app("SYS", "System service", "sysd")
     try:
         cfg = load_config(a.config)
     except ConfigError as e:

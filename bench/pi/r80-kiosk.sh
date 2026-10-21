@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# R80 headunit kiosk for the Raspberry Pi: the MCU stand-in, the vehicle, media, audio,
+# R80 headunit kiosk for the Raspberry Pi: the DLT daemon, the MCU stand-in, the vehicle, media, audio,
 # warning, trip, navigation, system and phone service, then the UI on Qt eglfs. r80-hu.service wraps this in
 # dbus-run-session so all of them share one session bus.
 #
@@ -14,6 +14,10 @@ PY="$VENV/bin/python"
 [[ -x "$PY" ]] || { echo "python not found at $PY" >&2; exit 1; }
 [[ -f "$R/hu/ui/run.py" ]] || { echo "headunit not found at $R" >&2; exit 1; }
 
+# the DLT log of the services and the UI (hu/services/dlt-daemon.sh): files in ~/.local/state/r80/dlt/trace
+# (16 MB ring), DLT Viewer / dlt-receive on port 3490
+export DLT_PIPE_DIR="${XDG_RUNTIME_DIR:-/tmp}/r80-dlt"
+"$R/hu/services/dlt-daemon.sh" "${XDG_STATE_HOME:-$HOME/.local/state}/r80/dlt" "$DLT_PIPE_DIR" >/tmp/r80-dlt.log 2>&1 &
 "$PY" "$R/dev/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 vcan_motor --can2-bus motor >/tmp/r80-mcu.log 2>&1 &
 "$PY" "$R/hu/services/vehicled.py" >/tmp/r80-vehicled.log 2>&1 &
 "$PY" "$R/hu/services/mediad.py" --music-dir "$MUSIC" --usb system --bluetooth system >/tmp/r80-mediad.log 2>&1 &

@@ -114,7 +114,7 @@ sudo apt install -y python3-venv python3-dbus python3-gi gir1.2-glib-2.0 gir1.2-
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-tools \
   gstreamer1.0-alsa libegl1 libgles2 libgbm1 libdrm2 libinput10 \
   libxkbcommon0 libfontconfig1 libxcb-cursor0 libxkbcommon-x11-0 \
-  can-utils cmake build-essential
+  can-utils cmake build-essential dlt-daemon dlt-tools
 
 python3 -m venv --system-site-packages ~/r80-venv
 ~/r80-venv/bin/pip install --upgrade pip

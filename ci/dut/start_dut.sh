@@ -9,6 +9,9 @@ set -euo pipefail
 R="$1"
 echo "DUT: $(uname -m), $(python3 --version), $(. /etc/os-release && echo "$PRETTY_NAME")"
 rm -f "$XDG_RUNTIME_DIR/r80-mcu-uart"
+# the DLT log (hu/services/dlt-daemon.sh); --network host: the tests reach it on port 3490
+export DLT_PIPE_DIR=/tmp/r80-dlt
+"$R/hu/services/dlt-daemon.sh" /tmp/r80-dlt-state "$DLT_PIPE_DIR" &
 python3 "$R/dev/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 "${MCU_CAN2:-vcan_motor}" --can2-bus "${MCU_CAN2_BUS:-motor}" &
 for _ in $(seq 150); do [[ -e "$XDG_RUNTIME_DIR/r80-mcu-uart" ]] && break; sleep 0.2; done
 python3 "$R/hu/services/vehicled.py" &

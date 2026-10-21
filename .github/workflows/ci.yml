@@ -85,7 +85,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y dbus python3-dbus python3-gi python3-venv \
-            gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+            gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            dlt-daemon dlt-tools
+          sudo systemctl disable --now dlt dlt-system dlt-dbus || true   # the HU starts its own (hu/services/dlt-daemon.sh)
           sudo apt-get install -y "linux-modules-extra-$(uname -r)" || true
           sudo modprobe vcan
       - name: BoAt smoke tests

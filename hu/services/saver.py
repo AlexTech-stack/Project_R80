@@ -9,19 +9,22 @@ Needs a dbus-python bus with a GLib main loop.
 """
 from __future__ import annotations
 
+import dlt
+
+log = dlt.context("SAVE", "Saving before a shutdown")
 SYSTEM = ("de.r80.System", "/de/r80/System", "de.r80.System1")
 
 
-def register_saver(bus, name: str, save, log=print):
+def register_saver(bus, name: str, save):
     def register():
         bus.call_async(SYSTEM[0], SYSTEM[1], SYSTEM[2], "RegisterSaver", "s", (name,),
-                       lambda *_: None, lambda e: log(f"could not register with sysd: {e}"), timeout=2.0)
+                       lambda *_: None, lambda e: log.error(f"could not register with sysd: {e}"), timeout=2.0)
 
     def prepare():
         try:
             save()
         except Exception as e:                          # a failed save must not block the shutdown
-            log(f"saving before shutdown failed: {e}")
+            log.error(f"saving before shutdown failed: {e}")
         bus.call_async(SYSTEM[0], SYSTEM[1], SYSTEM[2], "Saved", "s", (name,),
                        lambda *_: None, lambda *_: None, timeout=2.0)
 

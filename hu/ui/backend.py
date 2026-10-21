@@ -13,6 +13,10 @@ import dbus
 from dbus.mainloop.glib import DBusGMainLoop
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
+import dlt                                    # hu/services/dlt.py; run.py puts it on sys.path
+
+log = dlt.context("MAIN", "User interface")
+
 SERVICE, PATH, IFACE = "de.r80.Vehicle", "/de/r80/Vehicle", "de.r80.Vehicle1"
 PROPS = "org.freedesktop.DBus.Properties"
 
@@ -616,7 +620,7 @@ class System(QObject):
         v = (dbus.Boolean(value) if isinstance(value, bool) else dbus.Double(value) if isinstance(value, (int, float))
              else dbus.String(str(value)))
         self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "Set", "sv", (str(name), v),
-                            lambda *_: None, lambda e: print(f"[ui] setting {name} refused: {e}", flush=True), timeout=1.0)
+                            lambda *_: None, lambda e: log.error(f"setting {name} refused: {e}"), timeout=1.0)
 
     @Slot()
     def resetAll(self):
@@ -692,7 +696,7 @@ class Phone(QObject):
 
     def _send(self, method, signature="", args=()):
         self.bus.call_async(PHONE_SERVICE, PHONE_PATH, PHONE_IFACE, method, signature, args,
-                            lambda *_: None, lambda e: print(f"[ui] phone {method}: {e}", flush=True), timeout=30.0)
+                            lambda *_: None, lambda e: log.error(f"phone {method}: {e}"), timeout=30.0)
 
     available = Property(bool, lambda self: self._available, notify=availableChanged)
     connected = Property(bool, lambda self: bool(self._v["Connected"]), notify=changed)

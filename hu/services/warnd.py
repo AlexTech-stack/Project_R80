@@ -48,6 +48,8 @@ import wave
 from array import array
 from pathlib import Path
 
+import dlt
+
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "warnings.ini"
 SYSTEM_CONFIG = Path("/etc/r80/warnings.ini")
 SEVERITIES = ("notice", "information", "warning")       # least to most urgent
@@ -56,8 +58,7 @@ RULE_KEYS = {"signal", "signals", "labels", "below", "at_least", "above", "clear
              "for_s", "when", "severity", "text"}
 
 
-def log(*a):
-    print("[warnd]", *a, flush=True)
+log = dlt.context("MAIN", "Vehicle warnings")
 
 
 class ConfigError(ValueError):
@@ -390,7 +391,7 @@ def run_service(general: dict, rules: list, system: bool, sink: str | None, chim
             pbus = player.get_bus()
             pbus.add_signal_watch()
             pbus.connect("message::eos", lambda *_: self.chime_done())
-            pbus.connect("message::error", lambda _b, m: (log(f"chime error: {m.parse_error()[0].message}"), self.chime_done()))
+            pbus.connect("message::error", lambda _b, m: (log.error(f"chime error: {m.parse_error()[0].message}"), self.chime_done()))
             return player
 
         def play_chime(self, kind):
@@ -405,7 +406,7 @@ def run_service(general: dict, rules: list, system: bool, sink: str | None, chim
             self.chime.update(last=kind, gain=gain, count=self.chime["count"] + 1, playing=kind)
             self.audio_call("SetChime", "b", (True,))   # duck the music meanwhile
             self.player.set_state(Gst.State.PLAYING)
-            log(f"chime {kind} at gain {gain:.2f}")
+            log.info(f"chime {kind} at gain {gain:.2f}")
             self.publish_chime()
 
         def chime_done(self):
@@ -464,11 +465,11 @@ def run_service(general: dict, rules: list, system: bool, sink: str | None, chim
             raised, cleared = self.engine.evaluate(now)
             for rid in raised:
                 w = self.engine.active[rid]
-                log(f"raised {rid} ({w['severity']}): {w['text']}")
+                log.info(f"raised {rid} ({w['severity']}): {w['text']}")
                 self.Raised(rid, w["severity"], w["text"])
             self.play_chime(chime_for([self.engine.active[rid]["severity"] for rid in raised]))
             for rid in cleared:
-                log(f"cleared {rid}")
+                log.info(f"cleared {rid}")
             listing = self.engine.listing(now)
             # publish when the set, a text or the acknowledged flags change (not every 'since' tick)
             key = [(w["id"], w["text"], w["acknowledged"]) for w in listing]
@@ -523,7 +524,7 @@ def run_service(general: dict, rules: list, system: bool, sink: str | None, chim
     bus = dbus.SystemBus() if system else dbus.SessionBus()
     name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)  # noqa: F841 (keeps the name)
     Warnings(bus)
-    log(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, {len(rules)} rules")
+    log.info(f"serving {BUS_NAME} on the {'system' if system else 'session'} bus, {len(rules)} rules")
     GLib.MainLoop().run()
 
 
@@ -536,6 +537,7 @@ def main():
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
     ap.add_argument("--chime-dir", default=str(runtime / "r80-chimes"), help="where the generated chimes go")
     a = ap.parse_args()
+    dlt.app("WRN", "Vehicle warnings", "warnd")
     try:
         general, rules = load_config(a.config)
     except ConfigError as e:

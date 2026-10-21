@@ -28,20 +28,24 @@ import json
 import shutil
 import subprocess
 
+import dlt
+
+log = dlt.context("BTAU", "Bluetooth sound on PipeWire")
+
 
 class CallAudio:
-    def __init__(self, log=print, env: dict | None = None):
-        self.log, self.env = log, env
+    def __init__(self, env: dict | None = None):
+        self.env = env
         self.channels: dict[int, int] = {}
         self.ok = bool(shutil.which("pw-dump") and shutil.which("wpctl") and shutil.which("pw-cli"))
         if not self.ok:
-            log("call audio: no pw-dump / wpctl / pw-cli here, level and microphone mute are not applied")
+            log.warning("call audio: no pw-dump / wpctl / pw-cli here, level and microphone mute are not applied")
 
     def run(self, *args) -> str | None:
         try:   # pw-dump can take seconds on a busy Pi 3B during a call
             return subprocess.run(args, capture_output=True, text=True, timeout=5, env=self.env, check=True).stdout
         except (OSError, subprocess.SubprocessError) as e:
-            self.log(f"call audio: {args[0]} failed: {e}")
+            log.error(f"call audio: {args[0]} failed: {e}")
             return None
 
     def streams(self, address: str) -> dict | None:

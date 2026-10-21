@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start / stop the virtual R80 headunit environment. Usually run as ./r80 virtual <command>.
 #
-#   ./hu-virtual.sh up          buses, BoAt gateway, MCU emulator, hu-vehicled, hu-mediad, hu-audiod, hu-warnd, hu-tripd, hu-navd, hu-sysd, hu-phoned
+#   ./hu-virtual.sh up          buses, BoAt gateway, DLT daemon, MCU emulator, hu-vehicled, hu-mediad, hu-audiod, hu-warnd, hu-tripd, hu-navd, hu-sysd, hu-phoned
 #   ./hu-virtual.sh drive       ... plus the BoAt restbus playing the drive cycle
 #   ./hu-virtual.sh phone       phone emulator: plays a navigation route as the companion app would (D11)
 #   ./hu-virtual.sh phonepanel  phone panel: a GUI that plays the phone (routes, any guidance, link loss)
@@ -24,6 +24,7 @@
 #                NAV_ARGS (extra hu/navd.py arguments, e.g. --tcp 47800), PHONE_ARGS (extra phone_emu/phone_emu.py arguments),
 #                NAV_BLUETOOTH (session: BlueZ stand-in of the tests, default; system: this PC's real Bluetooth),
 #                SYS_ARGS (extra hu/sysd.py arguments; settings are saved in $RUN/settings.json),
+#                DLT_PORT (3490: the DLT daemon, for DLT Viewer / dlt-receive -a localhost),
 #                PI_IP (the Raspberry Pi bench: up/drive also start the CAN tunnel to it, docs/bench-pi.md).
 # Settings that should stick can go into ~/.config/r80/hu-virtual.env (KEY=value lines, read first).
 set -euo pipefail
@@ -39,6 +40,8 @@ GATEWAY="${BOAT_GATEWAY:-$BOAT_ROOT/boat-platform/build/debug/src/gateway/grpc_g
 RUN="${XDG_RUNTIME_DIR:-/tmp}/r80-hu"
 BUSES=(vcan_motor vcan_info vcan_comfort)
 mkdir -p "$RUN"
+# the services' DLT log: hu/services/dlt-daemon.sh in $RUN/dlt (files in $RUN/dlt-state/trace), DLT Viewer on DLT_PORT
+export DLT_PIPE_DIR="$RUN/dlt" DLT_DAEMON_TCP_PORT="${DLT_PORT:-3490}"
 
 start() {  # name, command...
   local name=$1; shift
@@ -86,6 +89,11 @@ up() {
   wait_gateway
   [[ -z "${PI_IP:-}" || -n "${R80_NO_TUNNEL:-}" ]] || start tunnel env PI_IP="$PI_IP" "$REPO/bench/pi/pc-cannelloni.sh"
   if [[ "${HU_DUT:-}" == external ]]; then echo "  DUT is external: not starting mcu, vehicled, mediad, audiod, warnd, tripd, navd, sysd and phoned"; return; fi
+  if command -v dlt-daemon >/dev/null; then
+    start dlt "$REPO/hu/services/dlt-daemon.sh" "$RUN/dlt-state" "$DLT_PIPE_DIR" "$DLT_DAEMON_TCP_PORT"
+  else
+    echo "  dlt-daemon not installed (sudo apt install dlt-daemon dlt-tools): the services log to their .log files only"
+  fi
   start mcu python3 "$HERE/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 "${MCU_CAN2:-vcan_motor}" --can2-bus "${MCU_CAN2_BUS:-motor}"
   sleep 0.5
   start vehicled python3 "$REPO/hu/services/vehicled.py"
@@ -126,9 +134,9 @@ case "${1:-status}" in
     cd "$REPO/test/boat"
     BOAT_HOST="localhost:$BOAT_PORT" boat test run manifest_hu_smoke.json --report-dir "$RUN/reports" "${@:2}"
     ;;
-  down) for n in ui panel phonepanel phone restbus tunnel phoned sysd navd tripd warnd audiod mediad vehicled mcu gateway; do stop "$n"; done ;;
+  down) for n in ui panel phonepanel phone restbus tunnel phoned sysd navd tripd warnd audiod mediad vehicled mcu dlt gateway; do stop "$n"; done ;;
   status)
-    for n in gateway tunnel mcu vehicled mediad audiod warnd tripd navd sysd phoned restbus phone phonepanel panel ui; do
+    for n in gateway tunnel dlt mcu vehicled mediad audiod warnd tripd navd sysd phoned restbus phone phonepanel panel ui; do
       if [[ -f "$RUN/$n.pid" ]] && kill -0 "$(cat "$RUN/$n.pid")" 2>/dev/null; then s=running; else s=stopped; fi
       printf "  %-9s %s\n" "$n" "$s"
     done

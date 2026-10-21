@@ -64,6 +64,8 @@ hu/                               the headunit software (target software: runs u
     phoned.py                     phone service (D13): calls over hands-free, D-Bus de.r80.Phone
     phonebook.py, vcard.py        the phone's contacts and call history (PBAP via obexd), the copy per phone
     callaudio.py                  Bluetooth sound on PipeWire: call and phone-music stages, levels, mic mute
+    dlt.py                        the services' log: DLT (Diagnostic Log and Trace) through libdlt, Python logging
+    dlt.conf, dlt-daemon.sh       the HU's own DLT daemon (COVESA dlt-daemon): files on the HU, DLT Viewer on TCP 3490
   ui/                             Qt 6 / QML UI, launched with PySide6
     run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
     backend.py                    the R80.Backend QML singletons, one per service, over D-Bus
