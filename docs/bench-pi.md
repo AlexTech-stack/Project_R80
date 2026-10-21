@@ -227,14 +227,20 @@ the Pi's headunit cannot answer on the test buses.
 ```bash
 mkdir -p ~/.config/r80 && echo "PI_IP=<raspberry-ip>" >> ~/.config/r80/hu-virtual.env
 cd ~/Project_R80
-./r80 virtual drive                                    # your usual PC env, plus the tunnel
-./r80 bench tunnel                                     # or only the tunnel, on a running env
+./r80 bench rbs                                        # the rest of the car for the Pi, with the tester panel
+./r80 bench rbs drive                                  # ... or with the drive cycle
+./r80 bench rbs stop                                   # all of it down again
 candump -a vcan_info                                   # frames the Pi should see
 ```
 
-Keep the PC's own headunit services running: the tester panel's knob/keys and
-the BoAt tests still drive that PC headunit. Allow UDP 20000-20002 through
-the PC firewall.
+`./r80 bench rbs` starts only what the Pi needs from the PC: the buses, the BoAt
+gateway, the tunnel and the restbus (panel or drive cycle). No headunit runs on the
+PC then, so the Pi's is the only one on the buses; the panel's knob and keys go to
+the PC's MCU emulator, which is not running, so use the HU's touch screen (or VNC).
+For a PC headunit next to the Pi (the BoAt tests, the panel's knob and keys), use
+`./r80 virtual drive` (or `up` + `panel`) instead: it starts the tunnel too, and
+`./r80 bench tunnel` adds it to a running environment. Allow UDP 20000-20002
+through the PC firewall.
 
 ## 7. CAN tunnel (Pi)
 

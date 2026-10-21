@@ -13,7 +13,10 @@
 #                 status | logs                 unit status, follow the service logs
 #                 update                        git pull, then restart the HU
 #                 run                           the kiosk in the foreground (one session bus)
-#     on the PC:  tunnel                        CAN tunnel to the Pi (PI_IP; virtual up/drive start it too)
+#     on the PC:  rbs [panel|drive|stop]        the rest of the car for the Pi: buses, BoAt gateway, CAN tunnel
+#                                               (PI_IP) and the restbus, with the tester panel (default) or
+#                                               the drive cycle; no HU on the PC (the Pi is the HU). stop: all down
+#                 tunnel                        CAN tunnel to the Pi (PI_IP; virtual up/drive start it too)
 #                 share-internet <if> [<net>]   share this PC's internet with the Pi on the cable
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -43,6 +46,14 @@ bench() {
     logs) exec tail -n 20 -F /tmp/r80-*.log ;;
     update) git -C "$REPO" pull --ff-only && hu_ctl restart ;;
     run) exec dbus-run-session -- "$REPO/bench/pi/r80-kiosk.sh" ;;
+    rbs)
+      local how="${1:-panel}"
+      case "$how" in
+        panel) HU_DUT=external "$REPO/dev/hu-virtual.sh" up && exec "$REPO/dev/hu-virtual.sh" panel ;;
+        drive) HU_DUT=external exec "$REPO/dev/hu-virtual.sh" drive ;;
+        stop) exec "$REPO/dev/hu-virtual.sh" down ;;
+        *) echo "rbs: panel, drive or stop, not '$how'" >&2; exit 2 ;;
+      esac ;;
     tunnel) exec "$REPO/dev/hu-virtual.sh" tunnel ;;
     share-internet) exec "$REPO/bench/pi/pc-share-internet.sh" "$@" ;;
     *) echo "unknown bench command: '$cmd'" >&2; usage 2 ;;
