@@ -37,17 +37,17 @@ Item {
         CarSide { x: Theme.margin - 10; y: 120; width: 680; height: 231; stroke: 1.2 }
         T {
             x: Theme.margin; y: 420
-            text: "Odometer  " + Math.floor(Sim.odometer).toLocaleString(Qt.locale("de_DE"), 'f', 0) + " km"
+            text: "Odometer  " + (Fmt.known(Sim.odometer) ? Math.floor(Sim.odometer).toLocaleString(Qt.locale("de_DE"), 'f', 0) : "–") + " km"
             color: Theme.accentMid
         }
         Column {
             x: 740; y: 90
-            DataRow { icon: Icons.oil;     label: "Oil temp";   value: Sim.oilTemp + " °C" }
-            DataRow { icon: Icons.coolant; label: "Coolant";    value: Sim.coolantTemp + " °C" }
-            DataRow { icon: Icons.battery; label: "Battery";    value: Sim.batteryVolt.toFixed(1) + " V" }
-            DataRow { icon: Icons.fuel;    label: "Fuel range"; value: Sim.rangeKm + " km" }
-            DataRow { icon: Icons.fuel;    label: "Fuel level"; value: Math.round(Sim.fuelLevel * 55) + " / 55 l" }
-            DataRow { icon: Icons.sun;     label: "Outside";    value: Math.round(Sim.outsideTemp) + " °C" }
+            DataRow { icon: Icons.oil;     label: "Oil temp";   value: Fmt.num(Sim.oilTemp, 0, "°C") }
+            DataRow { icon: Icons.coolant; label: "Coolant";    value: Fmt.num(Sim.coolantTemp, 0, "°C") }
+            DataRow { icon: Icons.battery; label: "Battery";    value: Fmt.num(Sim.batteryVolt, 1, "V") }
+            DataRow { icon: Icons.fuel;    label: "Fuel range"; value: Fmt.num(Sim.rangeKm, 0, "km") }
+            DataRow { icon: Icons.fuel;    label: "Fuel level"; value: Fmt.num(Sim.fuelLevel * 55, 0) + " / 55 l" }
+            DataRow { icon: Icons.sun;     label: "Outside";    value: Fmt.num(Sim.outsideTemp, 0, "°C") }
         }
     }
 
@@ -73,11 +73,11 @@ Item {
                 }
                 Repeater {
                     model: [
-                        { label: "Distance",         value: modelData.t.km.toFixed(1).replace(".", ","), unit: "km" },
-                        { label: "Driving time",     value: Math.floor(modelData.t.minutes / 60) + ":" + ("0" + modelData.t.minutes % 60).slice(-2), unit: "h" },
-                        { label: "Avg. speed",       value: modelData.t.avgSpeed, unit: "km/h" },
-                        { label: "Max. speed",       value: modelData.t.maxSpeed, unit: "km/h" },
-                        { label: "Avg. consumption", value: Sim.avgConsumption.toFixed(1).replace(".", ","), unit: "l/100 km" }
+                        { label: "Distance",         value: Fmt.num(modelData.t.km, 1).replace(".", ","), unit: "km" },
+                        { label: "Driving time",     value: Fmt.known(modelData.t.minutes) ? Math.floor(modelData.t.minutes / 60) + ":" + ("0" + modelData.t.minutes % 60).slice(-2) : "–", unit: "h" },
+                        { label: "Avg. speed",       value: Fmt.num(modelData.t.avgSpeed, 0), unit: "km/h" },
+                        { label: "Max. speed",       value: Fmt.num(modelData.t.maxSpeed, 0), unit: "km/h" },
+                        { label: "Avg. consumption", value: Fmt.num(Sim.avgConsumption, 1).replace(".", ","), unit: "l/100 km" }
                     ]
                     Item {
                         width: parent.width; height: 100
@@ -120,7 +120,7 @@ Item {
                     y: 6
                     width: 160
                     T { width: parent.width; horizontalAlignment: parent.parent.isRight ? Text.AlignLeft : Text.AlignRight
-                        text: Sim.tyres[index].toFixed(1) + " bar"; font.pixelSize: 38; font.family: Theme.numberFamily }
+                        text: Fmt.num(Sim.tyres[index], 1, "bar"); font.pixelSize: 38; font.family: Theme.numberFamily }
                     T { width: parent.width; horizontalAlignment: parent.parent.isRight ? Text.AlignLeft : Text.AlignRight
                         text: ["Front left", "Front right", "Rear left", "Rear right"][index]; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
                 }
@@ -138,7 +138,7 @@ Item {
             Icon { path: Icons.oil; width: 64; height: 64 }
             Column {
                 T { text: "Oil change due in"; color: Theme.accentMid }
-                T { text: Sim.serviceKm.toLocaleString(Qt.locale("de_DE"), 'f', 0) + " km  /  " + Sim.serviceDays + " days"; font.pixelSize: 44 }
+                T { text: (Fmt.known(Sim.serviceKm) ? Sim.serviceKm.toLocaleString(Qt.locale("de_DE"), 'f', 0) : "–") + " km  /  " + Fmt.num(Sim.serviceDays, 0) + " days"; font.pixelSize: 44 }
             }
         }
         Row {

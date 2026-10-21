@@ -3,6 +3,12 @@ import QtQuick
 
 // Number formatting shared by several screens.
 QtObject {
+    // A value or "–" when it is not known (NaN: its service has not told it yet, live mode).
+    function known(v) { return typeof v === "number" ? isFinite(v) : v !== undefined && v !== null && v !== "" }
+    function num(v, decimals, unit) {
+        if (!known(v)) return "–" + (unit ? " " + unit : "");
+        return v.toFixed(decimals || 0) + (unit ? " " + unit : "");
+    }
     // Distance in metres -> { value, unit } the way a navigation app shows it; null if unknown (< 0).
     function distance(m) {
         if (m === undefined || m < 0) return null;

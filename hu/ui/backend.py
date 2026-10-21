@@ -619,6 +619,8 @@ class System(QObject):
         self.changed.emit()
 
     available = Property(bool, lambda self: self._available, notify=availableChanged)
+    # the live UI: Sim.qml shows "–" for what a service has not told yet (the demo stand-in says true)
+    demo = Property(bool, lambda self: False, constant=True)
     settings = Property("QVariantMap", lambda self: dict(self._settings), notify=changed)
     displayBrightness = Property(float, lambda self: self._display, notify=changed)
     info = Property("QVariantMap", lambda self: dict(self._info), notify=changed)

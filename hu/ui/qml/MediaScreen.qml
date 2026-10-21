@@ -71,7 +71,7 @@ Item {
             anchors.centerIn: parent
             width: 120; height: 120
             visible: root.empty
-            path: Sim.mediaSource === "Library" ? Icons.music : Icons.usb
+            path: Sim.mediaSource === "Library" || Sim.mediaSource === "" ? Icons.music : Icons.usb
             color: Theme.accentDim
             stroke: 1.2
         }
@@ -107,11 +107,14 @@ Item {
         width: 850 - x
         spacing: 14
         visible: root.empty
-        T { width: parent.width; text: "No music on " + Sim.mediaSource; font.pixelSize: 40; elide: Text.ElideRight }
+        // live, before hu-mediad answers: nothing known yet
+        readonly property bool known: Sim.mediaLive || Sim.demo
+        T { width: parent.width; text: parent.known ? "No music on " + Sim.mediaSource : "–"; font.pixelSize: 40; elide: Text.ElideRight }
         T {
             width: parent.width
             wrapMode: Text.WordWrap
             color: Theme.accentMid
+            visible: parent.known
             text: Sim.mediaSource === "Library"
                   ? "Copy music into the Library, or plug in a USB stick."
                   : "No audio files found on this stick."

@@ -41,6 +41,7 @@ docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D14
 docs/companion-protocol.md        phone (R80 Companion app) <-> HU link protocol (D11)
 docs/companion-protocol-examples.jsonl  protocol examples both sides test against
 docs/bench-pi.md                  the Raspberry Pi bench: setup and operation
+docs/bench-measurements.md        start-up time and memory on the bench (./r80 bench measure)
 docs/screenshots/                 every UI screen, rendered by ./r80 demo screenshots
 docs/ui/, docs/images/            UI vision and car reference; pictures for the READMEs
 companion-android/                R80 Companion, the Android app on the driver's phone (D11, Kotlin)
@@ -75,7 +76,7 @@ hu/                               the headunit software (target software: runs u
     hu.qmlproject                 Qt Design Studio project (open this in Design Studio)
     qml/main.qml                  window, screen switching, knob/key handling
     qml/Theme.qml                 all colours, fonts and sizes
-    qml/Sim.qml                   the data the screens show: from R80.Backend, or fake when a backend is unavailable
+    qml/Sim.qml                   the data the screens show: from R80.Backend; live "–" while a service is missing, demo: fake
     qml/Icons.qml                 self-drawn line icons as SVG path data
     qml/ManeuverIcon.qml          navigation maneuver arrows, drawn in code (D11)
     qml/*Screen.qml               one file per screen
@@ -98,7 +99,8 @@ dev/                              PC stand-ins for the virtual mode (PC only)
   udisks_emu.py                   stand-in for udisks2 with USB sticks (folders), for the tests
 test/boat/                        BoAt restbus node, tester panel and the BoAt tests (PC only; list in dev/README.md)
 bench/pi/                         Raspberry Pi bench: kiosk script, systemd units, CAN tunnel, PC helpers,
-                                  PipeWire / WirePlumber settings, the built-in Bluetooth's SCO routing
+                                  PipeWire / WirePlumber settings, the built-in Bluetooth's SCO routing,
+                                  measure.py (start-up time and memory, ./r80 bench measure)
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```
 
@@ -272,7 +274,10 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
 - Visual style: black background, monochrome line art in the accent colour (red by default).
   See `docs/ui/UI_vision_V01.png`.
 - The screens read their data only from `hu/ui/qml/Sim.qml`. Sim takes it from the
-  R80.Backend singletons and falls back to its fake data when a backend is unavailable.
+  R80.Backend singletons. In the live UI a service that is not there (yet) shows nothing:
+  numbers NaN (show them through `Fmt.num` / `Fmt.known`: "–"), texts and lists empty. Only in
+  demo mode (`System.demo`, the stand-ins) does Sim show its fake data. Never show fake
+  values in the live UI.
   When you add or rename a Property, Signal or Slot in `hu/ui/backend.py`, add it to its
   demo stand-in in `hu/ui/qml-demo/R80/Backend/` too (`ci/check_rules.py` checks this).
 - D-Bus property names in `vehicled.py` are the DBC signal names.

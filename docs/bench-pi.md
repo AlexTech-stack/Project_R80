@@ -447,6 +447,9 @@ from that stick stops for a few seconds).
 
 ## 12. Verify
 
+`./r80 bench measure` reports the start-up times and the memory; `--restart` restarts the HU
+and times that start. Results: [bench-measurements.md](bench-measurements.md).
+
 - `journalctl -u r80-can -u r80-hu -f` and `cat /tmp/r80-*.log`.
 - `candump -a vcan_info` on the Pi mirrors the PC.
 - `gdbus` reads `de.r80.Vehicle` / `de.r80.Media`; transport buttons change the

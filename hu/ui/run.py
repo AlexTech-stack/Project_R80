@@ -19,7 +19,27 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
+
+
+
+def now() -> float:
+    """Seconds since boot (Linux), else a monotonic clock."""
+    return time.clock_gettime(time.CLOCK_BOOTTIME) if hasattr(time, "CLOCK_BOOTTIME") else time.monotonic()
+
+
+def _process_start() -> float:
+    """When this process started, on the now() clock (Linux: from /proc, also counted from
+    boot). Else now: then the Python start itself is not counted."""
+    try:
+        start_ticks = int(Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19])
+        return start_ticks / os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError, IndexError, AttributeError):
+        return now()
+
+
+STARTED = _process_start()           # for the start-up times in the log (live mode)
 
 HERE = Path(__file__).resolve().parent
 
@@ -239,6 +259,23 @@ def make_sheet(images, path: Path):
     sheet.save(str(path))
 
 
+def log_startup(win, steps: dict):
+    """Live mode: how long the start took, into the DLT log (HMI MAIN): Python and PySide6
+    up, the backends, QML loaded, the first frame on the display (docs/bench-pi.md)."""
+    import dlt
+    log = dlt.context("MAIN")
+    done = {"frame": False}
+
+    def first_frame():
+        if done["frame"]:
+            return
+        done["frame"] = True
+        steps["first frame"] = now()
+        parts = ", ".join(f"{k} {v - STARTED:.2f} s" for k, v in steps.items())
+        log.info(f"start-up: {parts} (since the UI process started)")
+    win.frameSwapped.connect(first_frame)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--demo", action="store_true", help="fake data from qml-demo/, no services needed")
@@ -258,9 +295,11 @@ def main():
     from PySide6.QtQml import QQmlApplicationEngine
     from PySide6.QtQuick import QQuickWindow  # noqa: F401  (gives the root window grabWindow())
 
+    steps = {"Qt imported": now()}
     app = QGuiApplication(sys.argv)
     app.setApplicationName("R80 Headunit" + (" (demo)" if demo else ""))
     backends = None if demo else register_backends(a.system)
+    steps["backends"] = now()
 
     engine = QQmlApplicationEngine()
     if not demo:
@@ -272,6 +311,9 @@ def main():
     if not engine.rootObjects():
         sys.exit(1)
     win = engine.rootObjects()[0]
+    steps["QML loaded"] = now()
+    if not demo:
+        log_startup(win, steps)
     if a.screen:
         win.setProperty("current", a.screen)
     if a.fullscreen:

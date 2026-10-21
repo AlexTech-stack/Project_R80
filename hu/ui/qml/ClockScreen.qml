@@ -46,7 +46,7 @@ Item {
                 Icon { path: Icons.partCloud; width: 90; height: 90; stroke: 1.3 }
                 Column {
                     anchors.verticalCenter: parent.verticalCenter
-                    T { text: Math.round(Sim.outsideTemp) + " °C"; font.family: Theme.numberFamily; font.pixelSize: 64 }
+                    T { text: Fmt.num(Sim.outsideTemp, 0, "°C"); font.family: Theme.numberFamily; font.pixelSize: 64 }
                     T { text: "Partly cloudy"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
                 }
             }
@@ -56,7 +56,7 @@ Item {
                 Icon { path: Icons.mountain; width: 60; height: 60 }
                 Column {
                     anchors.verticalCenter: parent.verticalCenter
-                    T { text: Sim.altitude + " m"; font.pixelSize: 40 }
+                    T { text: Fmt.num(Sim.altitude, 0, "m"); font.pixelSize: 40 }
                     T { text: "Altitude"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
                 }
             }

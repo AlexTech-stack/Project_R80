@@ -71,7 +71,7 @@ Item {
             MouseArea { anchors.fill: parent; anchors.margins: -10; onClicked: root.warningsClicked() }
         }
         T {
-            text: Math.round(Sim.outsideTemp) + "°C"
+            text: Fmt.known(Sim.outsideTemp) ? Math.round(Sim.outsideTemp) + "°C" : "–°C"
             color: Theme.accentMid
             font.pixelSize: Theme.fontSmall + 2
             anchors.verticalCenter: parent.verticalCenter
