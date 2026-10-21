@@ -138,11 +138,13 @@ class Link(
                 while (true) {
                     val line = reader.next() ?: break
                     lastRx.set(clock())
-                    Protocol.parse(line)?.let { incoming.put(it) }
+                    Protocol.parse(line)?.let { incoming.offer(it) }
                 }
             } catch (_: Exception) {
             }
-            incoming.put(Protocol.HuMessage.Bye("link closed"))
+            // offer, not put: the session interrupts this thread when it ends, and an interrupted put
+            // throws, which would take the whole app down (the queue is unbounded, offer never waits)
+            incoming.offer(Protocol.HuMessage.Bye("link closed"))
         }, "r80-link-reader").apply { isDaemon = true; start() }
 
         fun send(s: String) {

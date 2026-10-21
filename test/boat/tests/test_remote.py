@@ -2,13 +2,14 @@
 """TC_HU_041: the passenger's remote over the companion link (hu-navd, caps remote). A phone
 that asks gets the media state after its hello (status, track, queue, up next, sources, the
 master volume, allowed) and again when something changes; its commands reach hu-mediad and
-hu-audiod (pause, play, next, shuffle, seek, volume, mute, source, play_from); it browses the
+hu-audiod (pause, play, next, shuffle, seek, volume, mute, source by name, play_from; an
+unknown source is refused and the link stays); it browses the
 library page by page (the same ids as the HU's Browse screen; a missing list: total -1).
 With the setting phone_remote off the state says allowed: false and commands are ignored;
 on again, they work. A phone without caps remote gets no media state."""
 import time
 
-from common import audio, audio_props, check, finish, media, media_props, nav_logic, phone, system, wait_audio, wait_media
+from common import audio, audio_props, check, finish, media, media_props, nav_logic, nav_props, phone, system, wait_audio, wait_media
 
 navd, _cfg = nav_logic()
 import companion_link as cl  # noqa: E402
@@ -91,6 +92,20 @@ check(ok, "mute")
 cmd(p, "mute", value=False)
 wait_audio(lambda a: not a["Muted"])
 audio().SetMaster(vol0)
+
+# --- choosing the source (a text value): the same one, an unknown one; the link stays
+bad = nav_props()["Phone"]["bad_lines"]
+cmd(p, "source", value="Library")
+ok, x, _ = wait_media(lambda x: x["Source"] == "Library")
+cmd(p, "source", value="No such source")
+time.sleep(1.0)
+check(ok and nav_props()["Phone"]["connected"] and nav_props()["Phone"]["bad_lines"] == bad and not p.closed_by_hu.is_set(),
+      "source: chosen by name; an unknown one is refused by mediad, the link stays")
+cmd(p, "pause")
+ok, _, _ = wait_media(lambda x: x["PlaybackStatus"] == "paused")
+check(ok, "... and the next command still works")
+cmd(p, "play")
+wait_media(lambda x: x["PlaybackStatus"] == "playing")
 
 # --- browsing: the top, a list, a missing one; play from a list
 p.send({"type": cl.BROWSE, "id": 1, "path": "", "offset": 0, "count": 20})

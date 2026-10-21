@@ -456,7 +456,10 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                     self.send_status()               # how the car is, right after the hello
                     self.media_changed()             # and what plays, for the remote
             for req in self.link.requests:
-                self.carry_out(req)
+                try:
+                    self.carry_out(req)
+                except Exception:                    # one bad request must not stop reading the link
+                    log.exception(f"phone request {req.get('cmd') or req['type']} failed")
             self.link.requests.clear()
             for _ in range(self.decoder.errors - before):
                 self.link.bad_line()
@@ -546,15 +549,16 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                 self.media_changed()
                 return
             cmd, v = req["cmd"], req.get("value")
-            calls = {"play": (miface, "Play", "", ()), "pause": (miface, "Pause", "", ()),
-                     "next": (miface, "Next", "", ()), "previous": (miface, "Previous", "", ()),
-                     "seek": (miface, "SetPosition", "x", (int((v or 0) * 1e6),)),
-                     "shuffle": (miface, "SetShuffle", "b", (bool(v),)), "repeat": (miface, "SetRepeatAll", "b", (bool(v),)),
-                     "source": (miface, "SetSource", "s", (str(v),)),
-                     "play_from": (miface, "PlayFrom", "si", (req.get("path", ""), req.get("index", 0))),
-                     "volume": (SOURCES["audio"][2], "SetMaster", "i", (int(v or 0),)),
-                     "mute": (SOURCES["audio"][2], "SetMuted", "b", (bool(v),))}
-            iface, method, sig, args = calls[cmd]
+            # the method and its arguments, built only for this command (each value has its own type)
+            calls = {"play": lambda: (miface, "Play", "", ()), "pause": lambda: (miface, "Pause", "", ()),
+                     "next": lambda: (miface, "Next", "", ()), "previous": lambda: (miface, "Previous", "", ()),
+                     "seek": lambda: (miface, "SetPosition", "x", (int(v * 1e6),)),
+                     "shuffle": lambda: (miface, "SetShuffle", "b", (v,)), "repeat": lambda: (miface, "SetRepeatAll", "b", (v,)),
+                     "source": lambda: (miface, "SetSource", "s", (v,)),
+                     "play_from": lambda: (miface, "PlayFrom", "si", (req["path"], req["index"])),
+                     "volume": lambda: (SOURCES["audio"][2], "SetMaster", "i", (v,)),
+                     "mute": lambda: (SOURCES["audio"][2], "SetMuted", "b", (v,))}
+            iface, method, sig, args = calls[cmd]()
             svc, path = (SOURCES["audio"][0], SOURCES["audio"][1]) if iface == SOURCES["audio"][2] else (msvc, mpath)
             log.debug(f"phone command {cmd}")
             self.bus.call_async(svc, path, iface, method, sig, args, lambda *_: None,
