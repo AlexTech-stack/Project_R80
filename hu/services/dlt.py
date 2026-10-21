@@ -138,6 +138,7 @@ def app(apid: str, description: str, tag: str) -> bool:
     _stderr.setFormatter(logging.Formatter(f"[{tag}] %(message)s"))
     _stderr.setLevel(NAMES_TO_LOGGING.get(os.environ.get("R80_LOG_STDERR", "info"), logging.INFO))
     _app = apid[:4]
+    _catch_all()
     _lib = _load()
     if _lib is None or _lib.dlt_register_app(_app.encode(), description.encode()) != 0:
         _lib = None
@@ -146,6 +147,27 @@ def app(apid: str, description: str, tag: str) -> bool:
     for cid in list(_contexts):
         _register(cid)
     return True
+
+
+class _Forward(logging.Handler):
+    def __init__(self, logger):
+        super().__init__()
+        self.logger = logger
+
+    def emit(self, record):
+        if record.levelno >= self.logger.getEffectiveLevel():
+            self.logger.handle(record)
+
+
+def _catch_all():
+    """Exceptions nobody caught (also in GLib and D-Bus callbacks) and other libraries' Python
+    logging (dbus-python's) go to the context PY instead of only to stderr."""
+    py = context("PY", "Uncaught exceptions, library messages")
+    logging.getLogger().addHandler(_Forward(py))
+
+    def hook(kind, value, tb):
+        py.error("uncaught exception", exc_info=(kind, value, tb))
+    sys.excepthook = hook
 
 
 NAMES_TO_LOGGING = {name: FROM_DLT[n] for name, n in NAMES.items()}

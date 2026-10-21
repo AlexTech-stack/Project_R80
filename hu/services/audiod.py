@@ -464,7 +464,7 @@ class Audio(dbus.service.Object):
 
     def on_key(self, kind, power):
         if power in ("off", "shutdown"):
-            log.warning(f"ignoring {kind}: HU power is {power}")
+            log.info(f"ignoring {kind}: HU power is {power}")
         elif kind == "button:VOL_UP":
             self.Step(1)
         elif kind == "button:VOL_DOWN":

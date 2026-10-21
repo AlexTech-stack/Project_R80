@@ -266,7 +266,7 @@ class Scanner:
             self.done()
         elif t == Gst.MessageType.ERROR:
             err, _dbg = msg.parse_error()
-            log.error(f"cannot read {self.current['path']}: {err.message if err else '?'}")
+            log.warning(f"cannot read {self.current['path']}: {err.message if err else '?'}")
             self.done()
         return True
 
@@ -718,7 +718,7 @@ class Media(dbus.service.Object):
         if self.awaited:
             _key, play = self.awaited
             self.awaited = None
-            log.warning("the last stick did not come back: staying on the Library")
+            log.info("the last stick did not come back: staying on the Library")
             if play and self.tracks:
                 self.Play()
         return False

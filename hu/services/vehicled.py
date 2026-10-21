@@ -179,7 +179,7 @@ class Vehicle(dbus.service.Object):
             self.last_mcu_hb = time.monotonic()
             self.set("LinkUp", True)
         elif m.type == L.HELLO:
-            log.error(f"MCU: {m.payload[1:].decode(errors='replace')} (protocol {m.payload[0]})")
+            log.info(f"MCU: {m.payload[1:].decode(errors='replace')} (protocol {m.payload[0]})")
         elif m.type == L.CAN_RX:
             bus, can_id, data = L.unpack_can(m.payload)
             msg = self.db.get(can_id & 0x1FFFFFFF, bool(can_id & L.CAN_EFF_FLAG))

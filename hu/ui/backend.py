@@ -620,7 +620,7 @@ class System(QObject):
         v = (dbus.Boolean(value) if isinstance(value, bool) else dbus.Double(value) if isinstance(value, (int, float))
              else dbus.String(str(value)))
         self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "Set", "sv", (str(name), v),
-                            lambda *_: None, lambda e: log.error(f"setting {name} refused: {e}"), timeout=1.0)
+                            lambda *_: None, lambda e: log.warning(f"setting {name} refused: {e}"), timeout=1.0)
 
     @Slot()
     def resetAll(self):
@@ -696,7 +696,7 @@ class Phone(QObject):
 
     def _send(self, method, signature="", args=()):
         self.bus.call_async(PHONE_SERVICE, PHONE_PATH, PHONE_IFACE, method, signature, args,
-                            lambda *_: None, lambda e: log.error(f"phone {method}: {e}"), timeout=30.0)
+                            lambda *_: None, lambda e: log.warning(f"phone {method}: {e}"), timeout=30.0)
 
     available = Property(bool, lambda self: self._available, notify=availableChanged)
     connected = Property(bool, lambda self: bool(self._v["Connected"]), notify=changed)

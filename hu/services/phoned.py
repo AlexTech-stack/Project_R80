@@ -279,7 +279,7 @@ class Phone(dbus.service.Object):
                 return                                   # another phone by now, or timed out
             if error:
                 self.sync_state, self.sync_error = "failed", error
-                log.error(f"copying contacts failed: {error}")
+                log.warning(f"copying contacts failed: {error}")
             else:
                 self.book.update(contacts=contacts, history=history, synced=int(time.time()))
                 self.sync_state = "idle"
@@ -291,7 +291,7 @@ class Phone(dbus.service.Object):
             self.sync_timer = None
             if self.sync_state == "syncing":
                 self.sync_state, self.sync_error = "failed", "the phone did not answer"
-                log.error("copying contacts failed: the phone did not answer")
+                log.warning("copying contacts failed: the phone did not answer")
                 self.refresh()
             return False
         self.sync_timer = GLib.timeout_add_seconds(SYNC_TIMEOUT_S, timeout)

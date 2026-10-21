@@ -263,7 +263,7 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             for _ in range(self.decoder.errors - before):
                 self.link.bad_line()
             if self.decoder.errors > before:
-                log.error(f"dropped {self.decoder.errors - before} bad line(s): {self.decoder.last_error}")
+                log.warning(f"dropped {self.decoder.errors - before} bad line(s): {self.decoder.last_error}")
             if self.link.close:
                 log.info(f"closing the phone link: {self.link.why}")
                 self.watch = None
