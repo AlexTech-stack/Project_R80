@@ -469,6 +469,13 @@ QtObject {
         const l = Object.assign({}, _demoLevels); l[app] = level; _demoLevels = l;
     }
     function clearLog() { if (logLive) System.clearLog(); else _demoCleared = true }
+    // the log onto a USB stick (hu-sysd): {state: idle | writing | done | failed, message, dir}
+    property var _demoExport: ({ state: "done", message: "8 log files, 15.8 MB in R80-logs/2026-10-21_111530", dir: "" })
+    readonly property var logExport: logLive && System.logExport.state !== undefined ? System.logExport : _demoExport
+    function exportLog() {
+        if (logLive) { System.exportLog(); return }
+        _demoExport = { state: "done", message: "8 log files, 15.8 MB in R80-logs/" + Qt.formatDateTime(now, "yyyy-MM-dd_HHmmss"), dir: "" };
+    }
 
     // ---- tone (D9): kept by hu-audiod; without it local values ------------------------------
     readonly property bool toneLive: Audio.available && Audio.tone.bass !== undefined

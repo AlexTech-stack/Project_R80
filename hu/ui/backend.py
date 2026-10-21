@@ -568,7 +568,8 @@ class System(QObject):
     """QML singleton mirroring hu-sysd (de.r80.System1, D12): the user's settings as a dict
     {name: value} (names as in hu/system.ini; sysd checks and saves every change), the
     display brightness sysd computes from them, day/night and the car's dimmer, the system
-    information and the DLT log's warnings and errors (log: connected, apps, entries)."""
+    information, the DLT log's warnings and errors (log: connected, apps, entries) and the
+    log export onto a USB stick (logExport: state, message, dir)."""
     changed = Signal()
     availableChanged = Signal()
 
@@ -579,6 +580,7 @@ class System(QObject):
         self._display = 0.9
         self._info = {}
         self._log = {}
+        self._export = {}
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
         self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, SYS_PATH)
@@ -609,6 +611,8 @@ class System(QObject):
             self._info = {str(k): _py(v) for k, v in changed["Info"].items()}
         if "Log" in changed:
             self._log = _py(changed["Log"])
+        if "Export" in changed:
+            self._export = _py(changed["Export"])
         if not self._available:
             self._available = True
             self.availableChanged.emit()
@@ -619,6 +623,7 @@ class System(QObject):
     displayBrightness = Property(float, lambda self: self._display, notify=changed)
     info = Property("QVariantMap", lambda self: dict(self._info), notify=changed)
     log = Property("QVariantMap", lambda self: dict(self._log), notify=changed)
+    logExport = Property("QVariantMap", lambda self: dict(self._export), notify=changed)
 
     @Slot(str, "QVariant")
     def set(self, name, value):
@@ -636,6 +641,11 @@ class System(QObject):
     def setLogLevel(self, app, level):
         self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "SetLogLevel", "ss", (str(app), str(level)),
                             lambda *_: None, lambda e: log.warning(f"log level of {app} refused: {e}"), timeout=2.0)
+
+    @Slot()
+    def exportLog(self):
+        self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "ExportLog", "", (),
+                            lambda *_: None, lambda e: log.warning(f"log export refused: {e}"), timeout=2.0)
 
     @Slot()
     def clearLog(self):

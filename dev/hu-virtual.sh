@@ -111,7 +111,7 @@ up() {
   start tripd python3 "$REPO/hu/services/tripd.py" --state "$RUN/trip-state.json" ${TRIP_ARGS:-}
   # shellcheck disable=SC2086  # NAV_ARGS is a list of flags
   # shellcheck disable=SC2086  # SYS_ARGS is a list of flags
-  start sysd python3 "$REPO/hu/services/sysd.py" --state "$RUN/settings.json" ${SYS_ARGS:-}
+  start sysd python3 "$REPO/hu/services/sysd.py" --state "$RUN/settings.json" --log-dir "$RUN/dlt-state/trace" ${SYS_ARGS:-}
   start navd python3 "$REPO/hu/services/navd.py" --socket "$RUN/companion.sock" --bluetooth "${NAV_BLUETOOTH:-session}" ${NAV_ARGS:-}
   # calls and contacts: the tests' / phone panel's stand-ins for PipeWire's telephony and obexd on the
   # session bus (PHONE_TELEPHONY / PHONE_OBEX = a D-Bus address for real ones); copies of contacts in $RUN/phone

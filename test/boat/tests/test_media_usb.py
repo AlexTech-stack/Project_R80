@@ -7,7 +7,8 @@ label, switches to it and plays its tracks. Each source keeps its own track and
 position (Library <-> stick), the state file holds the source and the resume points,
 the same stick mounted elsewhere next time keeps its resume point and its tags come from
 the cache, the same stick on a second device stays one source, a second stick without a
-label is "USB", and pulling the playing stick falls back to the Library, paused. A real USB port and a real udisks2 are not part of this test."""
+label is "USB", and pulling the playing stick falls back to the Library, paused. The udisks2
+stand-in is dev/udisks_emu.py. A real USB port and a real udisks2 are not part of this test."""
 import json
 import os
 import shutil
@@ -17,7 +18,6 @@ import time
 from pathlib import Path
 
 import dbus
-import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
@@ -25,77 +25,10 @@ from common import DEV, check, finish, media, media_props, media_queue, power_se
 
 sys.path.insert(0, str(DEV))
 import media_tags  # noqa: E402
+from udisks_emu import UD, FakeUDisks  # noqa: E402
 
 RUN = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu"
 STATE = RUN / "media-state.json"          # where hu-virtual.sh and start_dut.sh let mediad save it
-UD = "org.freedesktop.UDisks2"
-ROOT = "/org/freedesktop/UDisks2"
-OM, PROPS = "org.freedesktop.DBus.ObjectManager", "org.freedesktop.DBus.Properties"
-BLOCK, FS, DRIVE = UD + ".Block", UD + ".Filesystem", UD + ".Drive"
-
-
-def mounts(*paths):
-    return dbus.Array([dbus.ByteArray(p.encode() + b"\x00") for p in paths], signature="ay")
-
-
-class Device(dbus.service.Object):
-    """A block device with a filesystem: Filesystem.Mount, as udisks2 does it."""
-
-    def __init__(self, conn, path, fake, mount_dir):
-        super().__init__(conn, path)
-        self.fake, self.mount_dir, self.mount_calls = fake, mount_dir, []
-
-    @dbus.service.method(FS, in_signature="a{sv}", out_signature="s")
-    def Mount(self, options):
-        self.mount_calls.append({str(k): v for k, v in options.items()})
-        self.fake.objects[self._object_path][FS]["MountPoints"] = mounts(self.mount_dir)
-        self.PropertiesChanged(FS, {"MountPoints": mounts(self.mount_dir)}, dbus.Array([], signature="s"))
-        return self.mount_dir
-
-    @dbus.service.signal(PROPS, signature="sa{sv}as")
-    def PropertiesChanged(self, iface, changed, invalidated):
-        pass
-
-
-class FakeUDisks(dbus.service.Object):
-    def __init__(self, conn):
-        super().__init__(conn, ROOT)
-        self.conn, self.objects, self.devices = conn, {}, {}
-
-    @dbus.service.method(OM, out_signature="a{oa{sa{sv}}}")
-    def GetManagedObjects(self):
-        return self.objects
-
-    @dbus.service.signal(OM, signature="oa{sa{sv}}")
-    def InterfacesAdded(self, path, ifaces):
-        pass
-
-    @dbus.service.signal(OM, signature="oas")
-    def InterfacesRemoved(self, path, ifaces):
-        pass
-
-    def add(self, name, uuid, label, mount_dir, mounted_at=None, fstab=False, signal=True):
-        drive = f"{ROOT}/drives/{name}"
-        block = f"{ROOT}/block_devices/{name}1"
-        self.objects[drive] = {DRIVE: {"ConnectionBus": "usb", "Removable": True, "MediaRemovable": False}}
-        config = [("fstab", {"dir": dbus.ByteArray(b"/mnt/r80\x00")})] if fstab else []
-        self.objects[block] = {
-            BLOCK: {"Drive": dbus.ObjectPath(drive), "IdUUID": uuid, "IdLabel": label, "HintSystem": False,
-                    "HintIgnore": False, "HintAuto": True,
-                    "Configuration": dbus.Array(config, signature="(sa{sv})")},
-            FS: {"MountPoints": mounts(mounted_at) if mounted_at else mounts()}}
-        self.devices[block] = Device(self.conn, block, self, mount_dir)
-        if signal:
-            self.InterfacesAdded(dbus.ObjectPath(drive), self.objects[drive])
-            self.InterfacesAdded(dbus.ObjectPath(block), self.objects[block])
-        return self.devices[block]
-
-    def remove(self, name):
-        for path, ifaces in ((f"{ROOT}/block_devices/{name}1", [BLOCK, FS]), (f"{ROOT}/drives/{name}", [DRIVE])):
-            self.objects.pop(path, None)
-            self.InterfacesRemoved(dbus.ObjectPath(path), dbus.Array(ifaces, signature="s"))
-            if path in self.devices:
-                self.devices.pop(path).remove_from_connection()
 
 
 def make_stick(root: Path, album: str, titles):

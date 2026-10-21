@@ -23,7 +23,7 @@ Item {
     property bool wifi: false
 
     readonly property var logApps: Sim.systemLog.apps || []
-    readonly property var itemCounts: [2, 3, 9, 3, 2, 1, logApps.length + 1]
+    readonly property var itemCounts: [2, 3, 9, 3, 2, 1, logApps.length + 2]
     onCatChanged: item = 0
 
     function knob(d) {
@@ -66,7 +66,8 @@ Item {
             if (item < logApps.length) {
                 const a = logApps[item], n = Sim.logLevels.length;
                 Sim.setLogLevel(a.id, Sim.logLevels[(Sim.logLevels.indexOf(a.level) + d + n) % n]);
-            } else Sim.clearLog();
+            } else if (item === logApps.length) Sim.exportLog();
+            else Sim.clearLog();
         }
     }
 
@@ -328,12 +329,20 @@ Item {
                     MouseArea { anchors.fill: parent; onClicked: { root.inPanel = true; root.item = index; root.adjust(1) } }
                 }
             }
-            SettingRow { label: "Warnings and errors"; idx: root.logApps.length; height: 58
+            SettingRow { label: "Log files"; idx: root.logApps.length; height: 54
+                LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.usb; iconSize: 22
+                             enabled: Sim.logExport.state !== "writing"
+                             label: Sim.logExport.state === "writing" ? "Writing …" : "Export to USB"
+                             onClicked: Sim.exportLog() } }
+            T { x: 18; width: 700; height: 26; font.pixelSize: Theme.fontSmall; elide: Text.ElideRight
+                visible: Sim.logExport.state !== "idle"
+                color: Sim.logExport.state === "failed" ? Theme.accent : Theme.accentMid
+                text: (Sim.logExport.state === "failed" ? "Export failed: " : "") + Sim.logExport.message }
+            SettingRow { label: "Warnings and errors"; idx: root.logApps.length + 1; height: 54
                 LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.minus; iconSize: 22
                              label: "Clear"; onClicked: Sim.clearLog() } }
-            Item { width: 1; height: 6 }
             Repeater {
-                model: (diagPage.log.entries || []).slice(0, 4)
+                model: (diagPage.log.entries || []).slice(0, 3)
                 Row {
                     x: 18; spacing: 12; height: 30
                     T { width: 92; text: Qt.formatTime(new Date(modelData.time * 1000), "hh:mm:ss")

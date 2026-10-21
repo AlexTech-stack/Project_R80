@@ -29,6 +29,10 @@ The phone's music starting while nothing else plays switches to Bluetooth.
                   Browse(s path, i offset, i count) -> (s title, i total, aa{sv} entries),
                   PlayFrom(s path, i index): that list's tracks become the queue
                   (errors: de.r80.Media1.Error.NotFound)
+                  LendMedium(s key) -> (s key, s mount): a stick ("" = the first) mounted writable
+                  for hu-sysd's log export; music from it stops and is remembered. ReturnMedium(s
+                  key): read-only again, the music carries on. Taken back by itself after
+                  LEND_S s. Errors: de.r80.Media1.Error.NoMedium, Failed
       signal      Seeked(x position)
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
@@ -97,6 +101,7 @@ FOLDER_COVERS = ("cover", "folder", "front", "album")
 COVER_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/gif": "gif", "image/bmp": "bmp"}
 INT32_PROPS = {"TrackIndex", "TrackCount", "Scanned", "SourceTrackCount"}
 UP_NEXT = 5
+LEND_S = 120                    # a stick lent out writable comes back after this at the latest
 TRACK_KEYS = ("title", "artist", "album", "trackNumber", "duration", "cover")
 
 
@@ -402,6 +407,7 @@ class Media(dbus.service.Object):
         GLib.timeout_add(1000, self.publish_scanned)
         self.scanner = Scanner(cache_dir, self.on_scanned)
         self.awaited = None            # (key, play): the stick the last session ended on
+        self.lent = {}                 # stick key -> {"play": it played, "timer": GLib source}
         self.restore(resume_wait)
         register_saver(bus, "mediad", self.save_state)
         if usb_bus is not None:
@@ -1155,6 +1161,70 @@ class Media(dbus.service.Object):
         self.ramp_to(max(0.0, min(float(gain), 1.0)), int(fade_ms))
         self.set("Gain", self.gain)
         self.bt_level()
+
+    # ---- a stick lent out writable (hu-sysd's log export) -----------------------
+    @dbus.service.method(IFACE, in_signature="s", out_signature="ss", async_callbacks=("ok", "err"))
+    def LendMedium(self, key, ok, err):
+        if self.usb is None:
+            err(dbus.exceptions.DBusException("no USB sticks here", name="de.r80.Media1.Error.NoMedium"))
+            return
+        key = str(key)
+        found = next((k for k in self.usb.present.values() if not key or k == key), None)
+        if found is None:
+            err(dbus.exceptions.DBusException("no USB stick", name="de.r80.Media1.Error.NoMedium"))
+            return
+        name = next((n for n, s in self.sources.items() if s["key"] == found), None)
+        play = False
+        if name is not None and name == self.source:      # it plays from that stick: stop, keep the place
+            play = self.status == "playing"
+            self.remember()
+            self.scanner.stop()
+            self.stop()
+            self.status = "paused"
+            self.set("PlaybackStatus", "paused")
+
+        def done(k, mount):
+            self.lent[k] = {"play": play, "timer": GLib.timeout_add_seconds(LEND_S, self.take_back, k)}
+            log.info(f"lent {k} out writable")
+            ok(k, mount)
+
+        def failed(reason):
+            self.carry_on(found, play)
+            err(dbus.exceptions.DBusException(reason, name="de.r80.Media1.Error.Failed"))
+        self.usb.open_for_writing(found, done, failed)
+
+    @dbus.service.method(IFACE, in_signature="s", async_callbacks=("ok", "err"))
+    def ReturnMedium(self, key, ok, err):
+        self.take_back(str(key), ok)
+
+    def take_back(self, key, ok=None):
+        lent = self.lent.pop(key, None)
+        if lent is None:
+            if ok:
+                ok()
+            return False
+        if ok:                                             # asked for: the time limit is not needed any more
+            GLib.source_remove(lent["timer"])
+        else:
+            log.warning(f"{key} was not given back within {LEND_S} s: taken back")
+
+        def done(mount):
+            if mount:
+                for s in self.sources.values():
+                    if s.get("key") == key:
+                        s["dir"] = Path(mount)
+            log.info(f"{key} read-only again")
+            self.carry_on(key, lent["play"])
+            if ok:
+                ok()
+        self.usb.close_for_writing(key, done)
+        return False
+
+    def carry_on(self, key, play):
+        """The music from a stick that was lent out: from where it was."""
+        name = next((n for n, s in self.sources.items() if s.get("key") == key), None)
+        if name is not None and name == self.source:
+            self.use_source(name, play)                   # the same source: nothing remembered over it
 
     @dbus.service.method(IFACE, in_signature="s")
     def SetSource(self, source):
