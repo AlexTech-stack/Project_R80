@@ -46,8 +46,15 @@ import Qt instead of 1.2 s.
 **Experiment**: the services at a lower CPU priority (`nice -n 10`) and without the kiosk
 script's fixed 1 s wait before the UI: first frame after **4.2 s and 4.1 s** (1.5 to 2 s
 earlier; Qt imported after 1.6 s), the music loaded after 4.8 s (1.4 s later, still < 5 s).
-Then the UI can draw before the services answer, and for that moment `Sim.qml` shows its
-demo data (see the decisions below).
+Started the other way round (the UI first, the services 1 s later, all at normal
+priority) it does not help: first frame after 5.4 s, its QML loading then meets the
+services' start.
+
+**Now in `r80-kiosk.sh`**: the services that are not on the audio path (vehicle, warnings,
+trip, system, navigation, phone, the MCU emulator) at `nice 10`, mediad and audiod at
+normal priority, no fixed wait: first frame after **5.3 s and 4.7 s**, the music loaded
+after **2.0 s**. Until a service answers, the live UI shows "–" for its values (never the
+demo data).
 
 ### Memory (PSS, MB; after the cold boot / after warm restarts)
 
