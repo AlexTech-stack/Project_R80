@@ -118,14 +118,16 @@ object Hu {
     fun tabs(ctx: Context, labels: List<String>, current: Int, onSelect: (Int) -> Unit) = LinearLayout(ctx).apply {
         orientation = LinearLayout.HORIZONTAL
         labels.forEachIndexed { i, label ->
-            addView(LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(0, 0, dp(ctx, 28f), 0)
-                addView(text(ctx, label, 17f, if (i == current) accent else dim).apply { setPadding(0, dp(ctx, 8f), 0, dp(ctx, 6f)) })
-                addView(View(ctx).apply {
-                    setBackgroundColor(if (i == current) accent else Color.TRANSPARENT)
-                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(ctx, 3f))
-                })
+            // the label with its underline (a bottom border as wide as the text)
+            addView(text(ctx, label, 17f, if (i == current) accent else dim).apply {
+                setPadding(0, dp(ctx, 8f), 0, dp(ctx, 8f))
+                if (i == current) background = android.graphics.drawable.LayerDrawable(arrayOf(
+                    GradientDrawable().apply { setColor(accent) })).apply {
+                    setLayerGravity(0, Gravity.BOTTOM or Gravity.FILL_HORIZONTAL)
+                    setLayerHeight(0, dp(ctx, 3f))
+                }
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { marginEnd = dp(ctx, 28f) }
                 isClickable = true
                 setOnClickListener { onSelect(i) }
             })
