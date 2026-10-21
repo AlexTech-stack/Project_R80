@@ -9,7 +9,7 @@ runs the HU's side of that link and publishes what to show:
     object     /de/r80/Nav
     interface  de.r80.Nav1
       properties  Phone (a{sv}): connected (b), device (s), app (s: name and version),
-                                 via (s: "Bluetooth dev_…", "TCP <ip>", "local socket"),
+                                 via (s: "Bluetooth ..:EE:FF", "TCP <ip>", "local socket"),
                                  bad_lines (u: dropped invalid lines, all sessions)
                   Guidance (a{sv}): active (b), stale (b: the phone link is lost, last state kept),
                                  source (s), maneuver (s), modifier (s, "" = none), exit (u, 0 = none),
@@ -682,7 +682,8 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
         def NewConnection(self, device, fd, _props):
             conn = socket.socket(fileno=fd.take())
             self.devices[str(device)] = conn
-            self.nav.adopt(conn, f"Bluetooth {str(device).rsplit('/', 1)[-1]}")
+            mac = str(device).rsplit("/", 1)[-1].removeprefix("dev_").replace("_", ":")
+            self.nav.adopt(conn, f"Bluetooth {dlt.address(mac)}")     # it goes into the log
 
         @dbus.service.method("org.bluez.Profile1", in_signature="o")
         def RequestDisconnection(self, device):

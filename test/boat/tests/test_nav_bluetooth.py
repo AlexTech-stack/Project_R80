@@ -74,7 +74,7 @@ p = phone("Bluetooth phone")
 hu = p.connect(sock=phone_end)
 check(hu is not None and hu["app"] == "r80-hu", "a connection handed over by BlueZ speaks the companion protocol")
 ok, props, _ = wait_nav(lambda q: q["Phone"]["connected"])
-check(ok and props["Phone"]["via"] == "Bluetooth dev_AA_BB_CC_DD_EE_FF" and props["Phone"]["device"] == "Bluetooth phone",
+check(ok and props["Phone"]["via"] == "Bluetooth ..:EE:FF" and props["Phone"]["device"] == "Bluetooth phone",
       f"Phone: connected via '{props.get('Phone', {}).get('via')}'")
 p.send(cl.guidance("google_maps", "turn", "left", distance_m=200, street="Bluetoothweg"))
 ok, props, _ = wait_nav(lambda q: q["Guidance"]["street"] == "Bluetoothweg")
