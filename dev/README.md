@@ -36,7 +36,9 @@ file are from the repo root; run the commands there.
 
 Needs: [BoAt](https://github.com/AlexTech-stack/BoAt) built at `~/BoAt` (or `BOAT_ROOT=`), Python 3 with PySide6,
 dbus-python, PyGObject and the GStreamer 1.0 bindings (`python3-gi` + `gst-plugins-base`/`-good`),
-and `sudo` once to create the vcan buses. No cantools or python-can.
+and `sudo` once to create the vcan buses. No cantools or python-can. For the log (D14):
+`sudo apt install dlt-daemon dlt-tools` (then `sudo systemctl disable --now dlt dlt-system dlt-dbus`:
+the environment starts its own daemon); without it the services log to their `.log` files only.
 
 ```bash
 ./r80 virtual drive      # buses, gateway, MCU emulator, all HU services, restbus drive cycle
@@ -397,6 +399,28 @@ python3 hu/services/sysd.py --check              # check system.ini and list the
 gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set accent "<'amber'>"
 ```
 
+## Log and diagnostics (DLT, D14)
+
+`./r80 virtual up` starts the HU's DLT daemon (`hu/services/dlt-daemon.sh`) before the
+services: its pipes in `$XDG_RUNTIME_DIR/r80-hu/dlt` (`DLT_PIPE_DIR`, exported to everything the
+environment starts), its files in `$XDG_RUNTIME_DIR/r80-hu/dlt-state/trace`, clients on
+`DLT_PORT` (3490). Every service is a DLT application (`VEH MED AUD WRN TRP NAV SYS PHN`, the
+UI `HMI`) with contexts per part (`MED USB`, `PHN PBAP`, `PY` for uncaught exceptions, ...);
+each line also goes to the service's `.log` file.
+
+```bash
+dlt-receive -a localhost                          # the live log as text (dlt-tools)
+dlt-control -a MED -l 5 localhost                 # media service at debug (or Settings -> Diagnostics)
+dlt-convert -a $XDG_RUNTIME_DIR/r80-hu/dlt-state/trace/*.dlt     # the files
+gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.ExportLog   # onto a stick
+```
+
+DLT Viewer (`sudo apt install dlt-viewer`) connects to `localhost:3490`, the Pi bench to
+`<PI_IP>:3490`. `hu-sysd` is a client too: its `Log` property is Settings → Diagnostics
+(warnings and errors per service, `SetLogLevel(app, level)`, `ClearLog()`), `ExportLog()` copies
+the files and a `summary.txt` onto a USB stick (`R80-logs/<date_time>/`), which `hu-mediad`
+lends out writable for that (`LendMedium` / `ReturnMedium`).
+
 ## Phone (hu-phoned)
 
 `hu/services/phoned.py` (decision D13) is the HU's side of the driver's phone, on D-Bus
@@ -523,6 +547,7 @@ phone_emu/telephony_emu.py    stand-in for PipeWire's Bluetooth telephony (calls
 phone_emu/obex_emu.py         stand-in for BlueZ's obexd (PBAP: contacts, call history)
 phone_emu/bluez_player_emu.py stand-in for BlueZ's AVRCP player of a connected phone
 media_tags.py                 test media: ID3 tags with generated covers, the test library
+udisks_emu.py                 stand-in for udisks2 with USB sticks (folders), for the tests
 ../test/boat/restbus.py       BoAt restbus node / library
 ../test/boat/restbus_panel.py tester GUI: the restbus with live signal editing + HU controls
 ../test/boat/env_hu_virtual.json  BoAt test environment (gateway started by hu-virtual.sh)

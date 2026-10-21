@@ -576,12 +576,12 @@ def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path):
             def give_back():
                 def returned(*_):
                     if "error" in result:
-                        log.error(f"log export failed: {result['error']}")
+                        log.warning(f"log export failed: {result['error']}")
                         self.set_export("failed", result["error"])
                     else:
                         mb = result["bytes"] / 1e6
-                        log.info(f"log exported: {result['files']} file(s), {mb:.1f} MB to {result['dir']}")
                         files = f"{result['files']} log file" + ("" if result["files"] == 1 else "s")
+                        log.info(f"log exported: {files}, {mb:.1f} MB to {result['dir']}")
                         self.set_export("done", f"{files}, {mb:.1f} MB in {result['dir']}",
                                         result["dir"])
                 self.bus.call_async(MEDIA[0], MEDIA[1], MEDIA[2], "ReturnMedium", "s", (key,), returned, returned,
