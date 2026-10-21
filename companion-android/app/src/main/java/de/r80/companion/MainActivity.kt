@@ -74,6 +74,8 @@ class MainActivity : Activity() {
         setContentView(root)
         settingsPage = layoutInflater.inflate(R.layout.activity_main, page, false).apply { fitsSystemWindows = false }
         tab = if (CarStore.get(this) != null) 0 else 1
+        // the link was on (e.g. before an app update stopped it): on again
+        if (Settings.linkWanted(this) && AppState.link.state == Link.State.STOPPED) LinkService.start(this)
         access = settingsPage.findViewById(R.id.access)
         linkStatus = settingsPage.findViewById(R.id.link_status)
         guidance = settingsPage.findViewById(R.id.guidance)
@@ -107,8 +109,10 @@ class MainActivity : Activity() {
                     }
                     Settings.setHuAddress(this, address.text.toString())
                 }
+                Settings.setLinkWanted(this, true)
                 LinkService.start(this)
             } else {
+                Settings.setLinkWanted(this, false)
                 LinkService.stop(this)
             }
         }

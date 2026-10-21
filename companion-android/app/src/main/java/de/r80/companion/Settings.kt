@@ -22,6 +22,10 @@ object Settings {
     fun shareSurroundings(ctx: Context): Boolean = prefs(ctx).getBoolean("surroundings", true)
     fun setShareSurroundings(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("surroundings", v).apply()
 
+    /** The driver wants the link on (Connect pressed, not Disconnect): the app starts it again when opened. */
+    fun linkWanted(ctx: Context): Boolean = prefs(ctx).getBoolean("link_wanted", false)
+    fun setLinkWanted(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("link_wanted", v).apply()
+
     fun capture(ctx: Context): Boolean = prefs(ctx).getBoolean("capture", false)
     fun setCapture(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("capture", v).apply()
 
