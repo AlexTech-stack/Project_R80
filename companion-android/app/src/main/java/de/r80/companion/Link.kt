@@ -50,6 +50,10 @@ class Link(
 
     @Volatile private var running = false
     @Volatile private var current: Guidance? = null
+    @Volatile private var weatherLine: String? = null
+    @Volatile private var positionLine: String? = null
+    /** What the connected HU asked for in its hello (caps), besides guidance. */
+    @Volatile private var wants: Set<String> = emptySet()
     @Volatile private var transport: Transport? = null
     @Volatile private var opened = false
     private val outbox = LinkedBlockingQueue<String>()
@@ -73,6 +77,22 @@ class Link(
         if (g == current) return
         current = g
         outbox.put(Protocol.guidance(g))
+    }
+
+    /** The latest weather; sent after hello and when it changed, if the HU wants it. */
+    fun updateWeather(w: Weather) {
+        val line = Protocol.weather(w)
+        if (line == weatherLine) return
+        weatherLine = line
+        if ("weather" in wants) outbox.put(line)
+    }
+
+    /** The latest position (altitude); sent like the weather, if the HU wants it. */
+    fun updatePosition(p: Position) {
+        val line = Protocol.position(p)
+        if (line == positionLine) return
+        positionLine = line
+        if ("position" in wants) outbox.put(line)
     }
 
     private fun loop() {
@@ -120,14 +140,17 @@ class Link(
             output.flush()
         }
         try {
-            send(Protocol.hello("r80-companion", version, device, listOf("guidance")))
+            send(Protocol.hello("r80-companion", version, device, CAPS))
             val hello = incoming.poll(5, TimeUnit.SECONDS) ?: throw IllegalStateException("no hello from the HU")
             if (hello is Protocol.HuMessage.Bye) throw IllegalStateException("refused: ${hello.reason}")
             if (hello !is Protocol.HuMessage.Hello) throw IllegalStateException("HU did not start with hello")
             if (hello.proto != Protocol.VERSION) throw IllegalStateException("HU speaks protocol ${hello.proto}")
             val heartbeatMs = ((hello.heartbeatS ?: 2.0) * 1000).toLong()
             outbox.clear()
+            wants = hello.caps.toSet()
             send(Protocol.guidance(current))
+            weatherLine?.takeIf { "weather" in wants }?.let { send(it) }
+            positionLine?.takeIf { "position" in wants }?.let { send(it) }
             var lastTx = clock()
             onStatus(Status(State.CONNECTED, t.description))
             while (running) {
@@ -151,8 +174,14 @@ class Link(
             }
             send(Protocol.bye("user"))
         } finally {
+            wants = emptySet()
             reader.interrupt()
         }
+    }
+
+    companion object {
+        /** What this app can send. */
+        val CAPS = listOf("guidance", "weather", "position")
     }
 }
 

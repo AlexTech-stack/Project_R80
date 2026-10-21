@@ -42,6 +42,7 @@
     { "id": "TC_HU_035", "name": "Phone call level from audiod, microphone mute", "file": "python3 tests/test_phone_audio.py", "timeout_s": 40 },
     { "id": "TC_HU_036", "name": "Media: music from the phone (AVRCP stand-in)", "file": "python3 tests/test_media_bluetooth.py", "timeout_s": 60 },
     { "id": "TC_HU_037", "name": "DLT log: applications, warnings, levels, Diagnostics", "file": "python3 tests/test_dlt_log.py", "timeout_s": 60 },
-    { "id": "TC_HU_038", "name": "Log export onto a USB stick (udisks2 stand-in)", "file": "python3 tests/test_log_export.py", "timeout_s": 90 }
+    { "id": "TC_HU_038", "name": "Log export onto a USB stick (udisks2 stand-in)", "file": "python3 tests/test_log_export.py", "timeout_s": 90 },
+    { "id": "TC_HU_039", "name": "Weather and altitude from the phone (companion link)", "file": "python3 tests/test_nav_weather.py", "timeout_s": 40 }
   ]
 }

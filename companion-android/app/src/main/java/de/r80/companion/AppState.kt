@@ -12,6 +12,11 @@ object AppState {
         private set
     @Volatile var link: Link.Status = Link.Status(Link.State.STOPPED)
         private set
+    /** The weather and the position last sent to the HU (Surroundings), for the screen. */
+    @Volatile var weather: Weather? = null
+        private set
+    @Volatile var position: Position? = null
+        private set
     /** Raw fields of the last Google Maps navigation notification, for the screen. */
     @Volatile var lastRaw: String = ""
         private set
@@ -24,6 +29,9 @@ object AppState {
         lastRaw = raw
         fire()
     }
+
+    fun setWeather(w: Weather) { weather = w; fire() }
+    fun setPosition(p: Position) { position = p; fire() }
 
     fun setLink(s: Link.Status) {
         link = s

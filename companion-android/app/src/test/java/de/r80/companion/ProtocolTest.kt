@@ -48,6 +48,11 @@ class ProtocolTest {
             5 to Protocol.guidance(Guidance("google_maps", "unknown", distanceM = 70.0, street = "Ringstraße", text = "Ringstraße")),
             6 to Protocol.guidance(null),
             7 to Protocol.bye("user"),
+            9 to Protocol.weather(Weather("open-meteo", 1792584000, 11.4, 2, listOf(
+                Weather.Day("2026-10-21", 3, 13.1, 5.8), Weather.Day("2026-10-22", 61, 10.2, 4.9),
+                Weather.Day("2026-10-23", 0, 12.7, -1.5), Weather.Day("2026-10-24", 71, 2.0, -3.2)))),
+            10 to Protocol.position(Position(1792584060, altM = 412.3, accuracyM = 6.0, headingDeg = 271.5)),
+            11 to Protocol.position(Position(1792584120)),
         )
         for ((i, line) in ours) assertSameJson(examples[i], line)
     }
@@ -56,6 +61,7 @@ class ProtocolTest {
         assertEquals(Protocol.HuMessage.Hello(1, 2.0), Protocol.parse(examples[1]))
         assertEquals(Protocol.HuMessage.Heartbeat, Protocol.parse(examples[2]))
         assertEquals(Protocol.HuMessage.Bye("user"), Protocol.parse(examples[7]))
+        assertEquals(Protocol.HuMessage.Hello(1, 2.0, listOf("weather", "position")), Protocol.parse(examples[8]))
         assertEquals(Protocol.HuMessage.Unknown, Protocol.parse("""{"type":"lanes","lanes":[]}"""))
         assertNull(Protocol.parse("not json"))
         assertNull(Protocol.parse("""{"no":"type"}"""))
@@ -66,6 +72,14 @@ class ProtocolTest {
         for (bad in listOf({ Guidance("x", "jump") }, { Guidance("x", "turn", "up") }, { Guidance("x", "roundabout", exit = 0) },
                            { Protocol.guidance(Guidance("x", "turn", distanceM = -1.0)) },
                            { Protocol.guidance(Guidance("x", "turn", distanceM = Double.NaN)) })) {
+            try { bad(); throw AssertionError("accepted") } catch (_: IllegalArgumentException) {}
+        }
+    }
+
+    @Test fun weatherAndPositionRejectWhatTheHuWouldDrop() {
+        for (bad in listOf({ Weather("x", 1, Double.NaN, 1) }, { Weather("x", 1, 5.0, 100) },
+                           { Weather.Day("21.10.2026", 1, 1.0, 0.0) }, { Position(1, altM = 9500.0) },
+                           { Position(1, headingDeg = 400.0) }, { Protocol.position(Position(1, accuracyM = -2.0)) })) {
             try { bad(); throw AssertionError("accepted") } catch (_: IllegalArgumentException) {}
         }
     }

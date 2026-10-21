@@ -15,6 +15,12 @@ runs the HU's side of that link and publishes what to show:
                                  source (s), maneuver (s), modifier (s, "" = none), exit (u, 0 = none),
                                  distance_m (d), street (s), text (s), remaining_m (d), remaining_s (d)
                                  (-1 = not sent by the phone), arrival (x: unix time, 0 = unknown)
+                  Weather (a{sv}): from the phone (an internet weather service): valid (b), source (s),
+                                 time (x: when the service made it, unix s; 0 = none yet), temp_c (d),
+                                 code (i: WMO weather code), days (aa{sv}: date s, code i, max_c d, min_c d;
+                                 today first). Kept after the link is gone; the UI decides when it is too old
+                  Position (a{sv}): from the phone: valid (b), time (x), alt_m (d), accuracy_m (d),
+                                 heading_deg (d) (-1 = not sent). The phone never sends coordinates
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
 One phone at a time: a new connection replaces the old one (a phone that reconnects
@@ -45,7 +51,8 @@ import dlt  # noqa: E402
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "nav.ini"
 SYSTEM_CONFIG = Path("/etc/r80/nav.ini")
-VERSION = "0.1"
+VERSION = "0.2"
+WANTS = ["weather", "position"]          # what navd asks the phone for in its hello (caps)
 KEYS = {"link": {"heartbeat_s": (0.2, 60), "link_timeout_s": (0.5, 600), "hello_timeout_s": (0.5, 600)},
         "guidance": {"keep_after_loss_s": (0, 3600)}}
 
@@ -96,6 +103,8 @@ class Link:
         self.app = ""
         self.bad_lines = 0
         self.guidance: dict | None = None
+        self.weather: dict | None = None
+        self.position: dict | None = None
         self.arrival = 0
         self.stale = False
         self.lost_at: float | None = None
@@ -134,7 +143,7 @@ class Link:
             self.greeted = True
             self.device = msg["device"] or ""
             self.app = f"{msg['app']} {msg['version']}"
-            return [cl.hello("r80-hu", VERSION, heartbeat_s=self.cfg["heartbeat_s"])]
+            return [cl.hello("r80-hu", VERSION, caps=WANTS, heartbeat_s=self.cfg["heartbeat_s"])]
         if t == cl.GUIDANCE:
             if msg["active"]:
                 self.guidance = msg
@@ -143,6 +152,10 @@ class Link:
             else:
                 self.guidance, self.arrival = None, 0
             self.stale, self.lost_at = False, None
+        elif t == cl.WEATHER:
+            self.weather = msg
+        elif t == cl.POSITION:
+            self.position = msg
         return []
 
     def tick(self, now: float) -> list[dict]:
@@ -165,6 +178,22 @@ class Link:
     def phone(self) -> dict:
         return {"connected": self.connected and self.greeted, "device": self.device, "app": self.app,
                 "bad_lines": self.bad_lines}
+
+    def weather_view(self) -> dict:
+        w = self.weather
+        if not w:
+            return {"valid": False, "source": "", "time": 0, "temp_c": 0.0, "code": 0, "days": []}
+        return {"valid": True, "source": w["source"], "time": w["time"], "temp_c": float(w["now"]["temp_c"]),
+                "code": w["now"]["code"], "days": [{"date": d["date"], "code": d["code"], "max_c": float(d["max_c"]),
+                                                    "min_c": float(d["min_c"])} for d in w["days"]]}
+
+    def position_view(self) -> dict:
+        p = self.position or {}
+
+        def num(k):
+            return -1.0 if p.get(k) is None else float(p[k])
+        return {"valid": bool(p) and p.get("alt_m") is not None, "time": p.get("time", 0), "alt_m": num("alt_m"),
+                "accuracy_m": num("accuracy_m"), "heading_deg": num("heading_deg")}
 
     def view(self) -> dict:
         g = self.guidance
@@ -195,8 +224,16 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
              "modifier": dbus.String, "exit": dbus.UInt32, "distance_m": dbus.Double, "street": dbus.String,
              "text": dbus.String, "remaining_m": dbus.Double, "remaining_s": dbus.Double, "arrival": dbus.Int64}
 
+    TYPES.update({"valid": dbus.Boolean, "time": dbus.Int64, "temp_c": dbus.Double, "code": dbus.Int32,
+                  "alt_m": dbus.Double, "accuracy_m": dbus.Double, "heading_deg": dbus.Double, "date": dbus.String,
+                  "max_c": dbus.Double, "min_c": dbus.Double})
+
     def variant(d: dict):
-        return dbus.Dictionary({k: TYPES[k](v) for k, v in d.items()}, signature="sv")
+        def one(k, v):
+            if k == "days":
+                return dbus.Array([variant(x) for x in v], signature="a{sv}")
+            return TYPES[k](v)
+        return dbus.Dictionary({k: one(k, v) for k, v in d.items()}, signature="sv")
 
     class Nav(dbus.service.Object):
         def __init__(self, bus):
@@ -310,7 +347,8 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
         def props(self):
             phone = self.link.phone()
             phone["via"] = self.conn_from if phone["connected"] else ""
-            return {"Phone": phone, "Guidance": self.link.view()}
+            return {"Phone": phone, "Guidance": self.link.view(), "Weather": self.link.weather_view(),
+                    "Position": self.link.position_view()}
 
         def publish(self):
             changed = {}

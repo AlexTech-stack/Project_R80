@@ -6,3 +6,7 @@
 {"type":"guidance","active":true,"source":"google_maps","maneuver":{"type":"unknown"},"distance_m":70,"street":"Ringstraße","text":"Ringstraße"}
 {"type":"guidance","active":false}
 {"type":"bye","reason":"user"}
+{"type":"hello","proto":1,"app":"r80-hu","version":"0.2","caps":["weather","position"],"heartbeat_s":2.0}
+{"type":"weather","source":"open-meteo","time":1792584000,"now":{"temp_c":11.4,"code":2},"days":[{"date":"2026-10-21","code":3,"max_c":13.1,"min_c":5.8},{"date":"2026-10-22","code":61,"max_c":10.2,"min_c":4.9},{"date":"2026-10-23","code":0,"max_c":12.7,"min_c":-1.5},{"date":"2026-10-24","code":71,"max_c":2.0,"min_c":-3.2}]}
+{"type":"position","time":1792584060,"alt_m":412.3,"accuracy_m":6,"heading_deg":271.5}
+{"type":"position","time":1792584120}

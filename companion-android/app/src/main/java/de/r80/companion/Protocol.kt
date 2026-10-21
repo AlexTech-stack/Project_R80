@@ -19,6 +19,7 @@ object Protocol {
     const val MAX_LINE = 4096
     const val MAX_TEXT = 200
     const val SERVICE_UUID = "b4184390-fb7f-44db-9eaa-6985447914af"
+    const val MAX_DAYS = 7
 
     val MANEUVERS = setOf("depart", "turn", "continue", "merge", "fork", "on_ramp", "off_ramp",
         "roundabout", "uturn", "arrive", "unknown")
@@ -59,9 +60,31 @@ object Protocol {
         }
     })
 
+    /** The weather where the phone is (see [Weather]); the HU asks for it with caps "weather". */
+    fun weather(w: Weather): String = line(buildMap {
+        put("type", JsonPrimitive("weather"))
+        put("source", text(w.source))
+        put("time", JsonPrimitive(w.time))
+        put("now", JsonObject(mapOf("temp_c" to JsonPrimitive(w.tempC), "code" to JsonPrimitive(w.code))))
+        put("days", JsonArray(w.days.take(MAX_DAYS).map {
+            JsonObject(mapOf("date" to JsonPrimitive(it.date), "code" to JsonPrimitive(it.code),
+                             "max_c" to JsonPrimitive(it.maxC), "min_c" to JsonPrimitive(it.minC)))
+        }))
+    })
+
+    /** The altitude (never the coordinates); the HU asks for it with caps "position". */
+    fun position(p: Position): String = line(buildMap {
+        put("type", JsonPrimitive("position"))
+        put("time", JsonPrimitive(p.time))
+        p.altM?.let { put("alt_m", JsonPrimitive(it)) }
+        p.accuracyM?.let { put("accuracy_m", number(it)) }
+        p.headingDeg?.let { put("heading_deg", number(it)) }
+    })
+
     /** What the HU can send us. */
     sealed class HuMessage {
-        data class Hello(val proto: Int, val heartbeatS: Double?) : HuMessage()
+        /** caps: what the HU wants besides guidance ("weather", "position"). */
+        data class Hello(val proto: Int, val heartbeatS: Double?, val caps: List<String> = emptyList()) : HuMessage()
         data object Heartbeat : HuMessage()
         data class Bye(val reason: String?) : HuMessage()
         /** A type this version does not know: ignore it (forward compatibility). */
@@ -80,7 +103,8 @@ object Protocol {
             "hello" -> {
                 val proto = (obj["proto"] as? JsonPrimitive)?.intOrNull ?: return null
                 val hb = (obj["heartbeat_s"] as? JsonPrimitive)?.doubleOrNull
-                HuMessage.Hello(proto, hb?.takeIf { it > 0 && it.isFinite() })
+                val caps = (obj["caps"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+                HuMessage.Hello(proto, hb?.takeIf { it > 0 && it.isFinite() }, caps.orEmpty())
             }
             "heartbeat" -> HuMessage.Heartbeat
             "bye" -> HuMessage.Bye((obj["reason"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
@@ -101,6 +125,33 @@ object Protocol {
         val s = JsonObject(fields).toString() + "\n"
         require(s.toByteArray(Charsets.UTF_8).size <= MAX_LINE) { "message longer than $MAX_LINE bytes" }
         return s
+    }
+}
+
+/** The weather as the protocol carries it: time in unix s, temperatures in °C, WMO codes. */
+data class Weather(val source: String, val time: Long, val tempC: Double, val code: Int, val days: List<Day> = emptyList()) {
+    init {
+        require(tempC.isFinite() && tempC in -100.0..100.0) { "temperature $tempC" }
+        require(code in 0..99) { "weather code $code" }
+        require(time >= 0) { "time $time" }
+    }
+
+    /** date: YYYY-MM-DD, the phone's local date. */
+    data class Day(val date: String, val code: Int, val maxC: Double, val minC: Double) {
+        init {
+            require(Regex("""\d{4}-\d{2}-\d{2}""").matches(date)) { "date $date" }
+            require(code in 0..99) { "weather code $code" }
+            require(maxC.isFinite() && minC.isFinite() && maxC in -100.0..100.0 && minC in -100.0..100.0) { "temperatures $maxC / $minC" }
+        }
+    }
+}
+
+/** What the HU gets from the phone's position: altitude above sea level, never coordinates. */
+data class Position(val time: Long, val altM: Double? = null, val accuracyM: Double? = null, val headingDeg: Double? = null) {
+    init {
+        require(time >= 0) { "time $time" }
+        require(altM == null || (altM.isFinite() && altM in -500.0..9000.0)) { "altitude $altM" }
+        require(headingDeg == null || headingDeg in 0.0..360.0) { "heading $headingDeg" }
     }
 }
 

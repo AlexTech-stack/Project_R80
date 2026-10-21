@@ -8,5 +8,7 @@ QtObject {
     property bool available: false
     property var phone: ({})
     property var guidance: ({})
+    property var weather: ({})
+    property var position: ({})
     signal changed()
 }

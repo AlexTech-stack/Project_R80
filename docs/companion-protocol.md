@@ -48,7 +48,7 @@ step; the Android app (`companion-android/`, later) implements the same rules.
 | `app` | string | required | `r80-companion` or `r80-hu` |
 | `version` | string | required | software version of the sender |
 | `device` | string | optional | phone model, for logs |
-| `caps` | list of strings | optional | what the sender offers; phone v1: `["guidance"]` |
+| `caps` | list of strings | optional | the phone: what it sends (`guidance`, `weather`, `position`); the HU: what it wants besides guidance (`weather`, `position`). A phone sends `weather` / `position` only to an HU that lists them |
 | `heartbeat_s` | number | HU only | heartbeat interval the phone has to keep |
 
 ### `heartbeat` (both directions)
@@ -84,6 +84,37 @@ whenever something shown would change, and once right after `hello`.
 How the app derives these values from Google Maps' navigation notification or from
 OsmAnd's interface is the app's business (step 4). The HU only sees this format.
 
+### `weather` (phone → HU)
+
+The weather where the phone is, from an internet weather service (the HU has no
+internet). Every message is the whole current state; the phone sends one after `hello`
+and whenever it fetched new data (about every 30 minutes). The HU shows it while it is
+not older than a few hours, also after the link is gone.
+
+| Field | Type | | Meaning |
+|---|---|---|---|
+| `source` | string | required | the weather service, e.g. `open-meteo` |
+| `time` | integer | required | when the service made this data, unix seconds |
+| `now` | object | required | `temp_c` (number, °C), `code` (integer, WMO weather code 0–99) |
+| `days` | list of objects | optional | today first, at most 7: `date` (`YYYY-MM-DD`, the phone's local date), `code` (WMO 0–99), `max_c`, `min_c` (numbers, °C) |
+
+WMO weather codes (the meaning the HU uses for its icons): 0 clear; 1–2 partly cloudy;
+3 overcast; 45, 48 fog; 51–57 drizzle; 61–67, 80–82 rain; 71–77, 85–86 snow; 95–99
+thunderstorm.
+
+### `position` (phone → HU)
+
+What the HU shows from the phone's position: the altitude. The phone never sends its
+coordinates (the HU does not need them). Sent after `hello` and about once a minute
+while the phone has a position.
+
+| Field | Type | | Meaning |
+|---|---|---|---|
+| `time` | integer | required | when the phone measured it, unix seconds |
+| `alt_m` | number | optional | altitude above sea level, metres (−500 to 9000) |
+| `accuracy_m` | number ≥ 0 | optional | how far off the altitude may be, metres |
+| `heading_deg` | number | optional | direction of travel, 0–360° (0 = north), when moving |
+
 ### `bye` (both directions)
 
 | Field | Type | | Meaning |
@@ -103,6 +134,6 @@ phone → {"type":"guidance","active":false}
 
 ## Not in v1
 
-Ideas the format leaves room for: lane hints, the phone's position and other
-sensors, and extending the HU's UI from the phone. They become new message types
+Ideas the format leaves room for: lane hints, other sensors of the phone, and
+extending the HU's UI from the phone. They become new message types
 or fields, announced through `caps`.

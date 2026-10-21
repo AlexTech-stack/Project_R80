@@ -71,6 +71,19 @@
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
+            android:text="@string/surroundings_title" android:textAppearance="?android:attr/textAppearanceMedium" />
+        <Switch
+            android:id="@+id/surroundings"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/surroundings" />
+        <TextView
+            android:id="@+id/surroundings_info"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
             android:text="@string/capture_title" android:textAppearance="?android:attr/textAppearanceMedium" />
         <Switch
             android:id="@+id/capture"

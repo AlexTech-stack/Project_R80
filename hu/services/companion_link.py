@@ -28,7 +28,10 @@ HELLO = "hello"         # both ways, first message on a new connection
 HEARTBEAT = "heartbeat"  # both ways, keeps the link alive
 GUIDANCE = "guidance"   # phone -> HU, the whole current guidance state
 BYE = "bye"             # both ways, the sender closes the link
-TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE)
+WEATHER = "weather"     # phone -> HU, the weather where the phone is (from an internet service)
+POSITION = "position"   # phone -> HU, the altitude (never coordinates)
+TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE, WEATHER, POSITION)
+MAX_DAYS = 7
 
 # guidance.maneuver
 MANEUVERS = ("depart", "turn", "continue", "merge", "fork", "on_ramp", "off_ramp",
@@ -91,6 +94,14 @@ def validate(msg) -> dict:
         return {"type": t}
     if t == BYE:
         return {"type": t, "reason": _text(msg, "reason")}
+    if t == WEATHER:
+        return _weather(msg)
+    if t == POSITION:
+        when = _number(msg, "time", integer=True, lo=0, hi=2**40)
+        if when is None:
+            raise ProtocolError("position: 'time' is missing")
+        return {"type": t, "time": when, "alt_m": _number(msg, "alt_m", lo=-500, hi=9000),
+                "accuracy_m": _number(msg, "accuracy_m"), "heading_deg": _number(msg, "heading_deg", lo=0, hi=360)}
     # guidance
     active = msg.get("active")
     if not isinstance(active, bool):
@@ -112,6 +123,36 @@ def validate(msg) -> dict:
             "distance_m": _number(msg, "distance_m"), "street": _text(msg, "street"),
             "text": _text(msg, "text"), "remaining_m": _number(msg, "remaining_m"),
             "remaining_s": _number(msg, "remaining_s")}
+
+
+def _weather(msg: dict) -> dict:
+    t = msg["type"]
+    when = _number(msg, "time", integer=True, lo=0, hi=2**40)
+    if when is None:
+        raise ProtocolError("weather: 'time' is missing")
+    now = msg.get("now")
+    if not isinstance(now, dict):
+        raise ProtocolError("weather: 'now' must be an object")
+    temp = _number({"type": t, **now}, "temp_c", lo=-100, hi=100)
+    code = _number({"type": t, **now}, "code", integer=True, lo=0, hi=99)
+    if temp is None or code is None:
+        raise ProtocolError("weather: 'now' needs temp_c and code")
+    days = msg.get("days", [])
+    if not isinstance(days, list) or not all(isinstance(d, dict) for d in days):
+        raise ProtocolError("weather: 'days' must be a list of objects")
+    out_days = []
+    for d in days[:MAX_DAYS]:
+        date = _text({"type": t, **d}, "date", required=True)
+        if len(date) != 10 or date[4] != "-" or date[7] != "-" or not (date[:4] + date[5:7] + date[8:]).isdigit():
+            raise ProtocolError(f"weather: date {date!r} is not YYYY-MM-DD")
+        day = {"date": date, "code": _number({"type": t, **d}, "code", integer=True, lo=0, hi=99),
+               "max_c": _number({"type": t, **d}, "max_c", lo=-100, hi=100),
+               "min_c": _number({"type": t, **d}, "min_c", lo=-100, hi=100)}
+        if None in day.values():
+            raise ProtocolError("weather: a day needs date, code, max_c and min_c")
+        out_days.append(day)
+    return {"type": t, "source": _text(msg, "source", required=True), "time": when,
+            "now": {"temp_c": temp, "code": code}, "days": out_days}
 
 
 def _reject_constant(name):
@@ -205,3 +246,14 @@ def guidance(source: str, maneuver: str, modifier: str | None = None, exit: int 
 
 def guidance_ended() -> dict:
     return {"type": GUIDANCE, "active": False}
+
+
+def weather(source: str, time: int, temp_c: float, code: int, days=()) -> dict:
+    """days: (date, code, max_c, min_c) tuples, today first."""
+    return {"type": WEATHER, "source": source, "time": time, "now": {"temp_c": temp_c, "code": code},
+            "days": [{"date": d, "code": c, "max_c": hi, "min_c": lo} for d, c, hi, lo in days]}
+
+
+def position(time: int, alt_m: float | None = None, accuracy_m: float | None = None,
+             heading_deg: float | None = None) -> dict:
+    return {"type": POSITION, "time": time, "alt_m": alt_m, "accuracy_m": accuracy_m, "heading_deg": heading_deg}

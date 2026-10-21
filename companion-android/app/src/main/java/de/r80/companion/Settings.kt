@@ -18,6 +18,10 @@ object Settings {
     fun huDevice(ctx: Context): String = prefs(ctx).getString("hu_device", "")!!
     fun setHuDevice(ctx: Context, v: String) = prefs(ctx).edit().putString("hu_device", v).apply()
 
+    /** Send the weather and the altitude to the HU (needs the location permission). */
+    fun shareSurroundings(ctx: Context): Boolean = prefs(ctx).getBoolean("surroundings", true)
+    fun setShareSurroundings(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("surroundings", v).apply()
+
     fun capture(ctx: Context): Boolean = prefs(ctx).getBoolean("capture", false)
     fun setCapture(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("capture", v).apply()
 

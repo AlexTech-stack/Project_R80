@@ -508,6 +508,7 @@ gdbus call --session -d de.r80.Phone -o /de/r80/Phone -m de.r80.Phone1.Answer
 | TC_HU_036 | music from the phone (AVRCP stand-in): the Bluetooth source, Play / Pause / Next / Previous / shuffle to the phone, its track, a call pauses and resumes it, leaving pauses it, the phone starting switches over, gone: back to the Library |
 | TC_HU_037 | DLT log: every service a DLT application (over the daemon's TCP port, `hu/services/dltclient.py`), a service's warning in the stream and on the Diagnostics page, log level per service through sysd (refusals), ClearLog |
 | TC_HU_038 | log export onto a USB stick (udisks2 stand-in `dev/udisks_emu.py`): no stick fails, mediad lends the stick out writable and takes it back read-only, the music carries on, the DLT files and summary.txt on it, an unmount refused fails cleanly |
+| TC_HU_039 | weather and altitude from the phone: the HU asks for them (caps), Weather and Position on D-Bus, never coordinates, bad messages dropped, kept after the link is gone |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).

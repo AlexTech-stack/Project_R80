@@ -76,6 +76,15 @@ class MainActivity : Activity() {
                 LinkService.stop(this)
             }
         }
+        val surroundings = findViewById<Switch>(R.id.surroundings)
+        surroundings.isChecked = Settings.shareSurroundings(this)
+        surroundings.setOnCheckedChangeListener { _, on ->
+            Settings.setShareSurroundings(this, on)
+            if (on && !locationAllowed())
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 2)
+            if (AppState.link.state != Link.State.STOPPED) Toast.makeText(this, R.string.surroundings_restart, Toast.LENGTH_LONG).show()
+            show()
+        }
         val capture = findViewById<Switch>(R.id.capture)
         capture.isChecked = Settings.capture(this)
         capture.setOnCheckedChangeListener { _, on -> Settings.setCapture(this, on); show() }
@@ -88,10 +97,16 @@ class MainActivity : Activity() {
         }
         findViewById<Button>(R.id.clear).setOnClickListener { Capture.clear(this); show() }
 
-        val missing = arrayOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.BLUETOOTH_CONNECT)
-            .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        val wanted = listOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.BLUETOOTH_CONNECT) +
+            (if (Settings.shareSurroundings(this)) listOf(Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION) else emptyList())
+        val missing = wanted.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1)
     }
+
+    private fun locationAllowed() =
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -149,5 +164,15 @@ class MainActivity : Activity() {
             append("\n\n").append(AppState.lastRaw)
         }
         captureInfo.text = getString(R.string.capture_info, Capture.count(this))
+        val w = AppState.weather
+        val p = AppState.position
+        findViewById<TextView>(R.id.surroundings_info).text = getString(R.string.surroundings_info, when {
+            !Settings.shareSurroundings(this) -> getString(R.string.surroundings_off)
+            !locationAllowed() -> getString(R.string.surroundings_permission)
+            w == null && p == null -> getString(R.string.surroundings_none)
+            else -> getString(R.string.surroundings_sent,
+                w?.let { "%.0f °C, code %d".format(it.tempC, it.code) } ?: "--",
+                p?.altM?.let { "%.0f m".format(it) } ?: "--")
+        })
     }
 }

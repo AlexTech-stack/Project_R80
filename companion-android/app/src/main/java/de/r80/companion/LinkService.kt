@@ -1,5 +1,6 @@
 package de.r80.companion
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,22 +10,29 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 
 /**
  * Keeps the link to the HU while the app is in the background (a foreground service,
- * so Android does not stop it during a drive) and passes every guidance change on.
+ * so Android does not stop it during a drive) and passes every guidance change on, and
+ * (Settings.shareSurroundings) the weather and the altitude ([Surroundings]).
  */
 class LinkService : Service() {
     private var link: Link? = null
+    private var surroundings: Surroundings? = null
     private val onChange: () -> Unit = { link?.update(AppState.guidance) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        val located = Settings.shareSurroundings(this) && (
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+        startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+            (if (located) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0))
         if (link == null) {
             val transports: () -> Transport
             if (Settings.transport(this) == "wifi") {
@@ -46,6 +54,12 @@ class LinkService : Service() {
                 it.start()
             }
             AppState.listen(onChange)
+            if (located) {
+                surroundings = Surroundings(this,
+                    onWeather = { w -> link?.updateWeather(w); AppState.setWeather(w) },
+                    onPosition = { p -> link?.updatePosition(p); AppState.setPosition(p) },
+                ).also { it.start() }
+            }
         }
         return START_STICKY
     }
@@ -57,6 +71,8 @@ class LinkService : Service() {
     }
 
     override fun onDestroy() {
+        surroundings?.stop()
+        surroundings = null
         AppState.unlisten(onChange)
         link?.stop()
         link = null

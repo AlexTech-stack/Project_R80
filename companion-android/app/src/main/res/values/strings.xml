@@ -20,6 +20,14 @@
     <string name="link_status">Link: %1$s %2$s</string>
     <string name="guidance_title">Guidance sent</string>
     <string name="no_guidance">No navigation running in Google Maps.</string>
+    <string name="surroundings_title">Weather and altitude</string>
+    <string name="surroundings">Send the weather and the altitude to the headunit</string>
+    <string name="surroundings_info">Weather from open-meteo.com for where the phone is (rounded to about 1 km); the headunit gets the weather and the altitude, never the position. %1$s</string>
+    <string name="surroundings_off">Off.</string>
+    <string name="surroundings_permission">Allow location to use it.</string>
+    <string name="surroundings_restart">Reconnect for the change to take effect.</string>
+    <string name="surroundings_none">Nothing sent yet.</string>
+    <string name="surroundings_sent">Last: %1$s, %2$s</string>
     <string name="capture_title">Capture (for development)</string>
     <string name="capture">Record Google Maps notifications</string>
     <string name="capture_info">%1$d notifications recorded. They contain the streets of the drive and stay on the phone until exported.</string>
