@@ -13,7 +13,7 @@ Item {
     function run(a) {
         if (a === "answer") Sim.answer();
         else if (a === "decline" || a === "end") Sim.hangUp();
-        else if (a === "mute") Sim.micMuted = !Sim.micMuted;
+        else if (a === "mute" && Sim.micAvailable) Sim.setMicMuted(!Sim.micMuted);
         sel = 0;
     }
 
@@ -61,11 +61,12 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
                 T {
-                    text: Sim.callState === "incoming" ? "Incoming call" : "On call  " + Sim.fmtTime(Sim.callSeconds)
+                    text: Sim.callState === "incoming" ? "Incoming call"
+                        : Sim.callState === "dialing" ? "Calling …" : "On call  " + Sim.fmtTime(Sim.callSeconds)
                     color: Theme.accentMid
                 }
                 T { text: Sim.caller; font.pixelSize: 44 }
-                T { text: Sim.callerNumber; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
+                T { visible: Sim.callerNumber !== Sim.caller; text: Sim.callerNumber; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
             }
         }
 
@@ -81,9 +82,9 @@ Item {
                     width: parent.width
                     height: 62
                     selected: index === root.sel
-                    icon: modelData === "mute" ? (Sim.micMuted ? Icons.micOff : Icons.mic) : modelData === "answer" ? Icons.phone : Icons.hangup
+                    icon: modelData === "mute" ? (Sim.micMuted || !Sim.micAvailable ? Icons.micOff : Icons.mic) : modelData === "answer" ? Icons.phone : Icons.hangup
                     label: modelData === "answer" ? "Answer" : modelData === "decline" ? "Decline"
-                         : modelData === "mute" ? (Sim.micMuted ? "Microphone off" : "Mute microphone") : "End call"
+                         : modelData === "mute" ? (!Sim.micAvailable ? "No microphone" : Sim.micMuted ? "Microphone off" : "Mute microphone") : "End call"
                     Rectangle {   // outline for the unselected row, as in the vision sheet
                         anchors.fill: parent
                         color: "transparent"

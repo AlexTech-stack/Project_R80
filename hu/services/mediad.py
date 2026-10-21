@@ -2,9 +2,14 @@
 """hu-mediad: the Linux-side media service of the R80 headunit.
 
 Plays local audio with GStreamer and publishes the playback state on D-Bus for the
-UI and the other services. Sources: "Library" (the HU's own music folder, --music-dir)
-and every USB stick udisks2 reports (hu/removable.py, --usb), named after its label or
-"USB" (a second one "USB 2", ...).
+UI and the other services. Sources: "Library" (the HU's own music folder, --music-dir),
+every USB stick udisks2 reports (hu/removable.py, --usb), named after its label or
+"USB" (a second one "USB 2", ...), and "Bluetooth": the phone's own player while it is
+connected (hu/btmedia.py, --bluetooth). On Bluetooth the phone plays and keeps the queue:
+mediad passes Play / Pause / Next / Previous / shuffle / repeat on to it (AVRCP), shows its
+track, and sets the media level on the "R80 Bluetooth music" PipeWire stage
+(hu/callaudio.py, --bt-audio); leaving the source pauses the phone and closes the stage.
+The phone's music starting while nothing else plays switches to Bluetooth.
 
     bus name   de.r80.Media
     object     /de/r80/Media
@@ -75,6 +80,8 @@ from gi.repository import GLib, Gst, GstController  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from browse import browse, tracks_of  # noqa: E402
+from btmedia import PhonePlayer  # noqa: E402
+from callaudio import CallAudio  # noqa: E402
 from removable import RemovableMedia  # noqa: E402
 from saver import register_saver  # noqa: E402
 
@@ -84,6 +91,7 @@ IFACE = "de.r80.Media1"
 PROPS_IFACE = "org.freedesktop.DBus.Properties"
 AUDIO_EXT = {".mp3", ".ogg", ".oga", ".flac", ".wav", ".m4a", ".aac", ".opus", ".wma"}
 LIBRARY = "Library"
+BLUETOOTH = "Bluetooth"
 FOLDER_COVERS = ("cover", "folder", "front", "album")
 COVER_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/gif": "gif", "image/bmp": "bmp"}
 INT32_PROPS = {"TrackIndex", "TrackCount", "Scanned", "SourceTrackCount"}
@@ -336,7 +344,8 @@ class Scanner:
 
 class Media(dbus.service.Object):
     def __init__(self, bus, music_dir: Path, cache_dir: Path, state: Path, sink: str | None = None,
-                 buffer_ms: int = 60, usb_bus=None, resume_wait: float = 15.0):
+                 buffer_ms: int = 60, usb_bus=None, resume_wait: float = 15.0, bt_bus=None,
+                 bt_audio: CallAudio | None = None):
         super().__init__(bus, OBJ_PATH)
         self.sources = {LIBRARY: {"key": "library", "dir": music_dir}}   # name -> key, folder
         self.source = LIBRARY
@@ -397,6 +406,9 @@ class Media(dbus.service.Object):
         register_saver(bus, "mediad", self.save_state, log)
         if usb_bus is not None:
             self.usb = RemovableMedia(usb_bus, self.on_medium_added, self.on_medium_removed, log)
+        self.bt_audio, self.bt_stage, self.bt_timer, self.bt_ticks = bt_audio, {}, None, 0
+        self.bt_was_playing = False
+        self.bt = PhonePlayer(bt_bus, self.on_bt_change, log) if bt_bus is not None else None
         self.refresh_props()
 
     # ---- output and gain --------------------------------------------------
@@ -532,7 +544,7 @@ class Media(dbus.service.Object):
 
     def remember(self):
         """Note where the active source is, for when it comes back."""
-        if self.tracks:
+        if self.tracks and not self.on_bt():
             if self.deferred_seek is not None or self.pending:
                 pos = self.position            # a seek not done yet: where it is going
             else:
@@ -549,7 +561,13 @@ class Media(dbus.service.Object):
         """Switch to a source and carry on where it was (track and position)."""
         if name in self.sources and name != self.source:
             self.remember()
+            if self.on_bt():                       # leaving the phone: pause it, close its stage
+                self.bt.call("Pause")
+                self.bt_level()
         self.stop()
+        if self.sources[name].get("kind") == "bt":
+            self.use_bt(name, play)
+            return
         self.source = name
         self.dir = self.sources[name]["dir"]
         self.library = self.scan()
@@ -604,6 +622,83 @@ class Media(dbus.service.Object):
         """A browse entry for D-Bus (without the track object)."""
         return {k: v for k, v in e.items() if k != "track"}
 
+    # ---- Bluetooth: the phone's own player ----------------------------------------
+    def on_bt(self) -> bool:
+        return self.sources.get(self.source, {}).get("kind") == "bt"
+
+    def bt_track(self) -> dict:
+        t = self.bt.track()
+        return {**t, "path": "", "scanned": True, "title": t["title"] or ("Bluetooth" if self.bt.present else "")}
+
+    def use_bt(self, name: str, play: bool):
+        self.source = name
+        self.dir = Path("/")
+        self.scanner.stop()                        # nothing to read: the phone has the music
+        self.library = []
+        self.set_queue("", self.bt.name, [self.bt_track()])
+        self.index = 0
+        self.status = "playing" if self.bt.playing() else "paused"
+        if play and not self.bt.playing():
+            self.bt.call("Play")
+        self.bt_level()
+        if self.bt_audio is not None and self.bt_audio.ok and self.bt_timer is None:
+            self.bt_timer = GLib.timeout_add(1000, self.find_bt_stage)
+        self.refresh_props()
+        self.save_state()
+        log(f"source {name}: {self.bt.name}")
+
+    def on_bt_change(self):
+        if self.bt.present and BLUETOOTH not in self.sources:
+            self.sources[BLUETOOTH] = {"key": "bluetooth", "kind": "bt", "dir": Path("/")}
+            if self.awaited and self.awaited[0] == "bluetooth":       # the phone the last session ended on
+                _key, play = self.awaited
+                self.awaited = None
+                self.use_source(BLUETOOTH, play)
+                return
+        elif not self.bt.present and BLUETOOTH in self.sources:
+            if self.on_bt():
+                self.source = LIBRARY                                   # no remember / pause for a gone phone
+                del self.sources[BLUETOOTH]
+                self.use_source(LIBRARY, False)
+            else:
+                del self.sources[BLUETOOTH]
+            self.refresh_props()
+            return
+        playing = self.bt.playing()
+        if self.bt.present and playing and not self.bt_was_playing and not self.on_bt() \
+                and self.status != "playing" and not self.awaited:
+            self.bt_was_playing = playing
+            self.use_source(BLUETOOTH, True)                            # the phone starts its music: switch
+            return
+        self.bt_was_playing = playing
+        if self.on_bt():
+            self.tracks[0] = self.bt_track()
+            self.status = "playing" if playing else "paused"
+        self.refresh_props()
+
+    def find_bt_stage(self) -> bool:
+        if not self.on_bt():
+            self.bt_timer = None
+            return False
+        self.bt_ticks += 1
+        if len(self.bt_stage) == 2 and self.bt_ticks % 5:
+            return True                                                 # both known: check every 5 s
+        found = self.bt_audio.music(self.bt.address)
+        if found is not None and found != self.bt_stage:
+            self.bt_stage = found
+            log(f"Bluetooth music: {found}")
+            self.bt_level()
+        return True
+
+    def bt_level(self):
+        """The phone at full level, the media gain on the stage while Bluetooth is the source."""
+        if self.bt_audio is None:
+            return
+        if "stream" in self.bt_stage:
+            self.bt_audio.set_linear(self.bt_stage["stream"], 1.0)
+        if "stage" in self.bt_stage:
+            self.bt_audio.set_linear(self.bt_stage["stage"], self.gain if self.on_bt() else 0.0)
+
     def restore(self, resume_wait: float):
         try:
             st = json.loads(self.state_file.read_text())
@@ -611,8 +706,8 @@ class Media(dbus.service.Object):
             st = {}
         self.resume = st.get("resume", {})
         last, play = st.get("source", "library"), bool(st.get("playing", False))
-        if last.startswith("usb:"):
-            # The stick shows up a moment after start, if it is still plugged in.
+        if last.startswith("usb:") or last == "bluetooth":
+            # The stick (or phone) shows up a moment after start, if it is still there.
             self.awaited = (last, play)
             self.use_source(LIBRARY, False)
             GLib.timeout_add(int(resume_wait * 1000), self.stop_waiting)
@@ -791,6 +886,9 @@ class Media(dbus.service.Object):
             self.refresh_props()
 
     def poll_position(self):
+        if self.on_bt():
+            self.set("Position", self.bt.position_us())
+            return True
         if self.status == "playing" and not self.pending:     # not while switching away
             self.position = self.current_time()
             self.set("Position", self.position)
@@ -818,6 +916,21 @@ class Media(dbus.service.Object):
         self.set("CanGoNext", bool(self.tracks) and (pos < len(self.tracks) - 1 or self.repeat_all))
         self.set("CanGoPrevious", bool(self.tracks) and (pos > 0 or self.repeat_all))
         self.set("Gain", self.gain)
+        if self.on_bt():                           # the phone's player decides what is shown
+            self.set("PlaybackStatus", "playing" if self.bt.playing() else "paused")
+            self.set("Position", self.bt.position_us())
+            self.set("Metadata", {k: self.bt_track()[k] for k in TRACK_KEYS})
+            self.set("TrackIndex", 0)
+            self.set("TrackCount", 1)
+            self.set("UpNext", [])
+            self.set("QueueTitle", self.bt.name)
+            self.set("Queue", "")
+            self.set("SourceTrackCount", 1)
+            self.set("Scanned", 1)
+            self.set("Shuffle", self.bt.shuffle())
+            self.set("RepeatAll", self.bt.repeat())
+            self.set("CanGoNext", True)
+            self.set("CanGoPrevious", True)
 
     def advance(self, step: int, natural: bool = False):
         if not self.tracks:
@@ -882,6 +995,9 @@ class Media(dbus.service.Object):
     # ---- D-Bus methods ---------------------------------------------------
     @dbus.service.method(IFACE)
     def Play(self):
+        if self.on_bt():
+            self.bt.call("Play")
+            return
         if not self.uri:
             self.load(True)
             return
@@ -895,6 +1011,9 @@ class Media(dbus.service.Object):
 
     @dbus.service.method(IFACE)
     def Pause(self):
+        if self.on_bt():
+            self.bt.call("Pause")
+            return
         if self.status != "playing":
             return
         self.fade_out_then(self.pause_now)       # needs status "playing" to fade at all
@@ -907,7 +1026,8 @@ class Media(dbus.service.Object):
 
     @dbus.service.method(IFACE)
     def PlayPause(self):
-        self.SetPlaying(self.status != "playing")
+        playing = self.bt.playing() if self.on_bt() else self.status == "playing"
+        self.SetPlaying(not playing)
 
     @dbus.service.method(IFACE, in_signature="b")
     def SetPlaying(self, playing):
@@ -918,10 +1038,16 @@ class Media(dbus.service.Object):
 
     @dbus.service.method(IFACE)
     def Next(self):
+        if self.on_bt():
+            self.bt.call("Next")
+            return
         self.advance(1)
 
     @dbus.service.method(IFACE)
     def Previous(self):
+        if self.on_bt():
+            self.bt.call("Previous")              # the phone decides: restart or the track before
+            return
         if self.position > 3_000_000:
             self.SetPosition(0)
         else:
@@ -929,7 +1055,7 @@ class Media(dbus.service.Object):
 
     @dbus.service.method(IFACE, in_signature="i")
     def SetTrack(self, index):
-        if not self.tracks:
+        if not self.tracks or self.on_bt():
             return
         self.index = max(0, min(int(index), len(self.tracks) - 1))
         if self.shuffle:
@@ -945,7 +1071,7 @@ class Media(dbus.service.Object):
         self.seek_abs(max(0, int(position)))
 
     def seek_abs(self, position_us: int):
-        if not self.uri:
+        if not self.uri or self.on_bt():          # AVRCP has no seek
             return
 
         def seek():
@@ -965,6 +1091,9 @@ class Media(dbus.service.Object):
 
     @dbus.service.method(IFACE, in_signature="b")
     def SetShuffle(self, on):
+        if self.on_bt():
+            self.bt.set_shuffle(bool(on))
+            return
         self.shuffle = bool(on)
         if self.shuffle and self.tracks:
             self.shuffle_from(self.index)
@@ -984,6 +1113,10 @@ class Media(dbus.service.Object):
 
     @dbus.service.method(IFACE, in_signature="sii", out_signature="siaa{sv}")
     def Browse(self, path, offset, count):
+        if self.on_bt():                          # browsing happens on the phone
+            if str(path):
+                raise self.not_found(path)
+            return self.bt.name, dbus.Int32(0), dbus.Array([], signature="a{sv}")
         try:
             title, entries = browse(self.library, self.dir, self.source, str(path))
         except KeyError:
@@ -994,6 +1127,8 @@ class Media(dbus.service.Object):
 
     @dbus.service.method(IFACE, in_signature="si")
     def PlayFrom(self, path, index):
+        if self.on_bt():
+            raise self.not_found(path)
         try:
             title, queue = tracks_of(self.library, self.dir, self.source, str(path))
         except KeyError:
@@ -1009,6 +1144,9 @@ class Media(dbus.service.Object):
 
     @dbus.service.method(IFACE, in_signature="b")
     def SetRepeatAll(self, on):
+        if self.on_bt():
+            self.bt.set_repeat(bool(on))
+            return
         self.repeat_all = bool(on)
         self.refresh_props()
 
@@ -1016,10 +1154,11 @@ class Media(dbus.service.Object):
     def SetGain(self, gain, fade_ms):
         self.ramp_to(max(0.0, min(float(gain), 1.0)), int(fade_ms))
         self.set("Gain", self.gain)
+        self.bt_level()
 
     @dbus.service.method(IFACE, in_signature="s")
     def SetSource(self, source):
-        # Local files only: the Library and the sticks; Bluetooth A2DP comes later.
+        # The Library, the sticks and (while a phone is connected) Bluetooth
         source = str(source)
         if source not in self.sources:
             raise dbus.exceptions.DBusException(f"unknown source {source!r} (one of {', '.join(self.sources)})",
@@ -1044,6 +1183,10 @@ def main():
                     help="where the source and resume points are saved (default ~/.local/state/r80/media.json)")
     ap.add_argument("--usb", choices=("system", "session"), metavar="BUS",
                     help="USB sticks through udisks2 on this bus (system on the target; session: the tests' stand-in)")
+    ap.add_argument("--bluetooth", choices=("system", "session"), metavar="BUS",
+                    help="the phone's player in BlueZ on this bus (system on the target; session: the tests' stand-in)")
+    ap.add_argument("--bt-audio", choices=("pipewire", "none"), default="pipewire",
+                    help="set the level of the phone's music on PipeWire's R80 Bluetooth music stage (default pipewire)")
     ap.add_argument("--resume-wait", type=float, default=15.0,
                     help="how long to wait at start for the stick the last session played (s, default 15)")
     a = ap.parse_args()
@@ -1057,8 +1200,9 @@ def main():
     usb_bus = None if not a.usb else dbus.SystemBus() if a.usb == "system" else dbus.SessionBus()
     log(f"serving {BUS_NAME} on the {'system' if a.system else 'session'} bus, Library {music_dir}"
         + (f", USB sticks via udisks2 on the {a.usb} bus" if a.usb else ""))
+    bt_bus = None if not a.bluetooth else dbus.SystemBus() if a.bluetooth == "system" else dbus.SessionBus()
     media = Media(bus, music_dir, Path(a.cache_dir).expanduser(), Path(a.state).expanduser(), a.sink, a.buffer_ms,
-                  usb_bus, a.resume_wait)
+                  usb_bus, a.resume_wait, bt_bus, CallAudio(log) if a.bluetooth and a.bt_audio == "pipewire" else None)
     loop = GLib.MainLoop()
 
     def terminate(*_):

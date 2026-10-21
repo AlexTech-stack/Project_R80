@@ -25,7 +25,7 @@ virtual CAN buses and the vehicle MCU replaced by an emulator process.
 | Linux vehicle service | `hu/services/vehicled.py --system --uart /dev/ttyAMA0` | `hu/services/vehicled.py` (session bus) |
 | Linux media service | `hu/services/mediad.py --system --music-dir /media/usb` (GStreamer) | `hu/services/mediad.py` (session bus, the test library unless `MUSIC_DIR` is set) |
 | Other HU services | `audiod` (audio, D9), `warnd` and `tripd` (D10), `navd` (D11), `sysd` (system and settings, D12), all with `--system` | the same files on the session bus |
-| Driver's phone | R80 Companion app over Bluetooth (D11) | `dev/phone_emu/`: a route player and the phone panel |
+| Driver's phone | R80 Companion app (D11); hands-free calls, contacts, music over Bluetooth (D13) | `dev/phone_emu/`: a route player and the phone panel; stand-ins for PipeWire's telephony, obexd and BlueZ's player |
 | UI | Qt 6 / QML, `hu/ui/run.py` (live) | the same |
 
 Everything under `hu/` is target software and has no BoAt dependency; it runs
@@ -158,7 +158,17 @@ is part of the resume point.
 ```bash
 gdbus call --session -d de.r80.Media -o /de/r80/Media -m de.r80.Media1.Browse "albums" 0 20
 gdbus call --session -d de.r80.Media -o /de/r80/Media -m de.r80.Media1.PlayFrom "tracks" 2
-``` Bluetooth A2DP and MPRIS are not wired up yet. `hu/ui/qml/Sim.qml` binds the
+```
+
+Music from the phone is the source "Bluetooth" (`hu/services/btmedia.py`,
+`--bluetooth system|session`), there while a phone's AVRCP player is in BlueZ: the
+phone plays and keeps the queue, mediad passes Play / Pause / Next / Previous / shuffle /
+repeat on to it and shows its track (no cover: AVRCP sends none). Its A2DP stream stays
+at full level and goes into the "R80 Bluetooth music" PipeWire stage, where mediad sets
+the media level (`--bt-audio pipewire`; the virtual HU runs `none`). Leaving the source
+pauses the phone and closes the stage; the phone starting its music while nothing else
+plays switches over; the phone going away falls back to the Library. MPRIS is not wired
+up yet. `hu/ui/qml/Sim.qml` binds the
 Media screen to this service and falls back to the mockup's own playlist when
 `hu-mediad` is not on the bus, so `hu/ui/run.py` still works alone.
 
@@ -387,6 +397,46 @@ python3 hu/services/sysd.py --check              # check system.ini and list the
 gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set accent "<'amber'>"
 ```
 
+## Phone (hu-phoned)
+
+`hu/services/phoned.py` (decision D13) is the HU's side of the driver's phone, on D-Bus
+`de.r80.Phone` at `/de/r80/Phone` (interface `de.r80.Phone1`):
+
+- properties `Connected`, `Device` (address, name, battery), `Calls` (number, name,
+  state, direction, since), `CallState` (idle | ringing | dialing | active), `Consent`,
+  `SyncState`, `SyncError`, `SyncedAt`, `ContactCount`, `History`, `Favourites`,
+  `CallGain`, `MicMuted`, `MicAvailable`
+- methods `Dial`, `Answer`, `Hangup`, `HangupAll`, `SendTones`, `SetConsent`, `Sync`,
+  `DeleteCopy`, `GetContacts(offset, count)`, `SetFavourite`, `SetMicMuted`,
+  `SetGain(gain, fade_ms)` (the call level, set by hu-audiod)
+
+Calls come from PipeWire's own Bluetooth telephony service (`org.pipewire.Telephony`,
+PipeWire 1.4, `--telephony BUS`; no oFono): one phone at a time, the one that connected
+last; phoned tells audiod about calls (music pauses, D9). Contacts and the last 50 calls
+come over PBAP from BlueZ's obexd (`hu/services/phonebook.py`, `vcard.py`, `--obex BUS`)
+and are kept per phone in `--state-dir` (mode 0600), only with consent: the first time
+a phone connects the UI asks; Settings → Phone syncs again or deletes the copy.
+Favourites are the HU's own and survive a re-sync; a ringing number gets its name from
+the copy. Names and numbers never go to the logs.
+
+The call's sound (`hu/services/callaudio.py`, `--call-audio pipewire`): PipeWire passes
+a Bluetooth stream's volume on to the phone, which then turns itself down on its own
+curve, so the call stream stays at full level and WirePlumber routes it into the
+"R80 call" stage, where phoned sets the phone volume times `call_boost_db` (audio.ini).
+Without a real microphone the stream to the phone stays muted (WirePlumber would feed it
+from the output's monitor: the far end would hear itself). The bench settings for all of
+this are in `bench/pi/` (`r80-telephony.conf`, `r80-pipewire.conf`, docs/bench-pi.md).
+
+Here phoned talks to stand-ins on the session bus that the tests bring
+(`dev/phone_emu/telephony_emu.py`, `obex_emu.py`, `bluez_player_emu.py`), and keeps the
+copies in `$XDG_RUNTIME_DIR/r80-hu/phone`. With a real phone on this PC:
+`PHONE_TELEPHONY=unix:path=$XDG_RUNTIME_DIR/bus PHONE_OBEX=... PHONE_CALL_AUDIO=pipewire`.
+
+```bash
+gdbus call --session -d de.r80.Phone -o /de/r80/Phone -m org.freedesktop.DBus.Properties.GetAll de.r80.Phone1
+gdbus call --session -d de.r80.Phone -o /de/r80/Phone -m de.r80.Phone1.Answer
+```
+
 ## Tests (BoAt)
 
 ```bash
@@ -428,6 +478,10 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 | TC_HU_030 | media sources: a udisks2 stand-in plugs in a stick (an fstab disk is ignored), read-only mount without a prompt, named after its label, plays at once; resume per source Library <-> stick; state file; a stick without a label is `USB`; pulling the playing stick -> Library, paused |
 | TC_HU_031 | media browsing: menu, folders, albums (artist, cover), artists → albums → tracks, paging; `PlayFrom` makes a list the queue (`QueueTitle`, `GetQueue`); `UpNext` with and without repeat; shuffle order shown by `UpNext` and followed by `Next`; queue in the state file; `NotFound` |
 | TC_HU_032 | media pauses while the HU is off: paused at Power off (the shutdown save still saw it playing), plays again at power on; paused by the driver stays paused; a call at power on keeps it paused until it ends |
+| TC_HU_033 | phone calls (PipeWire telephony stand-in): ringing with number and name, music paused, answer, end, reject, far end hangs up, dial (bad numbers, a refusing phone), two phones, PipeWire restarting |
+| TC_HU_034 | phone contacts and call history (PBAP stand-in): consent asked / no / yes, vCard 2.1 and 3.0, file 0600, temp files gone, paging, name for a ringing number, favourites survive a re-sync, per phone, a refusing phone, DeleteCopy |
+| TC_HU_035 | the call level: audiod's phone gain times call_boost_db reaches phoned, mute spares a running call, microphone mute per call |
+| TC_HU_036 | music from the phone (AVRCP stand-in): the Bluetooth source, Play / Pause / Next / Previous / shuffle to the phone, its track, a call pauses and resumes it, leaving pauses it, the phone starting switches over, gone: back to the Library |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).
@@ -463,6 +517,9 @@ mcu_emu/mcuctl.py             control client (also used by the tests)
 phone_emu/phone_emu.py        phone emulator (companion app stand-in), also the tests' Phone class
 phone_emu/phone_panel.py      phone panel: GUI that plays the phone (routes, any guidance, link loss)
 phone_emu/route_demo.json     demo route the emulator plays
+phone_emu/telephony_emu.py    stand-in for PipeWire's Bluetooth telephony (calls)
+phone_emu/obex_emu.py         stand-in for BlueZ's obexd (PBAP: contacts, call history)
+phone_emu/bluez_player_emu.py stand-in for BlueZ's AVRCP player of a connected phone
 media_tags.py                 test media: ID3 tags with generated covers, the test library
 ../test/boat/restbus.py       BoAt restbus node / library
 ../test/boat/restbus_panel.py tester GUI: the restbus with live signal editing + HU controls

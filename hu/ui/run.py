@@ -42,8 +42,8 @@ Rectangle {
 """
 
 SHOTS = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media",
-         "media_browse", "media_album", "radio", "phone", "vehicle", "cluster", "clock", "settings", "call", "volume", "audio",
-         "system", "trip", "warning", "warnings"]
+         "media_browse", "media_album", "radio", "phone", "phone_contact", "vehicle", "cluster", "clock", "settings", "call",
+         "volume", "audio", "phone_settings", "system", "trip", "warning", "warnings"]
 
 
 def register_backends(system_bus: bool):
@@ -52,7 +52,7 @@ def register_backends(system_bus: bool):
     sys.path.insert(0, str(HERE))
     import backend
     objs = {}
-    for name in ("Vehicle", "Media", "Audio", "Warnings", "Trip", "Nav", "System"):
+    for name in ("Vehicle", "Media", "Audio", "Warnings", "Trip", "Nav", "System", "Phone"):
         cls = getattr(backend, name)
         objs[name] = cls(system_bus=system_bus)
         qmlRegisterSingletonInstance(cls, "R80.Backend", 1, 0, name, objs[name])
@@ -158,7 +158,7 @@ def run_screenshots(app, win, out: Path):
         elif name == "system":
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")
-            QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 4))
+            QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 5))
         elif name in ("media_browse", "media_album"):
             win.setProperty("demoWarnings", False)
             win.setProperty("current", "media")
@@ -171,6 +171,18 @@ def run_screenshots(app, win, out: Path):
                      else [("press",), ("knob", 4), ("press",)])                    # Albums -> the 5th album
             for k, todo in enumerate(steps):
                 QTimer.singleShot(300 + 300 * k, lambda st=todo: call(*st))
+        elif name == "phone_contact":
+            win.setProperty("current", "phone")
+
+            def contact():
+                screen = win.findChild(QObject, "phoneScreen")
+                screen.setProperty("tab", 2)
+                QTimer.singleShot(200, lambda: QMetaObject.invokeMethod(screen, "press"))
+            QTimer.singleShot(300, contact)
+        elif name == "phone_settings":
+            win.setProperty("demoVolume", False)
+            win.setProperty("current", "settings")
+            QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 3))
         elif name == "audio":
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")

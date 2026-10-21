@@ -2,7 +2,9 @@
 # Installs the bench's systemd units for the current user and this checkout:
 # fills in @USER@, @UID@ and @REPO@ in r80-can.service / r80-hu.service, copies them
 # to /etc/systemd/system and creates /etc/r80-bench.conf (from the example) if missing.
-# Also the polkit rule r80-media.rules (USB sticks for hu-mediad, test-stick images).
+# Also the polkit rule r80-media.rules (USB sticks for hu-mediad, test-stick images) and the
+# WirePlumber setting r80-telephony.conf (PipeWire's call control for hu-phoned) and the PipeWire
+# setting r80-pipewire.conf (the call's own level stage).
 # Does not enable or start them.
 # --desktop: also the HU on the desktop (no monitor, VNC): r80-hu-desktop.service as a user
 # unit, started by the desktop's autostart at every login (the Pi logs in automatically).
@@ -17,11 +19,18 @@ USER_NAME="$(id -un)"
 USER_ID="$(id -u)"
 [[ "$USER_NAME" != root ]] || { echo "run as the user the HU should run as, not root (sudo is used inside)"; exit 1; }
 
-for unit in r80-can.service r80-hu.service; do
+for unit in r80-can.service r80-hu.service r80-bt-sco.service; do
   sed -e "s|@USER@|$USER_NAME|g" -e "s|@UID@|$USER_ID|g" -e "s|@REPO@|$REPO|g" "$HERE/$unit" \
     | sudo tee "/etc/systemd/system/$unit" >/dev/null
   echo "installed /etc/systemd/system/$unit (user $USER_NAME, repo $REPO)"
 done
+mkdir -p ~/.config/wireplumber/wireplumber.conf.d
+cp "$HERE/r80-telephony.conf" ~/.config/wireplumber/wireplumber.conf.d/80-r80-telephony.conf
+mkdir -p ~/.config/pipewire/pipewire.conf.d
+cp "$HERE/r80-pipewire.conf" ~/.config/pipewire/pipewire.conf.d/80-r80.conf
+systemctl --user try-restart pipewire.service wireplumber.service 2>/dev/null || true
+echo "installed ~/.config/wireplumber/wireplumber.conf.d/80-r80-telephony.conf (PipeWire call control for hu-phoned)"
+echo "installed ~/.config/pipewire/pipewire.conf.d/80-r80.conf (the R80 call stage)"
 sed -e "s|@USER@|$USER_NAME|g" "$HERE/r80-media.rules" | sudo tee /etc/polkit-1/rules.d/50-r80-media.rules >/dev/null
 echo "installed /etc/polkit-1/rules.d/50-r80-media.rules (user $USER_NAME may mount sticks, set up loop devices)"
 if [[ ! -f /etc/r80-bench.conf ]]; then
@@ -39,4 +48,4 @@ if [[ -n "$DESKTOP" ]]; then
   echo "installed r80-hu-desktop.service (user) + desktop autostart: the HU starts with the desktop"
   echo "  now: systemctl --user start r80-hu-desktop   (or log in again / reboot)"
 fi
-echo "now: sudo systemctl enable --now r80-can.service (and r80-hu.service for the kiosk)"
+echo "now: sudo systemctl enable --now r80-can.service r80-bt-sco.service (and r80-hu.service for the kiosk)"

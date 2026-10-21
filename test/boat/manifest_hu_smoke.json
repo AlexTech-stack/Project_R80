@@ -36,6 +36,10 @@
     { "id": "TC_HU_029", "name": "Media: tags, covers, durations, types", "file": "python3 tests/test_media_tags.py", "timeout_s": 40 },
     { "id": "TC_HU_030", "name": "Media: USB sticks, sources, resume per source", "file": "python3 tests/test_media_usb.py", "timeout_s": 60 },
     { "id": "TC_HU_031", "name": "Media: browsing, queue, up next, shuffle order", "file": "python3 tests/test_media_browse.py", "timeout_s": 60 },
-    { "id": "TC_HU_032", "name": "Media pauses while the HU is off", "file": "python3 tests/test_media_power.py", "timeout_s": 90 }
+    { "id": "TC_HU_032", "name": "Media pauses while the HU is off", "file": "python3 tests/test_media_power.py", "timeout_s": 90 },
+    { "id": "TC_HU_033", "name": "Phone calls over hands-free (PipeWire telephony stand-in)", "file": "python3 tests/test_phone_calls.py", "timeout_s": 60 },
+    { "id": "TC_HU_034", "name": "Phone contacts and call history (PBAP stand-in), consent, favourites", "file": "python3 tests/test_phone_contacts.py", "timeout_s": 90 },
+    { "id": "TC_HU_035", "name": "Phone call level from audiod, microphone mute", "file": "python3 tests/test_phone_audio.py", "timeout_s": 40 },
+    { "id": "TC_HU_036", "name": "Media: music from the phone (AVRCP stand-in)", "file": "python3 tests/test_media_bluetooth.py", "timeout_s": 60 }
   ]
 }

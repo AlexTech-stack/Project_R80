@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs inside the DUT container: the MCU stand-in, the vehicle, media, audio, warning, trip, navigation and system service,
+# Runs inside the DUT container: the MCU stand-in, the vehicle, media, audio, warning, trip, navigation, system and phone service,
 # like bench/pi/r80-kiosk.sh on the Pi (without the UI). mediad plays the test library
 # (dev/media_tags.py) into $MEDIA_ARGS (the caller passes --sink fakesink).
 #   start_dut.sh <path to the repo>
@@ -16,13 +16,14 @@ python3 "$R/dev/media_tags.py" library "$XDG_RUNTIME_DIR/r80-hu/test-music"
 # shellcheck disable=SC2086  # MEDIA_ARGS is a list of flags
 python3 "$R/hu/services/mediad.py" --music-dir "$XDG_RUNTIME_DIR/r80-hu/test-music" \
   --cache-dir "$XDG_RUNTIME_DIR/r80-hu/media-cache" --state "$XDG_RUNTIME_DIR/r80-hu/media-state.json" \
-  --usb session ${MEDIA_ARGS:-} &
+  --usb session --bluetooth session --bt-audio none ${MEDIA_ARGS:-} &
 python3 "$R/hu/services/audiod.py" --state "$XDG_RUNTIME_DIR/r80-hu/audio-state.json" &
 # shellcheck disable=SC2086  # WARN_ARGS is a list of flags
 python3 "$R/hu/services/warnd.py" ${WARN_ARGS:-} &
 python3 "$R/hu/services/tripd.py" --state "$XDG_RUNTIME_DIR/r80-hu/trip-state.json" &
 python3 "$R/hu/services/sysd.py" --state "$XDG_RUNTIME_DIR/r80-hu/settings.json" &
 python3 "$R/hu/services/navd.py" --socket "$XDG_RUNTIME_DIR/r80-hu/companion.sock" --bluetooth session &
+python3 "$R/hu/services/phoned.py" --telephony session --bluez none --obex session --state-dir "$XDG_RUNTIME_DIR/r80-hu/phone" --call-audio none &
 wait -n   # either one ending ends the DUT
 echo "DUT: a process exited"
 exit 1

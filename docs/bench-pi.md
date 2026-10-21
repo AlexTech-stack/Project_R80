@@ -315,7 +315,7 @@ Navigation saying "No phone connected" until the phone is paired and connected
 (section 10). navd prints "companion service registered with BlueZ" at start.
 Headless check: `hu/ui/run.py --screenshot /tmp/hu.png`.
 
-## 10. Phone (R80 Companion app)
+## 10. Phone (R80 Companion app, calls, contacts, music)
 
 Pair once; afterwards the app connects by itself whenever it is started.
 
@@ -359,6 +359,45 @@ connection). Pair while the desktop is still on, before the kiosk takes over.
 Xiaomi / HyperOS phones: allow the app "Autostart" and set its battery saver to
 "No restrictions" (App info), or Android may not start its notification listener
 (the app then shows "No navigation running" although Maps navigates).
+
+### Calls, contacts and music from the phone (D13)
+
+The paired phone also does hands-free calls, contacts and music; hu-phoned and hu-mediad
+use PipeWire and BlueZ on the desktop's session bus (`r80-kiosk.sh`). `./r80 bench install`
+puts the settings in place:
+
+| File | Installed to | What |
+|---|---|---|
+| `r80-telephony.conf` | `~/.config/wireplumber/wireplumber.conf.d/80-r80-telephony.conf` | PipeWire's call control on D-Bus (`org.pipewire.Telephony`); calls into the "R80 call" stage, phone music into "R80 Bluetooth music" |
+| `r80-pipewire.conf` | `~/.config/pipewire/pipewire.conf.d/80-r80.conf` | the two stages (loopbacks) where the HU sets the levels |
+| `r80-bt-sco.service` / `.sh` | `/etc/systemd/system/` | call audio of the Pi's built-in Bluetooth over HCI (see below); enable it: `sudo systemctl enable --now r80-bt-sco.service` |
+
+- **Calls:** ringing, answer, end, dial work from the HU. A USB headset (or USB
+  microphone) is the HU's microphone; without one the stream to the phone stays muted
+  and the call popup says "No microphone".
+- **Level:** PipeWire passes a Bluetooth stream's volume on to the phone (AT+VGS, AVRCP
+  absolute volume), so the phone's streams stay at full level and the HU sets the level
+  on its stages: calls at the phone volume plus `call_boost_db` (audio.ini, +12 dB),
+  phone music at the media volume.
+- **Contacts:** the HU asks the first time; then the phone has to share them. HyperOS
+  shows no prompt and refuses (`OBEX Connect failed with 0x53`, shown under Settings →
+  Phone): on the phone, Settings → Bluetooth → the Pi → switch on **Contact sharing**,
+  then Settings → Phone → Sync now on the HU.
+- **Music:** start music on the phone; the HU switches to the Bluetooth source while
+  nothing else plays. If the phone only connected for calls,
+  `bluetoothctl connect <phone> 0000110a-0000-1000-8000-00805f9b34fb` adds A2DP.
+
+**The Pi 3B's built-in Bluetooth (BCM43438 on a UART) is too weak for this.** It sends
+call audio (SCO) to its PCM pins by default (silent calls; `r80-bt-sco.service` switches
+it to HCI with a Broadcom vendor command at every bluetooth start), and under call or
+music traffic the UART link loses frames (`dmesg`: "Frame reassembly failed", "link tx
+timeout, killing stalled connection"): calls look stuck until the link drops, A2DP drops
+after a while, the chip may hang until a reboot. Use a USB Bluetooth adapter for calls
+and phone music: a **TP-Link UB500** (Realtek RTL8761BU, firmware in `firmware-realtek`)
+or a genuine **CSR8510 A10** (e.g. Plugable USB-BT4LE; avoid no-name "CSR 4.0" clones).
+Then switch the built-in one off (`dtoverlay=disable-bt` in `/boot/firmware/config.txt`,
+reboot) and pair the phone again (new address); `r80-bt-sco.sh` does nothing on a USB
+adapter. The copies of the contacts are per phone and stay.
 
 ## 11. eglfs kiosk (with a monitor)
 
@@ -432,6 +471,9 @@ the foreground, for debugging.
   own keyboard. The panel's CAN-signal editing does reach the Pi over the tunnel.
 - The BoAt tests still validate the PC's `vehicled`; testing the Pi's D-Bus
   remotely is separate future work.
+- Hands-free calls and phone music on the Pi 3B's built-in Bluetooth are unreliable
+  (section 10); a USB adapter fixes that. No echo cancellation yet (a headset does not
+  need it; the car's speakers and microphone will).
 - UDP can lose and reorder frames. If that matters, lower `-t` further or switch
   cannelloni to TCP (`-C s` / `-C c`) or SCTP.
 - No BoAt, `mcu_emu` or `boat` imports under `hu/`: the Pi runs the target

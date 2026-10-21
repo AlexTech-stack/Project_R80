@@ -622,3 +622,129 @@ class System(QObject):
     def resetAll(self):
         self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "ResetAll", "", (),
                             lambda *_: None, lambda *_: None, timeout=1.0)
+
+
+PHONE_SERVICE, PHONE_PATH, PHONE_IFACE = "de.r80.Phone", "/de/r80/Phone", "de.r80.Phone1"
+
+
+class Phone(QObject):
+    """QML singleton mirroring hu-phoned (de.r80.Phone1): the connected phone (connected,
+    deviceName, battery: -1 = unknown) and its calls (callState: idle | ringing | dialing |
+    active, the current call's callerName / callerNumber / callSince: unix ms it became
+    active, 0 = not yet). dial / answer / hangup / sendTones go to phoned. The copy of the
+    phone's contacts: consent ("" = not asked yet, yes, no), syncState (idle | syncing |
+    failed), syncError, syncedAt (unix s), contactCount, contacts (all, fetched whenever the
+    copy changes), history, favourites; setConsent / sync / deleteCopy / setFavourite."""
+    changed = Signal()
+    availableChanged = Signal()
+
+    def __init__(self, system_bus=False, parent=None):
+        super().__init__(parent)
+        self._available = False
+        self._v = {"Connected": False, "Device": {}, "Calls": [], "CallState": "idle", "Consent": "",
+                   "SyncState": "idle", "SyncError": "", "SyncedAt": 0, "ContactCount": 0, "History": [],
+                   "Favourites": [], "MicMuted": False, "MicAvailable": True}
+        self._contacts = []
+        self._contacts_key = None
+        DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
+        self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, PHONE_PATH)
+        self._poll = QTimer(self, interval=3000, timeout=self.refresh)
+        self._poll.start()
+        QTimer.singleShot(0, self.refresh)
+
+    def refresh(self):
+        self.bus.call_async(PHONE_SERVICE, PHONE_PATH, PROPS, "GetAll", "s", (PHONE_IFACE,),
+                            self._apply, self._on_gone, timeout=1.0)
+
+    def _on_gone(self, _err):
+        if self._available:
+            self._available = False
+            self.availableChanged.emit()
+            self.changed.emit()
+
+    def _on_props(self, iface, changed, _invalidated):
+        if iface == PHONE_IFACE:
+            self._apply(changed)
+
+    def _apply(self, changed: dict):
+        if not self._available:
+            self._available = True
+            self.availableChanged.emit()
+        for k in self._v:
+            if k in changed:
+                self._v[k] = _py(changed[k])
+        key = (self._v["Device"].get("address"), self._v["SyncedAt"], self._v["ContactCount"])
+        if key != self._contacts_key:                  # the copy changed: fetch the contacts again
+            self._contacts_key = key
+            self.bus.call_async(PHONE_SERVICE, PHONE_PATH, PHONE_IFACE, "GetContacts", "ii",
+                                (0, int(self._v["ContactCount"])), self._got_contacts, lambda e: None, timeout=10.0)
+        self.changed.emit()
+
+    def _got_contacts(self, contacts):
+        self._contacts = [_py(c) for c in contacts]
+        self.changed.emit()
+
+    def _call(self) -> dict:
+        """The call the UI shows: the ringing one, else the first."""
+        calls = self._v["Calls"]
+        return next((c for c in calls if c.get("state") in ("incoming", "waiting")), calls[0] if calls else {})
+
+    def _send(self, method, signature="", args=()):
+        self.bus.call_async(PHONE_SERVICE, PHONE_PATH, PHONE_IFACE, method, signature, args,
+                            lambda *_: None, lambda e: print(f"[ui] phone {method}: {e}", flush=True), timeout=30.0)
+
+    available = Property(bool, lambda self: self._available, notify=availableChanged)
+    connected = Property(bool, lambda self: bool(self._v["Connected"]), notify=changed)
+    deviceName = Property(str, lambda self: str(self._v["Device"].get("name", "")), notify=changed)
+    battery = Property(int, lambda self: int(self._v["Device"].get("battery", -1)), notify=changed)
+    callState = Property(str, lambda self: str(self._v["CallState"]), notify=changed)
+    callerName = Property(str, lambda self: str(self._call().get("name", "")), notify=changed)
+    callerNumber = Property(str, lambda self: str(self._call().get("number", "")), notify=changed)
+    callSince = Property(float, lambda self: float(self._call().get("since", 0)), notify=changed)
+    consent = Property(str, lambda self: str(self._v["Consent"]), notify=changed)
+    syncState = Property(str, lambda self: str(self._v["SyncState"]), notify=changed)
+    syncError = Property(str, lambda self: str(self._v["SyncError"]), notify=changed)
+    syncedAt = Property(float, lambda self: float(self._v["SyncedAt"]), notify=changed)
+    contactCount = Property(int, lambda self: int(self._v["ContactCount"]), notify=changed)
+    contacts = Property("QVariantList", lambda self: self._contacts, notify=changed)
+    history = Property("QVariantList", lambda self: list(self._v["History"]), notify=changed)
+    favourites = Property("QVariantList", lambda self: list(self._v["Favourites"]), notify=changed)
+    micMuted = Property(bool, lambda self: bool(self._v["MicMuted"]), notify=changed)
+    micAvailable = Property(bool, lambda self: bool(self._v["MicAvailable"]), notify=changed)
+
+    @Slot(str)
+    def dial(self, number):
+        self._send("Dial", "s", (str(number),))
+
+    @Slot()
+    def answer(self):
+        self._send("Answer")
+
+    @Slot()
+    def hangup(self):
+        self._send("Hangup")
+
+    @Slot(str)
+    def sendTones(self, tones):
+        self._send("SendTones", "s", (str(tones),))
+
+    @Slot(bool)
+    def setMicMuted(self, muted):
+        self._send("SetMicMuted", "b", (bool(muted),))
+
+    @Slot(bool)
+    def setConsent(self, allowed):
+        self._send("SetConsent", "b", (bool(allowed),))
+
+    @Slot()
+    def sync(self):
+        self._send("Sync")
+
+    @Slot()
+    def deleteCopy(self):
+        self._send("DeleteCopy")
+
+    @Slot(str, bool)
+    def setFavourite(self, contact_id, on):
+        self._send("SetFavourite", "sb", (str(contact_id), bool(on)))

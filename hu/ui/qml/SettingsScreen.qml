@@ -13,6 +13,7 @@ Item {
         { label: "General",      icon: Icons.globe },
         { label: "Display",      icon: Icons.display },
         { label: "Audio",        icon: Icons.speaker },
+        { label: "Phone",        icon: Icons.phone },
         { label: "Connectivity", icon: Icons.wifi },
         { label: "System",       icon: Icons.chip }
     ]
@@ -20,7 +21,7 @@ Item {
     property bool bt: true
     property bool wifi: false
 
-    readonly property var itemCounts: [2, 3, 9, 2, 1]
+    readonly property var itemCounts: [2, 3, 9, 3, 2, 1]
     onCatChanged: item = 0
 
     function knob(d) {
@@ -54,6 +55,10 @@ Item {
             else if (item === 7) Sim.setTone("balance", Math.round(Math.min(1, Math.max(-1, Sim.toneBalance + d * 0.2)) * 10) / 10);
             else Sim.setTone("loudness", !Sim.loudness);
         } else if (cat === 3) {
+            if (item === 0) Sim.phoneSetConsent(Sim.phoneConsent !== "yes");
+            else if (item === 1) Sim.phoneSync();
+            else Sim.phoneDeleteCopy();
+        } else if (cat === 4) {
             if (item === 0) bt = !bt; else wifi = !wifi;
         }
     }
@@ -173,9 +178,40 @@ Item {
                 Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.loudness; onToggled: Sim.setTone("loudness", !Sim.loudness) } }
         }
 
-        // Connectivity
+        // Phone: the copy of the connected phone's contacts and call history (hu-phoned)
         Column {
             visible: root.cat === 3
+            spacing: 8
+            SettingRow { label: "Keep a copy"; idx: 0
+                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.phoneConsent === "yes"
+                         onToggled: Sim.phoneSetConsent(Sim.phoneConsent !== "yes") } }
+            SettingRow { label: "Contacts and calls"; idx: 1
+                LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.reroute; iconSize: 22
+                             label: Sim.phoneSyncState === "syncing" ? "Syncing …" : "Sync now"; onClicked: Sim.phoneSync() } }
+            SettingRow { label: "Copy on the headunit"; idx: 2
+                LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.minus; iconSize: 22
+                             label: "Delete"; onClicked: Sim.phoneDeleteCopy() } }
+            Item { width: 1; height: 20 }
+            Repeater {
+                model: [
+                    ["Phone", Sim.phoneName],
+                    ["Contacts", Sim.phoneContactCount + (Sim.phoneContactCount === 1 ? " contact" : " contacts")],
+                    ["Last synced", Sim.phoneSyncedAt > 0 ? Qt.formatDateTime(new Date(Sim.phoneSyncedAt * 1000), Sim.clock24h ? "dd.MM.yyyy HH:mm" : "dd.MM.yyyy h:mm ap") : "never"],
+                    ["Status", Sim.phoneSyncState === "syncing" ? "copying from the phone …"
+                             : Sim.phoneSyncState === "failed" ? "failed: " + Sim.phoneSyncError
+                             : Sim.phoneConsent === "yes" ? "kept" : Sim.phoneConsent === "no" ? "not kept" : "not asked yet"]
+                ]
+                Row {
+                    x: 18; spacing: 14
+                    T { width: 200; text: modelData[0]; color: Theme.accentMid; font.pixelSize: Theme.fontSmall + 2 }
+                    T { width: 460; text: modelData[1]; font.pixelSize: Theme.fontSmall + 2; wrapMode: Text.WordWrap }
+                }
+            }
+        }
+
+        // Connectivity
+        Column {
+            visible: root.cat === 4
             spacing: 8
             SettingRow { label: "Bluetooth"; idx: 0
                 Toggle { anchors.verticalCenter: parent.verticalCenter; checked: root.bt; onToggled: root.bt = !root.bt } }
@@ -196,7 +232,7 @@ Item {
         // System: what runs and how the computer is doing (hu-sysd's Info)
         Column {
             id: sysPage
-            visible: root.cat === 4
+            visible: root.cat === 5
             spacing: 10
             x: 18
             readonly property var i: Sim.systemInfo

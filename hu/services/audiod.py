@@ -16,8 +16,10 @@
 
 Sources: media, navigation, phone, radio. For each source audiod computes the level
 it should play at (Gains) and the source applies it to its own player: mediad gets it
-through de.r80.Media1.SetGain. Navigation, phone and radio have no service yet; their
-gains are already published for when they do.
+through de.r80.Media1.SetGain, phoned (the call's sound) through de.r80.Phone1.SetGain,
+times call_boost_db (speech arrives far quieter than music).
+Navigation and radio have no service yet; their gains are already published for when
+they do.
 
     gain = ((Master / Max) * (Volumes[source] / Max)) ** curve      (0 while muted)
 
@@ -66,6 +68,7 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 SOURCES = ("media", "navigation", "phone", "radio", "chime")
 VEHICLE = ("de.r80.Vehicle", "/de/r80/Vehicle", "de.r80.Vehicle1")
 MEDIA = ("de.r80.Media", "/de/r80/Media", "de.r80.Media1")
+PHONE = ("de.r80.Phone", "/de/r80/Phone", "de.r80.Phone1")
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "audio.ini"
 SYSTEM_CONFIG = Path("/etc/r80/audio.ini")
 
@@ -85,7 +88,8 @@ def load_config(extra: str | None = None) -> dict:
     if extra and not Path(extra).is_file():
         raise ConfigError(f"config file not found: {extra}")
     cp.read([str(f) for f in files if f.is_file()])
-    used = {"volume": {"max", "startup_cap", "default_master", "curve", "change_fade_ms"} | {f"default_{s}" for s in SOURCES},
+    used = {"volume": {"max", "startup_cap", "default_master", "curve", "change_fade_ms", "call_boost_db"}
+            | {f"default_{s}" for s in SOURCES},
             "focus": {"duck_level", "duck_fade_ms", "call_starts_on", "resume_media_after_call", "pause_media_when_off",
                       "call_mutes_radio", "mute_spares_call", "warning_chime_min_gain"},
             "tone": {"tone_range_db", "default_bass", "default_treble", "default_balance", "default_loudness"}}
@@ -121,6 +125,7 @@ def load_config(extra: str | None = None) -> dict:
         "default_master": num("volume", "default_master", int, 0, vmax),
         "curve": num("volume", "curve", float, 0.1, 10.0),
         "change_fade_ms": num("volume", "change_fade_ms", int, 0, 1000),
+        "call_boost_db": num("volume", "call_boost_db", float, 0.0, 18.0),
         "default_volumes": {s: num("volume", f"default_{s}", int, 0, vmax) for s in SOURCES},
         "duck_level": num("focus", "duck_level", float, 0.0, 1.0),
         "warning_chime_min_gain": num("focus", "warning_chime_min_gain", float, 0.0, 1.0),
@@ -268,6 +273,7 @@ class Audio(dbus.service.Object):
         self.dirty = set()
         self.save_pending = False
         self.media_gain = None          # last gain sent to mediad
+        self.phone_gain = None          # ... and to phoned
         self.refresh()
         log(f"master {self.master}/{cfg['max']} (saved {saved.get('master') if isinstance(saved, dict) else None}, "
             f"cap {cfg['startup_cap']}), volumes {self.volumes}, state {state_path}")
@@ -278,6 +284,7 @@ class Audio(dbus.service.Object):
                                 "org.freedesktop.DBus", "/org/freedesktop/DBus")
         GLib.timeout_add(100, self.flush)
         GLib.idle_add(self.push_media)
+        GLib.idle_add(self.push_phone)
         register_saver(bus, "audiod", self.save, log)      # volumes and tone saved before a shutdown (D12)
 
     # ---- state -------------------------------------------------------------
@@ -298,6 +305,7 @@ class Audio(dbus.service.Object):
         self.set("CallState", self.call_state)
         self.set("Duck", round(self.duck, 6))
         self.push_media()
+        self.push_phone()
 
     def changed_volume(self):
         self.refresh()
@@ -359,10 +367,27 @@ class Audio(dbus.service.Object):
                             lambda *_: None, failed, timeout=1.0)
         return False
 
+    def push_phone(self):
+        # the phone volume's gain, plus the call boost (speech is far quieter than music)
+        g = round(self.gains()["phone"] * 10 ** (self.cfg["call_boost_db"] / 20), 6)
+        if g == self.phone_gain:
+            return False
+        self.phone_gain = g                  # as push_media: what was sent, forgotten on an error
+
+        def failed(_e):
+            if self.phone_gain == g:
+                self.phone_gain = None
+        self.bus.call_async(PHONE[0], PHONE[1], PHONE[2], "SetGain", "du", (g, self.cfg["change_fade_ms"]),
+                            lambda *_: None, failed, timeout=1.0)
+        return False
+
     def on_owner(self, name, _old, new):
         if name == MEDIA[0] and new:
             self.media_gain = None       # a (re)started mediad needs its gain
             self.push_media()
+        elif name == PHONE[0] and new:
+            self.phone_gain = None
+            self.push_phone()
 
     # ---- rules ---------------------------------------------------------------
     def start_duck_fade(self):

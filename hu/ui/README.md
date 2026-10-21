@@ -51,7 +51,7 @@ needed. `run.py` and `./r80` do not use the project file.
 | Esc / Backspace / H | back to home (in the media browse list: up one level) |
 | 1 – 8 | jump to Navigation, Media, Radio, Phone, Vehicle, Drive, Clock, Settings |
 | Volume (header, right of the temperature) | click: master volume popup; knob or slider changes it, Mute button, press or Esc closes |
-| C | simulate an incoming call |
+| C | simulate an incoming call (demo only; live calls come from the phone) |
 | W | simulate vehicle warnings (banner, header indicator, Vehicle → Warnings) |
 | N | cycle the navigation states: guidance, phone link lost, no route, no phone, rerouting, long signpost, destination on the left (D11) |
 | F11 | toggle fullscreen |
@@ -60,11 +60,14 @@ needed. `run.py` and `./r80` do not use the project file.
 
 Home, Navigation (turn-by-turn guidance from the phone, D11: maneuver, distance,
 street, arrival; no map), Media (sources as tabs, cover, up next; Browse: folders,
-artists, albums, all tracks), Radio (FM dial),
-Phone (favourites/recent/contacts, keypad, call popup), Vehicle (status, trip, tyres,
+artists, albums, all tracks; Bluetooth: the phone's music), Radio (FM dial),
+Phone (favourites/recent/contacts from the phone's copy, a contact's numbers and the
+favourite switch, keypad, call popup; the first time a phone connects the HU asks whether
+to copy its contacts), Vehicle (status, trip, tyres,
 service), Drive (virtual cluster), Clock & Weather, Settings. Under
 Settings → Display you can change brightness and the accent colour (red, amber,
-white, ice blue) live; Settings → System shows what runs (live: the values
+white, ice blue) live; Settings → Phone keeps, syncs or deletes the copy of the
+phone's contacts (D13); Settings → System shows what runs (live: the values
 of `hu-sysd`, D12).
 
 The master volume is shown in the header on every screen, right of the outside
@@ -91,6 +94,7 @@ qml/Sim.qml            the screens' data: from R80.Backend, fake when a backend 
 qml/Icons.qml          ~60 self-drawn line icons as SVG path data (24x24)
 qml/*Screen.qml        one file per screen
 qml/MediaBrowser.qml   media browse list: folders, artists, albums, tracks (knob, press, back)
+qml/PhoneConsent.qml   the first time a phone connects: copy its contacts?
 qml/CarFront.qml, CarSide.qml   self-drawn car line art
 qml/VolumeBadge.qml, VolumePopup.qml   master volume in the header and its popup
 qml/WarningBanner.qml  vehicle warning banner (D10)
