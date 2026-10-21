@@ -50,9 +50,14 @@ class LinkService : Service() {
                 version = BuildConfig.VERSION_NAME,
                 onStatus = { s ->
                     // the link ends (the phone leaves the car, or the HU switched off): park here
-                    if (AppState.link.state == Link.State.CONNECTED && s.state != Link.State.CONNECTED) park()
+                    if (AppState.link.state == Link.State.CONNECTED && s.state != Link.State.CONNECTED) {
+                        park()
+                        AppState.setMedia(null)          // the remote shows nothing it cannot control
+                    }
                     AppState.setLink(s)
                 },
+                onMedia = { AppState.setMedia(it) },
+                onBrowsed = { AppState.setBrowsed(it) },
                 onCarStatus = { s ->
                     CarStore.saveStatus(this, s)
                     AppState.carChanged()
@@ -66,6 +71,7 @@ class LinkService : Service() {
                 it.start()
             }
             AppState.listen(onChange)
+            AppState.sender = { line -> link?.sendNow(line) }
             if (located) {
                 surroundings = Surroundings(this,
                     onWeather = { w -> link?.updateWeather(w); AppState.setWeather(w) },
@@ -110,6 +116,8 @@ class LinkService : Service() {
     }
 
     override fun onDestroy() {
+        AppState.sender = null
+        AppState.setMedia(null)
         surroundings?.stop()
         surroundings = null
         AppState.unlisten(onChange)

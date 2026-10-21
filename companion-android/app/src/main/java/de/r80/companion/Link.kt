@@ -45,6 +45,9 @@ class Link(
     private val onStatus: (Status) -> Unit,
     /** How the car is (car_status), on the link's thread. */
     private val onCarStatus: (CarStatus) -> Unit = {},
+    /** The remote: what plays (media) and browse pages, on the link's thread. */
+    private val onMedia: (MediaState) -> Unit = {},
+    private val onBrowsed: (BrowseResult) -> Unit = {},
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     enum class State { STOPPED, CONNECTING, CONNECTED, WAITING }
@@ -79,6 +82,11 @@ class Link(
         if (g == current) return
         current = g
         outbox.put(Protocol.guidance(g))
+    }
+
+    /** A remote command or browse request (one protocol line); dropped while not connected. */
+    fun sendNow(line: String) {
+        if ("remote" in wants) outbox.put(line)
     }
 
     /** The latest weather; sent after hello and when it changed, if the HU wants it. */
@@ -172,6 +180,8 @@ class Link(
                     when (val m = incoming.poll() ?: break) {
                         is Protocol.HuMessage.Bye -> throw IllegalStateException("HU closed the link (${m.reason ?: "no reason"})")
                         is Protocol.HuMessage.Status -> onCarStatus(m.status)
+                        is Protocol.HuMessage.Media -> onMedia(m.media)
+                        is Protocol.HuMessage.Browsed -> onBrowsed(m.result)
                         else -> {}
                     }
                 }
@@ -186,7 +196,7 @@ class Link(
 
     companion object {
         /** What this app can send. */
-        val CAPS = listOf("guidance", "weather", "position", "car_status")
+        val CAPS = listOf("guidance", "weather", "position", "car_status", "remote")
     }
 }
 

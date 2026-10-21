@@ -21,7 +21,7 @@ OUT = ROOT / "companion-android" / "app" / "src" / "main" / "res" / "drawable"
 # the icons the app shows (Icons.qml names)
 USED = ["car", "fuel", "battery", "sun", "wrench", "warning", "info", "route", "flag", "bluetooth", "gear",
         "music", "speaker", "nav", "clock", "chevronRight", "back", "play", "pause", "next", "prev",
-        "shuffle", "repeat", "mute", "list", "usb", "folder", "disc", "plus", "minus", "phone"]
+        "shuffle", "repeat", "mute", "list", "usb", "folder", "disc", "plus", "minus", "phone", "person"]
 STROKE = 1.6
 
 

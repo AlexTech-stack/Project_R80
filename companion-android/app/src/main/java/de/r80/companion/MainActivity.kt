@@ -39,7 +39,15 @@ class MainActivity : Activity() {
     private lateinit var page: FrameLayout
     private lateinit var settingsPage: View
     private val carPage by lazy { ScrollView(this) }
-    private var tab = 0                      // 0 Car, 1 Settings
+    private val remote by lazy { RemotePage(this) }
+    private var tab = 0                      // 0 Car, 1 Remote, 2 Settings
+    private val ticker = android.os.Handler(android.os.Looper.getMainLooper())
+    private val tick = object : Runnable {
+        override fun run() {
+            if (tab == 1) remote.tick()
+            ticker.postDelayed(this, 1000)
+        }
+    }
 
     private lateinit var access: TextView
     private lateinit var linkStatus: TextView
@@ -73,7 +81,7 @@ class MainActivity : Activity() {
         root.addView(page, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
         settingsPage = layoutInflater.inflate(R.layout.activity_main, page, false).apply { fitsSystemWindows = false }
-        tab = if (CarStore.get(this) != null) 0 else 1
+        tab = if (CarStore.get(this) != null) 0 else 2
         // the link was on (e.g. before an app update stopped it): on again
         if (Settings.linkWanted(this) && AppState.link.state == Link.State.STOPPED) LinkService.start(this)
         access = settingsPage.findViewById(R.id.access)
@@ -180,11 +188,13 @@ class MainActivity : Activity() {
         super.onResume()
         listPaired()                // the user may have paired the HU meanwhile
         AppState.listen(refresh)
+        ticker.post(tick)
         show()
     }
 
     override fun onPause() {
         AppState.unlisten(refresh)
+        ticker.removeCallbacks(tick)
         super.onPause()
     }
 
@@ -198,9 +208,10 @@ class MainActivity : Activity() {
         val on = AppState.link.state == Link.State.CONNECTED
         header.addView(Hu.icon(this, R.drawable.hu_bluetooth, 24f, if (on) Hu.accent else Hu.dim))
         tabBar.removeAllViews()
-        tabBar.addView(Hu.tabs(this, listOf(getString(R.string.tab_car), getString(R.string.tab_settings)), tab) { tab = it; show() })
+        tabBar.addView(Hu.tabs(this, listOf(getString(R.string.tab_car), getString(R.string.tab_remote),
+            getString(R.string.tab_settings)), tab) { tab = it; show() })
         page.removeAllViews()
-        page.addView(if (tab == 0) carPage else settingsPage)
+        page.addView(when (tab) { 0 -> carPage; 1 -> remote.view; else -> settingsPage })
         Hu.style(settingsPage)
     }
 
@@ -304,6 +315,10 @@ class MainActivity : Activity() {
         if (tab == 0) {
             carPage.removeAllViews()
             carPage.addView(carContent())
+            return
+        }
+        if (tab == 1) {
+            remote.show()
             return
         }
         val granted = getSystemService(NotificationManager::class.java)

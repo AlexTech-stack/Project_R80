@@ -3,7 +3,17 @@
     <string name="app_name">R80 Companion</string>
     <string name="app_title">Companion</string>
     <string name="tab_car">Car</string>
+    <string name="tab_remote">Remote</string>
     <string name="tab_settings">Settings</string>
+    <string name="remote_no_link">Connect to the headunit (Settings) to use the remote.</string>
+    <string name="remote_no_media">The headunit has not told yet what plays.</string>
+    <string name="remote_not_allowed">The headunit does not allow control from the phone (Settings → Phone on the headunit).</string>
+    <string name="remote_volume">Volume</string>
+    <string name="remote_browse">Browse</string>
+    <string name="remote_up_next">Up next</string>
+    <string name="remote_list_gone">This list is not there any more.</string>
+    <string name="remote_loading">Loading …</string>
+    <string name="remote_more">More</string>
     <string name="car_none">No news from the car yet. Connect to the headunit once (Settings); from then on the car tells the app how it is, and how it was parked.</string>
     <string name="car_live">Live from the car</string>
     <string name="car_parked">Parked at %1$s, %2$s</string>

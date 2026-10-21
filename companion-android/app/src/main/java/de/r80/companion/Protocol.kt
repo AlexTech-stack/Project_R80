@@ -88,6 +88,8 @@ object Protocol {
         data class Hello(val proto: Int, val heartbeatS: Double?, val caps: List<String> = emptyList()) : HuMessage()
         data object Heartbeat : HuMessage()
         data class Status(val status: CarStatus) : HuMessage()
+        data class Media(val media: MediaState) : HuMessage()
+        data class Browsed(val result: BrowseResult) : HuMessage()
         data class Bye(val reason: String?) : HuMessage()
         /** A type this version does not know: ignore it (forward compatibility). */
         data object Unknown : HuMessage()
@@ -112,14 +114,57 @@ object Protocol {
             "bye" -> HuMessage.Bye((obj["reason"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
             "guidance" -> if ((obj["active"] as? JsonPrimitive)?.booleanOrNull == null) null else HuMessage.Unknown
             "car_status" -> carStatus(obj)?.let { HuMessage.Status(it) }
+            "media" -> media(obj)?.let { HuMessage.Media(it) }
+            "browse_result" -> browseResult(obj)?.let { HuMessage.Browsed(it) }
             else -> HuMessage.Unknown
         }
     }
 
+    /** A remote command (media_cmd); value: Boolean, Number or String as the command wants. */
+    fun mediaCmd(cmd: String, value: Any? = null, path: String? = null, index: Int? = null): String = line(buildMap {
+        put("type", JsonPrimitive("media_cmd"))
+        put("cmd", JsonPrimitive(cmd))
+        when (value) {
+            is Boolean -> put("value", JsonPrimitive(value))
+            is Number -> put("value", JsonPrimitive(value))
+            is String -> put("value", text(value))
+        }
+        path?.let { put("path", text(it)) }
+        index?.let { put("index", JsonPrimitive(it)) }
+    })
+
+    fun browse(id: Int, path: String, offset: Int = 0, count: Int = 20): String = line(mapOf(
+        "type" to JsonPrimitive("browse"), "id" to JsonPrimitive(id), "path" to text(path),
+        "offset" to JsonPrimitive(offset), "count" to JsonPrimitive(count.coerceIn(1, 20))))
+
+    private fun str(obj: JsonObject?, k: String) = (obj?.get(k) as? JsonPrimitive)?.takeIf { it.isString }?.content?.take(MAX_TEXT)
+    private fun num(obj: JsonObject?, k: String) = (obj?.get(k) as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull
+    private fun flag(obj: JsonObject?, k: String) = (obj?.get(k) as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
+
+    private fun media(o: JsonObject): MediaState? {
+        val status = str(o, "status")?.takeIf { it in setOf("playing", "paused", "stopped") } ?: return null
+        return MediaState(flag(o, "allowed") ?: false, status, str(o, "source") ?: "",
+            (o["sources"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }.orEmpty(),
+            str(o, "title") ?: "", str(o, "artist") ?: "", str(o, "album") ?: "", num(o, "duration_s"), num(o, "position_s"),
+            num(o, "time"), flag(o, "shuffle") ?: false, flag(o, "repeat") ?: false, num(o, "track")?.toInt(),
+            num(o, "tracks")?.toInt(), str(o, "queue") ?: "",
+            (o["up_next"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.let { u -> (str(u, "title") ?: "") to (str(u, "artist") ?: "") } }.orEmpty(),
+            num(o, "volume")?.toInt(), num(o, "volume_max")?.toInt(), flag(o, "muted") ?: false)
+    }
+
+    private fun browseResult(o: JsonObject): BrowseResult? {
+        val id = num(o, "id")?.toInt() ?: return null
+        val entries = (o["entries"] as? JsonArray)?.mapNotNull { e ->
+            val eo = e as? JsonObject ?: return@mapNotNull null
+            BrowseResult.Entry(str(eo, "kind") ?: return@mapNotNull null, str(eo, "id") ?: "", str(eo, "title") ?: "",
+                str(eo, "subtitle") ?: "", num(eo, "index")?.toInt() ?: -1)
+        }.orEmpty()
+        return BrowseResult(id, str(o, "path") ?: "", str(o, "title") ?: "", num(o, "total")?.toInt() ?: -1,
+            num(o, "offset")?.toInt() ?: 0, entries)
+    }
+
     /** car_status -> [CarStatus]; null if time or final is missing. Unknown fields are ignored. */
     private fun carStatus(o: JsonObject): CarStatus? {
-        fun num(obj: JsonObject?, k: String) = (obj?.get(k) as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull
-        fun str(obj: JsonObject?, k: String) = (obj?.get(k) as? JsonPrimitive)?.takeIf { it.isString }?.content?.take(MAX_TEXT)
         val time = (o["time"] as? JsonPrimitive)?.longOrNull ?: return null
         val final = (o["final"] as? JsonPrimitive)?.booleanOrNull ?: return null
         val trip = (o["trip"] as? JsonObject)?.let { CarStatus.Trip(num(it, "km"), num(it, "minutes"), num(it, "avg_kmh")) }
@@ -146,6 +191,29 @@ object Protocol {
         require(s.toByteArray(Charsets.UTF_8).size <= MAX_LINE) { "message longer than $MAX_LINE bytes" }
         return s
     }
+}
+
+/** What plays on the HU and its volume (media): the remote's view. */
+data class MediaState(
+    val allowed: Boolean, val status: String, val source: String, val sources: List<String>,
+    val title: String, val artist: String, val album: String, val durationS: Double?, val positionS: Double?,
+    /** when positionS was measured, unix s */
+    val time: Double?, val shuffle: Boolean, val repeat: Boolean, val track: Int?, val tracks: Int?,
+    val queue: String, val upNext: List<Pair<String, String>>, val volume: Int?, val volumeMax: Int?, val muted: Boolean,
+) {
+    /** The position now: counted on from `time` while playing. */
+    fun positionAt(nowS: Double): Double? {
+        val p = positionS ?: return null
+        val at = time ?: return p
+        val now = if (status == "playing") p + (nowS - at).coerceAtLeast(0.0) else p
+        return durationS?.let { now.coerceAtMost(it) } ?: now
+    }
+}
+
+/** A page of the HU's browse tree (browse_result); total -1: no such list. */
+data class BrowseResult(val id: Int, val path: String, val title: String, val total: Int, val offset: Int, val entries: List<Entry>) {
+    /** kind: menu | folder | artist | album | track; id: the path to browse into; index: a track's place for play_from */
+    data class Entry(val kind: String, val id: String, val title: String, val subtitle: String, val index: Int)
 }
 
 /** How the car is, from the HU (car_status); null = the HU did not know it. final: the ignition went off. */

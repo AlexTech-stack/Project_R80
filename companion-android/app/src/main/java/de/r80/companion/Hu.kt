@@ -91,6 +91,28 @@ object Hu {
         setOnClickListener { onClick() }
     }
 
+    /** The HU's round button (LineButton round): an outlined circle, filled when highlighted. */
+    fun roundButton(ctx: Context, iconRes: Int, sizeDp: Float = 56f, highlighted: Boolean = false, enabled: Boolean = true,
+                    onClick: () -> Unit) = android.widget.FrameLayout(ctx).apply {
+        val fg = if (!enabled) dim else if (highlighted) onAccent else accent
+        fun shape(fill: Int) = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(fill)
+            setStroke(dp(ctx, 2f), if (enabled) accent else dim)
+        }
+        background = StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), shape(if (highlighted) mid else faint))
+            addState(intArrayOf(), shape(if (highlighted && enabled) accent else Color.TRANSPARENT))
+        }
+        addView(icon(ctx, iconRes, sizeDp * 0.45f, fg).apply {
+            layoutParams = android.widget.FrameLayout.LayoutParams(dp(ctx, sizeDp * 0.45f), dp(ctx, sizeDp * 0.45f), Gravity.CENTER)
+        })
+        layoutParams = LinearLayout.LayoutParams(dp(ctx, sizeDp), dp(ctx, sizeDp))
+        isEnabled = enabled
+        isClickable = enabled
+        if (enabled) setOnClickListener { onClick() }
+    }
+
     private fun outline(ctx: Context, radius: Float = 3f): StateListDrawable {
         fun shape(fill: Int) = GradientDrawable().apply {
             setColor(fill)
