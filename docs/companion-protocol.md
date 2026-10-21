@@ -48,7 +48,7 @@ step; the Android app (`companion-android/`, later) implements the same rules.
 | `app` | string | required | `r80-companion` or `r80-hu` |
 | `version` | string | required | software version of the sender |
 | `device` | string | optional | phone model, for logs |
-| `caps` | list of strings | optional | the phone: what it sends (`guidance`, `weather`, `position`); the HU: what it wants besides guidance (`weather`, `position`). A phone sends `weather` / `position` only to an HU that lists them |
+| `caps` | list of strings | optional | what the sender takes part in. The phone: `guidance`, `weather`, `position` (it sends them), `car_status` (it wants them). The HU: `weather`, `position` (it wants them), `car_status` (it sends them). Each side sends an optional message type only to a peer that lists it |
 | `heartbeat_s` | number | HU only | heartbeat interval the phone has to keep |
 
 ### `heartbeat` (both directions)
@@ -114,6 +114,27 @@ while the phone has a position.
 | `alt_m` | number | optional | altitude above sea level, metres (−500 to 9000) |
 | `accuracy_m` | number ≥ 0 | optional | how far off the altitude may be, metres |
 | `heading_deg` | number | optional | direction of travel, 0–360° (0 = north), when moving |
+
+### `car_status` (HU → phone)
+
+How the car is, for the app to show while the driver is away from it. Every message is
+the whole current state: one right after `hello`, then about once a minute, and a last
+one with `final: true` when the ignition goes off. Values the HU does not know (a stale
+or missing CAN signal) are left out.
+
+| Field | Type | | Meaning |
+|---|---|---|---|
+| `time` | integer | required | when the HU sent it, unix seconds |
+| `final` | boolean | required | `true`: the ignition went off, this is how the car was parked |
+| `fuel_pct` | number 0–100 | optional | fuel level, % of the tank |
+| `range_km` | number ≥ 0 | optional | remaining range |
+| `odometer_km` | number ≥ 0 | optional | total distance |
+| `battery_v` | number ≥ 0 | optional | battery voltage |
+| `outside_c` | number | optional | outside temperature, °C |
+| `service_km`, `service_days` | number | optional | until the next service; negative = overdue |
+| `trip` | object | optional | the trip since the last start: `km`, `minutes`, `avg_kmh` (numbers ≥ 0) |
+| `warnings` | list of objects | optional | the active warnings, most severe first, at most 10: `severity` (`warning`, `information`, `notice`), `text` |
+| `accent` | string | optional | the HU's accent colour setting (`signal_red`, `amber`, `arctic_white`, `ice_blue`), so the app looks the same |
 
 ### `bye` (both directions)
 

@@ -30,8 +30,11 @@ GUIDANCE = "guidance"   # phone -> HU, the whole current guidance state
 BYE = "bye"             # both ways, the sender closes the link
 WEATHER = "weather"     # phone -> HU, the weather where the phone is (from an internet service)
 POSITION = "position"   # phone -> HU, the altitude (never coordinates)
-TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE, WEATHER, POSITION)
+CAR_STATUS = "car_status"   # HU -> phone, how the car is (also when parked)
+TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE, WEATHER, POSITION, CAR_STATUS)
 MAX_DAYS = 7
+MAX_WARNINGS = 10
+SEVERITIES = ("warning", "information", "notice")
 
 # guidance.maneuver
 MANEUVERS = ("depart", "turn", "continue", "merge", "fork", "on_ramp", "off_ramp",
@@ -96,6 +99,8 @@ def validate(msg) -> dict:
         return {"type": t, "reason": _text(msg, "reason")}
     if t == WEATHER:
         return _weather(msg)
+    if t == CAR_STATUS:
+        return _car_status(msg)
     if t == POSITION:
         when = _number(msg, "time", integer=True, lo=0, hi=2**40)
         if when is None:
@@ -155,6 +160,36 @@ def _weather(msg: dict) -> dict:
             "now": {"temp_c": temp, "code": code}, "days": out_days}
 
 
+def _car_status(msg: dict) -> dict:
+    t = msg["type"]
+    when = _number(msg, "time", integer=True, lo=0, hi=2**40)
+    final = msg.get("final")
+    if when is None or not isinstance(final, bool):
+        raise ProtocolError("car_status: 'time' and 'final' are required")
+    out = {"type": t, "time": when, "final": final,
+           "fuel_pct": _number(msg, "fuel_pct", hi=100), "range_km": _number(msg, "range_km"),
+           "odometer_km": _number(msg, "odometer_km"), "battery_v": _number(msg, "battery_v", hi=100),
+           "outside_c": _number(msg, "outside_c", lo=-100, hi=100),
+           "service_km": _number(msg, "service_km", lo=-1e6, hi=1e6),
+           "service_days": _number(msg, "service_days", lo=-1e5, hi=1e5), "accent": _text(msg, "accent")}
+    trip = msg.get("trip")
+    if trip is not None:
+        if not isinstance(trip, dict):
+            raise ProtocolError("car_status: 'trip' must be an object")
+        tt = {"type": t, **trip}
+        out["trip"] = {"km": _number(tt, "km"), "minutes": _number(tt, "minutes"), "avg_kmh": _number(tt, "avg_kmh")}
+    warnings = msg.get("warnings")
+    if warnings is not None:
+        if not isinstance(warnings, list) or not all(isinstance(w, dict) for w in warnings):
+            raise ProtocolError("car_status: 'warnings' must be a list of objects")
+        out["warnings"] = []
+        for w in warnings[:MAX_WARNINGS]:
+            if w.get("severity") not in SEVERITIES:
+                raise ProtocolError(f"car_status: severity {w.get('severity')!r} is not one of {', '.join(SEVERITIES)}")
+            out["warnings"].append({"severity": w["severity"], "text": _text({"type": t, **w}, "text", required=True)})
+    return out
+
+
 def _reject_constant(name):
     raise ValueError(f"{name} is not a valid number")
 
@@ -164,6 +199,8 @@ def encode(msg: dict) -> bytes:
     clean = validate(msg)
     if clean["type"] == GUIDANCE and clean["active"]:
         clean["maneuver"] = {k: v for k, v in clean["maneuver"].items() if v is not None}
+    if clean["type"] == CAR_STATUS and "trip" in clean:
+        clean["trip"] = {k: v for k, v in clean["trip"].items() if v is not None}
     line = json.dumps({k: v for k, v in clean.items() if v is not None},
                       ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode() + b"\n"
     if len(line) > MAX_LINE:
@@ -252,6 +289,12 @@ def weather(source: str, time: int, temp_c: float, code: int, days=()) -> dict:
     """days: (date, code, max_c, min_c) tuples, today first."""
     return {"type": WEATHER, "source": source, "time": time, "now": {"temp_c": temp_c, "code": code},
             "days": [{"date": d, "code": c, "max_c": hi, "min_c": lo} for d, c, hi, lo in days]}
+
+
+def car_status(time: int, final: bool = False, **values) -> dict:
+    """values: fuel_pct, range_km, odometer_km, battery_v, outside_c, service_km, service_days,
+    trip ({km, minutes, avg_kmh}), warnings ([{severity, text}]), accent; None = not known."""
+    return {"type": CAR_STATUS, "time": time, "final": final, **values}
 
 
 def position(time: int, alt_m: float | None = None, accuracy_m: float | None = None,
