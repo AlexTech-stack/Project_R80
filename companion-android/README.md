@@ -40,8 +40,11 @@ Android 14 or newer, Kotlin, no Google Play services, MIT like the rest of R80.
 4. Allow notifications and "Nearby devices" when asked (the foreground service
    shows a notification; "Nearby devices" lets the app list the paired HU).
 
-Each CI build is signed with a new debug key, so a newer APK from CI cannot
-update an installed one: uninstall first (the settings are lost).
+CI signs every build with the same debug key (the repository secret
+`ANDROID_DEBUG_KEYSTORE`, a base64 PKCS#12 keystore, alias `androiddebugkey`,
+password `android`, as Android's own debug key), so a newer APK from CI installs as an
+update (`adb install -r`) and keeps the app's settings. Without the secret (a fork) each
+build gets a new key: uninstall first. A local build signs with your own debug key.
 
 ## Try it with the virtual HU
 
