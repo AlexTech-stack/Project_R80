@@ -6,6 +6,8 @@
 #   ./hu-virtual.sh phone       phone emulator: plays a navigation route as the companion app would (D11)
 #   ./hu-virtual.sh phonepanel  phone panel: a GUI that plays the phone (routes, any guidance, link loss)
 #   ./hu-virtual.sh tunnel      CAN tunnel to the Raspberry Pi bench (PI_IP; also started by up when set)
+#   ./hu-virtual.sh mcufwd      the Pi's MCU emulator control socket here (SSH), so the panel's knob and keys
+#                               reach the Pi's HU (only without an MCU emulator on this PC; ./r80 bench rbs)
 #   ./hu-virtual.sh ui          start the UI (window) on top of a running env
 #   ./hu-virtual.sh panel       tester panel: the restbus with a GUI to change signals and press HU keys
 #   ./hu-virtual.sh test        run the BoAt test suite (env must be up; stops restbus, panels, phone and tunnel)
@@ -25,7 +27,8 @@
 #                NAV_BLUETOOTH (session: BlueZ stand-in of the tests, default; system: this PC's real Bluetooth),
 #                SYS_ARGS (extra hu/sysd.py arguments; settings are saved in $RUN/settings.json),
 #                DLT_PORT (3490: the DLT daemon, for DLT Viewer / dlt-receive -a localhost),
-#                PI_IP (the Raspberry Pi bench: up/drive also start the CAN tunnel to it, docs/bench-pi.md).
+#                PI_IP (the Raspberry Pi bench: up/drive also start the CAN tunnel to it, docs/bench-pi.md),
+#                PI_USER (the Pi's login for mcufwd; default: yours).
 # Settings that should stick can go into ~/.config/r80/hu-virtual.env (KEY=value lines, read first).
 set -euo pipefail
 
@@ -128,20 +131,31 @@ case "${1:-status}" in
   phone) start phone python3 "$HERE/phone_emu/phone_emu.py" --socket "$RUN/companion.sock" ${PHONE_ARGS:-} ;;
   phonepanel) stop phone; start phonepanel python3 "$HERE/phone_emu/phone_panel.py" --target "$RUN/companion.sock" ;;
   tunnel) start tunnel env PI_IP="${PI_IP:?set PI_IP (or put it into $CONF)}" "$REPO/bench/pi/pc-cannelloni.sh" ;;
+  mcufwd)
+    host="${PI_USER:-$USER}@${PI_IP:?set PI_IP (or put it into $CONF)}"
+    local_sock="${XDG_RUNTIME_DIR:-/tmp}/r80-mcu.sock"
+    if [[ -f "$RUN/mcu.pid" ]] && kill -0 "$(cat "$RUN/mcu.pid")" 2>/dev/null; then
+      echo "  an MCU emulator runs on this PC ($local_sock): not forwarding the Pi's over it"; exit 1
+    fi
+    remote_sock="$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" 'echo /run/user/$(id -u)/r80-mcu.sock')" \
+      || { echo "  cannot reach $host over SSH (key login needed)"; exit 1; }
+    start mcufwd ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o StreamLocalBindUnlink=yes \
+      -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -L "$local_sock:$remote_sock" "$host"
+    ;;
   panel) stop restbus; start panel python3 "$REPO/test/boat/restbus_panel.py" --address "localhost:$BOAT_PORT" ;;
   test)
     stop restbus; stop panel; stop phone; stop phonepanel; stop tunnel    # the Pi's HU must not answer on the test buses
     cd "$REPO/test/boat"
     BOAT_HOST="localhost:$BOAT_PORT" boat test run manifest_hu_smoke.json --report-dir "$RUN/reports" "${@:2}"
     ;;
-  down) for n in ui panel phonepanel phone restbus tunnel phoned sysd navd tripd warnd audiod mediad vehicled mcu dlt gateway; do stop "$n"; done ;;
+  down) for n in ui panel phonepanel phone restbus mcufwd tunnel phoned sysd navd tripd warnd audiod mediad vehicled mcu dlt gateway; do stop "$n"; done ;;
   status)
-    for n in gateway tunnel dlt mcu vehicled mediad audiod warnd tripd navd sysd phoned restbus phone phonepanel panel ui; do
+    for n in gateway tunnel mcufwd dlt mcu vehicled mediad audiod warnd tripd navd sysd phoned restbus phone phonepanel panel ui; do
       if [[ -f "$RUN/$n.pid" ]] && kill -0 "$(cat "$RUN/$n.pid")" 2>/dev/null; then s=running; else s=stopped; fi
       printf "  %-9s %s\n" "$n" "$s"
     done
     ip -br link show type vcan 2>/dev/null | sed 's/^/  /' || true
     ;;
   logs) tail -n 20 "$RUN"/*.log ;;
-  *) sed -n '2,15p' "$0"; exit 1 ;;
+  *) sed -n '2,17p' "$0"; exit 1 ;;
 esac

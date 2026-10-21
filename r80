@@ -15,7 +15,8 @@
 #                 run                           the kiosk in the foreground (one session bus)
 #     on the PC:  rbs [panel|drive|stop]        the rest of the car for the Pi: buses, BoAt gateway, CAN tunnel
 #                                               (PI_IP) and the restbus, with the tester panel (default) or
-#                                               the drive cycle; no HU on the PC (the Pi is the HU). stop: all down
+#                                               the drive cycle; no HU on the PC (the Pi is the HU); the panel's
+#                                               knob and keys go to the Pi's MCU emulator (SSH). stop: all down
 #                 tunnel                        CAN tunnel to the Pi (PI_IP; virtual up/drive start it too)
 #                 share-internet <if> [<net>]   share this PC's internet with the Pi on the cable
 set -euo pipefail
@@ -49,8 +50,9 @@ bench() {
     rbs)
       local how="${1:-panel}"
       case "$how" in
-        panel) HU_DUT=external "$REPO/dev/hu-virtual.sh" up && exec "$REPO/dev/hu-virtual.sh" panel ;;
-        drive) HU_DUT=external exec "$REPO/dev/hu-virtual.sh" drive ;;
+        panel) HU_DUT=external "$REPO/dev/hu-virtual.sh" up && "$REPO/dev/hu-virtual.sh" mcufwd \
+                 && exec "$REPO/dev/hu-virtual.sh" panel ;;
+        drive) HU_DUT=external "$REPO/dev/hu-virtual.sh" drive && exec "$REPO/dev/hu-virtual.sh" mcufwd ;;
         stop) exec "$REPO/dev/hu-virtual.sh" down ;;
         *) echo "rbs: panel, drive or stop, not '$how'" >&2; exit 2 ;;
       esac ;;

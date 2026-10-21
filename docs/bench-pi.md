@@ -235,9 +235,10 @@ candump -a vcan_info                                   # frames the Pi should se
 
 `./r80 bench rbs` starts only what the Pi needs from the PC: the buses, the BoAt
 gateway, the tunnel and the restbus (panel or drive cycle). No headunit runs on the
-PC then, so the Pi's is the only one on the buses; the panel's knob and keys go to
-the PC's MCU emulator, which is not running, so use the HU's touch screen (or VNC).
-For a PC headunit next to the Pi (the BoAt tests, the panel's knob and keys), use
+PC then, so the Pi's is the only one on the buses. The panel's knob, keys and dimming
+override reach the Pi's MCU emulator: `rbs` forwards its control socket over SSH
+(`./r80 virtual mcufwd`; needs a key login to the Pi, `PI_USER` if your login there differs).
+For a PC headunit next to the Pi (the BoAt tests), use
 `./r80 virtual drive` (or `up` + `panel`) instead: it starts the tunnel too, and
 `./r80 bench tunnel` adds it to a running environment. Allow UDP 20000-20002
 through the PC firewall.
