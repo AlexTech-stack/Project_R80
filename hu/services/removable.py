@@ -162,7 +162,7 @@ class RemovableMedia:
 
         def err(e):
             self.mounting.discard(path)
-            log.error(f"cannot mount {path} ({options}): {_message(e)}")
+            log.warning(f"cannot mount {path} ({options}): {_message(e)}")
             if failed:
                 failed(_message(e))
         self.bus.call_async(UDISKS, path, FS, "Mount", "a{sv}", (opts,), ok, err, timeout=30.0)
