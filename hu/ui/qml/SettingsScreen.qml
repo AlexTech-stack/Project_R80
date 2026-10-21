@@ -23,7 +23,7 @@ Item {
     property bool wifi: false
 
     readonly property var logApps: Sim.systemLog.apps || []
-    readonly property var itemCounts: [2, 3, 9, 3, 2, 1, logApps.length + 2]
+    readonly property var itemCounts: [2, 3, 9, 4, 2, 1, logApps.length + 2]
     onCatChanged: item = 0
 
     function knob(d) {
@@ -59,7 +59,8 @@ Item {
         } else if (cat === 3) {
             if (item === 0) Sim.phoneSetConsent(Sim.phoneConsent !== "yes");
             else if (item === 1) Sim.phoneSync();
-            else Sim.phoneDeleteCopy();
+            else if (item === 2) Sim.phoneDeleteCopy();
+            else Sim.setSetting("phone_remote", !Sim.phoneRemote);
         } else if (cat === 4) {
             if (item === 0) bt = !bt; else wifi = !wifi;
         } else if (cat === 6) {
@@ -199,6 +200,9 @@ Item {
             SettingRow { label: "Copy on the headunit"; idx: 2
                 LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.minus; iconSize: 22
                              label: "Delete"; onClicked: Sim.phoneDeleteCopy() } }
+            SettingRow { label: "Remote from the app"; idx: 3
+                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.phoneRemote
+                         onToggled: Sim.setSetting("phone_remote", !Sim.phoneRemote) } }
             Item { width: 1; height: 20 }
             Repeater {
                 model: [

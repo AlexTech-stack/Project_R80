@@ -31,7 +31,15 @@ BYE = "bye"             # both ways, the sender closes the link
 WEATHER = "weather"     # phone -> HU, the weather where the phone is (from an internet service)
 POSITION = "position"   # phone -> HU, the altitude (never coordinates)
 CAR_STATUS = "car_status"   # HU -> phone, how the car is (also when parked)
-TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE, WEATHER, POSITION, CAR_STATUS)
+MEDIA = "media"         # HU -> phone, what plays and the volume (the remote)
+MEDIA_CMD = "media_cmd"  # phone -> HU, a remote control command
+BROWSE = "browse"       # phone -> HU, a page of the media browse tree, please
+BROWSE_RESULT = "browse_result"  # HU -> phone, that page
+TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE, WEATHER, POSITION, CAR_STATUS, MEDIA, MEDIA_CMD, BROWSE, BROWSE_RESULT)
+MEDIA_CMDS = ("play", "pause", "next", "previous", "seek", "shuffle", "repeat", "mute", "volume", "source", "play_from")
+MAX_UP_NEXT = 5
+MAX_PAGE = 20
+MAX_ENTRY_TEXT = 60     # browse titles and subtitles, so a page fits into a line
 MAX_DAYS = 7
 MAX_WARNINGS = 10
 SEVERITIES = ("warning", "information", "notice")
@@ -101,6 +109,19 @@ def validate(msg) -> dict:
         return _weather(msg)
     if t == CAR_STATUS:
         return _car_status(msg)
+    if t == MEDIA:
+        return _media(msg)
+    if t == MEDIA_CMD:
+        return _media_cmd(msg)
+    if t == BROWSE:
+        req = _number(msg, "id", integer=True, lo=0, hi=2**31)
+        if req is None:
+            raise ProtocolError("browse: 'id' is required")
+        return {"type": t, "id": req, "path": _text(msg, "path") or "",
+                "offset": _number(msg, "offset", integer=True, hi=2**31) or 0,
+                "count": _number(msg, "count", integer=True, lo=1, hi=MAX_PAGE) or MAX_PAGE}
+    if t == BROWSE_RESULT:
+        return _browse_result(msg)
     if t == POSITION:
         when = _number(msg, "time", integer=True, lo=0, hi=2**40)
         if when is None:
@@ -190,6 +211,88 @@ def _car_status(msg: dict) -> dict:
     return out
 
 
+def _bool(msg: dict, key: str, default=None):
+    v = msg.get(key, default)
+    if v is not None and not isinstance(v, bool):
+        raise ProtocolError(f"{msg.get('type')}: '{key}' must be true or false")
+    return v
+
+
+def _media(msg: dict) -> dict:
+    t = msg["type"]
+    status = msg.get("status")
+    if status not in ("playing", "paused", "stopped"):
+        raise ProtocolError(f"media: status {status!r} is not playing, paused or stopped")
+    sources = msg.get("sources", [])
+    if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
+        raise ProtocolError("media: 'sources' must be a list of strings")
+    up = msg.get("up_next", [])
+    if not isinstance(up, list) or not all(isinstance(u, dict) for u in up):
+        raise ProtocolError("media: 'up_next' must be a list of objects")
+    return {"type": t, "allowed": _bool(msg, "allowed", False), "status": status,
+            "source": _text(msg, "source") or "", "sources": [s[:MAX_TEXT] for s in sources],
+            "title": _text(msg, "title") or "", "artist": _text(msg, "artist") or "", "album": _text(msg, "album") or "",
+            "duration_s": _number(msg, "duration_s"), "position_s": _number(msg, "position_s"),
+            "time": _number(msg, "time", hi=2**40), "shuffle": _bool(msg, "shuffle", False),
+            "repeat": _bool(msg, "repeat", False), "track": _number(msg, "track", integer=True, hi=2**31),
+            "tracks": _number(msg, "tracks", integer=True, hi=2**31), "queue": _text(msg, "queue") or "",
+            "up_next": [{"title": _text({"type": t, **u}, "title") or "", "artist": _text({"type": t, **u}, "artist") or ""}
+                        for u in up[:MAX_UP_NEXT]],
+            "volume": _number(msg, "volume", integer=True, hi=1000), "volume_max": _number(msg, "volume_max", integer=True, hi=1000),
+            "muted": _bool(msg, "muted", False)}
+
+
+def _media_cmd(msg: dict) -> dict:
+    t = msg["type"]
+    cmd = msg.get("cmd")
+    if cmd not in MEDIA_CMDS:
+        raise ProtocolError(f"media_cmd: cmd {cmd!r} is not one of {', '.join(MEDIA_CMDS)}")
+    out = {"type": t, "cmd": cmd}
+    if cmd == "seek":
+        out["value"] = _number(msg, "value", hi=1e6)
+    elif cmd in ("shuffle", "repeat", "mute"):
+        out["value"] = _bool(msg, "value")
+    elif cmd == "volume":
+        out["value"] = _number(msg, "value", integer=True, hi=1000)
+    elif cmd == "source":
+        out["value"] = _text(msg, "value")
+    elif cmd == "play_from":
+        out["path"] = _text(msg, "path", required=True)
+        out["index"] = _number(msg, "index", integer=True, hi=2**31)
+        if out["index"] is None:
+            raise ProtocolError("media_cmd: play_from needs 'index'")
+        return out
+    else:
+        return out
+    if out["value"] is None:
+        raise ProtocolError(f"media_cmd: {cmd} needs 'value'")
+    return out
+
+
+KINDS = ("menu", "folder", "artist", "album", "track")
+
+
+def _browse_result(msg: dict) -> dict:
+    t = msg["type"]
+    req = _number(msg, "id", integer=True, lo=0, hi=2**31)
+    if req is None:
+        raise ProtocolError("browse_result: 'id' is required")
+    entries = msg.get("entries", [])
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        raise ProtocolError("browse_result: 'entries' must be a list of objects")
+    out = []
+    for e in entries[:MAX_PAGE]:
+        if e.get("kind") not in KINDS:
+            raise ProtocolError(f"browse_result: kind {e.get('kind')!r} is not one of {', '.join(KINDS)}")
+        te = {"type": t, **e}
+        out.append({"kind": e["kind"], "id": (_text(te, "id") or ""), "title": (_text(te, "title") or "")[:MAX_ENTRY_TEXT],
+                    "subtitle": (_text(te, "subtitle") or "")[:MAX_ENTRY_TEXT],
+                    "index": _number(te, "index", integer=True, lo=-1, hi=2**31)})
+    return {"type": t, "id": req, "path": _text(msg, "path") or "", "title": _text(msg, "title") or "",
+            "total": _number(msg, "total", integer=True, lo=-1, hi=2**31), "offset": _number(msg, "offset", integer=True, hi=2**31) or 0,
+            "entries": out}
+
+
 def _reject_constant(name):
     raise ValueError(f"{name} is not a valid number")
 
@@ -201,6 +304,8 @@ def encode(msg: dict) -> bytes:
         clean["maneuver"] = {k: v for k, v in clean["maneuver"].items() if v is not None}
     if clean["type"] == CAR_STATUS and "trip" in clean:
         clean["trip"] = {k: v for k, v in clean["trip"].items() if v is not None}
+    if clean["type"] == BROWSE_RESULT:
+        clean["entries"] = [{k: v for k, v in e.items() if v is not None} for e in clean["entries"]]
     line = json.dumps({k: v for k, v in clean.items() if v is not None},
                       ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode() + b"\n"
     if len(line) > MAX_LINE:

@@ -420,11 +420,13 @@ QtObject {
 
     // ---- settings (D12): live from hu-sysd; without it local values as in the mockup -----
     readonly property bool settingsLive: System.available && System.settings.accent !== undefined
-    property var _local: ({ accent: "signal_red", brightness: 0.9, night_dimming: true, clock_24h: true, units: "metric" })
+    property var _local: ({ accent: "signal_red", brightness: 0.9, night_dimming: true, clock_24h: true, units: "metric",
+                            phone_remote: true })
     function _setting(name) { return settingsLive && System.settings[name] !== undefined ? System.settings[name] : _local[name] }
     readonly property string accent: _setting("accent")
     readonly property real brightness: _setting("brightness")
     readonly property bool nightDimming: _setting("night_dimming")
+    readonly property bool phoneRemote: _setting("phone_remote")     // the R80 Companion app may control media and volume
     // What the display shows: hu-sysd computes it from the user's brightness, day/night and
     // the car's dimmer (D12); without sysd the user's brightness.
     readonly property real displayBrightness: settingsLive ? System.displayBrightness : brightness

@@ -48,7 +48,7 @@ step; the Android app (`companion-android/`, later) implements the same rules.
 | `app` | string | required | `r80-companion` or `r80-hu` |
 | `version` | string | required | software version of the sender |
 | `device` | string | optional | phone model, for logs |
-| `caps` | list of strings | optional | what the sender takes part in. The phone: `guidance`, `weather`, `position` (it sends them), `car_status` (it wants them). The HU: `weather`, `position` (it wants them), `car_status` (it sends them). Each side sends an optional message type only to a peer that lists it |
+| `caps` | list of strings | optional | what the sender takes part in. The phone: `guidance`, `weather`, `position` (it sends them), `car_status` (it wants them), `remote` (it wants `media` and `browse_result`, sends `media_cmd` and `browse`). The HU: `weather`, `position` (it wants them), `car_status` (it sends them), `remote` (the other side of it). Each side sends an optional message type only to a peer that lists it |
 | `heartbeat_s` | number | HU only | heartbeat interval the phone has to keep |
 
 ### `heartbeat` (both directions)
@@ -135,6 +135,57 @@ or missing CAN signal) are left out.
 | `trip` | object | optional | the trip since the last start: `km`, `minutes`, `avg_kmh` (numbers ≥ 0) |
 | `warnings` | list of objects | optional | the active warnings, most severe first, at most 10: `severity` (`warning`, `information`, `notice`), `text` |
 | `accent` | string | optional | the HU's accent colour setting (`signal_red`, `amber`, `arctic_white`, `ice_blue`), so the app looks the same |
+
+### `media` (HU → phone)
+
+The remote (a passenger with the driver's phone): what plays and the volume. Every message
+is the whole current state: one after `hello`, then whenever something shown changes (at
+most about twice a second). The position is sent with the time it was measured; while
+`playing`, the phone counts on by itself. Sent again when the position jumps (a seek).
+
+| Field | Type | | Meaning |
+|---|---|---|---|
+| `allowed` | boolean | required | the HU takes commands from the phone (its setting "Allow the phone to control the HU"); `false`: show only |
+| `status` | string | required | `playing`, `paused`, `stopped` |
+| `source`, `sources` | string, list of strings | optional | the current source and all there are (`Library`, sticks, `Bluetooth`) |
+| `title`, `artist`, `album` | string | optional | the current track |
+| `duration_s`, `position_s` | number ≥ 0 | optional | the track's length and position, seconds |
+| `time` | number | optional | when `position_s` was measured, unix seconds (with fractions) |
+| `shuffle`, `repeat` | boolean | optional | |
+| `track`, `tracks` | integer | optional | the position in the queue (0 = first) and its length |
+| `queue` | string | optional | the queue's name (an album, "All tracks", …) |
+| `up_next` | list of objects | optional | the next tracks in play order, at most 5: `title`, `artist` |
+| `volume`, `volume_max` | integer | optional | the HU's master volume |
+| `muted` | boolean | optional | |
+
+### `media_cmd` (phone → HU)
+
+A command of the remote. The HU ignores it while `allowed` is `false`; the next `media`
+shows what happened.
+
+| `cmd` | Further fields |
+|---|---|
+| `play`, `pause`, `next`, `previous` | — |
+| `seek` | `value`: position, seconds |
+| `shuffle`, `repeat`, `mute` | `value`: true / false |
+| `volume` | `value`: master volume, integer 0 … `volume_max` |
+| `source` | `value`: one of `sources` |
+| `play_from` | `path` (a list of the browse tree), `index` (its track to start with): that list becomes the queue |
+
+### `browse` (phone → HU) and `browse_result` (HU → phone)
+
+The HU's media library as the HU's own Browse screen shows it, one page at a time. The phone
+asks with an `id` of its choice; the answer carries the same `id`.
+
+`browse`: `id` (integer, required), `path` (string, `""` = the top: folders, artists,
+albums, all tracks), `offset` (integer, default 0), `count` (integer 1–20, default 20).
+
+`browse_result`: `id`, `path`, `title` (of the list), `total` (entries in the whole list;
+-1: there is no such list), `offset`, `entries`: list of `kind` (`menu`, `folder`,
+`artist`, `album`, `track`), `id` (the path to browse into; `""` for a track), `title`,
+`subtitle` (both at most 60 characters), `index` (a track's position in the list, for
+`play_from`; -1 otherwise). A page may have fewer entries than asked for, so that it fits
+into a line; the phone asks for the next one from `offset` + their number.
 
 ### `bye` (both directions)
 

@@ -27,7 +27,9 @@ To a phone that wants it (caps car_status) navd sends how the car is (car_status
 phone's hello, every [car_status] interval_s and a final one when the ignition goes off
 (IgnitionState Off, else Power off),
 from hu-vehicled, hu-tripd, hu-warnd and hu-sysd (the accent colour). car_status() builds it
-without D-Bus.
+without D-Bus. To a phone with caps remote (a passenger's remote) navd sends what plays and the
+volume (media, from hu-mediad and hu-audiod, Remote), carries out its media_cmd (unless the
+setting phone_remote is off) and answers its browse requests from hu-mediad's browse tree.
 
 One phone at a time: a new connection replaces the old one (a phone that reconnects
 before the old link timed out). The timing is in nav.ini. Ways in, all the same protocol:
@@ -58,7 +60,8 @@ import dlt  # noqa: E402
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "nav.ini"
 SYSTEM_CONFIG = Path("/etc/r80/nav.ini")
 VERSION = "0.2"
-CAPS = ["weather", "position", "car_status"]   # navd's hello: what it wants (weather, position) and sends
+CAPS = ["weather", "position", "car_status", "remote"]   # navd's hello: what it wants (weather, position) and offers
+MEDIA_EVERY_S = 0.5                       # the remote's media state at most this often
 VEHICLE = {"fuel_pct": "FuelLevel", "range_km": "Range", "odometer_km": "Odometer", "battery_v": "BatteryVoltage",
            "outside_c": "OutsideTemp", "service_km": "ServiceDistance", "service_days": "ServiceDays"}
 KEYS = {"link": {"heartbeat_s": (0.2, 60), "link_timeout_s": (0.5, 600), "hello_timeout_s": (0.5, 600)},
@@ -119,6 +122,83 @@ def car_status(vehicle: dict, trip: dict, warnings: list, settings: dict, now: f
     return cl.car_status(int(now), final, **values)
 
 
+class Remote:
+    """The remote's view of the HU (companion `media`): hu-mediad's and hu-audiod's properties
+    and the setting phone_remote, as plain values. update() says whether the phone has to hear
+    of it: anything shown changed, or the position jumped (a seek), not the position running on."""
+
+    MEDIA = ("PlaybackStatus", "Source", "Sources", "Metadata", "Shuffle", "RepeatAll", "TrackIndex",
+             "TrackCount", "QueueTitle", "UpNext")
+    AUDIO = ("Master", "Max", "Muted")
+
+    def __init__(self):
+        self.media: dict = {}
+        self.audio: dict = {}
+        self.allowed = True
+        self.position_s = 0.0
+        self.position_at = 0.0          # wall time of position_s
+
+    def update(self, media: dict | None = None, audio: dict | None = None, allowed: bool | None = None,
+               now: float | None = None) -> bool:
+        now = time.time() if now is None else now
+        changed = False
+        if media:
+            for k in self.MEDIA:
+                if k in media and media[k] != self.media.get(k):
+                    self.media[k] = media[k]
+                    changed = True
+            if "Position" in media:
+                pos = float(media["Position"]) / 1e6
+                if abs(pos - self.expected(now)) > 2.0:
+                    changed = True              # a seek, a new track: not just running on
+                self.position_s, self.position_at = pos, now
+        if audio:
+            for k in self.AUDIO:
+                if k in audio and audio[k] != self.audio.get(k):
+                    self.audio[k] = audio[k]
+                    changed = True
+        if allowed is not None and allowed != self.allowed:
+            self.allowed = allowed
+            changed = True
+        return changed
+
+    def expected(self, now: float) -> float:
+        playing = self.media.get("PlaybackStatus") == "playing"
+        return self.position_s + (now - self.position_at if playing else 0.0)
+
+    def message(self, now: float | None = None) -> dict:
+        now = time.time() if now is None else now
+        m, a, meta = self.media, self.audio, self.media.get("Metadata", {})
+        dur = meta.get("duration")
+        return {"type": cl.MEDIA, "allowed": self.allowed, "status": m.get("PlaybackStatus") or "stopped",
+                "source": m.get("Source", ""), "sources": list(m.get("Sources", [])),
+                "title": meta.get("title", ""), "artist": meta.get("artist", ""), "album": meta.get("album", ""),
+                "duration_s": float(dur) if dur else None, "position_s": round(max(0.0, self.expected(now)), 1),
+                "time": round(now, 2), "shuffle": bool(m.get("Shuffle", False)), "repeat": bool(m.get("RepeatAll", False)),
+                "track": m.get("TrackIndex") if m.get("TrackCount") else None, "tracks": m.get("TrackCount"),
+                "queue": m.get("QueueTitle", ""),
+                "up_next": [{"title": u.get("title", ""), "artist": u.get("artist", "")}
+                            for u in m.get("UpNext", [])[:cl.MAX_UP_NEXT]],
+                "volume": a.get("Master"), "volume_max": a.get("Max"), "muted": bool(a.get("Muted", False))}
+
+
+def browse_result(req: dict, title: str, total: int, entries: list) -> dict:
+    """The answer to a browse request, as many entries as fit into one line."""
+    page = [{"kind": e.get("kind", "track"), "id": e.get("id", ""), "title": e.get("title", ""),
+             "subtitle": e.get("subtitle", ""), "index": e.get("index", -1) if e.get("kind") == "track" else -1}
+            for e in entries if e.get("kind") in cl.KINDS]
+    while True:
+        msg = {"type": cl.BROWSE_RESULT, "id": req["id"], "path": req["path"], "title": title, "total": total,
+               "offset": req["offset"], "entries": page}
+        try:
+            cl.encode(msg)
+            return msg
+        except cl.ProtocolError:
+            if not page:
+                raise
+            page = page[:-1]                    # too long for a line: one entry less, the phone pages on
+
+
 class Link:
     """The phone session and the guidance it delivered. Feed it events with the monotonic
     time `now` (and the wall clock `wall` for the arrival time); it returns what to send.
@@ -135,6 +215,7 @@ class Link:
         self.weather: dict | None = None
         self.position: dict | None = None
         self.caps: set = set()            # what the phone said it takes part in (its hello)
+        self.requests: list[dict] = []    # media_cmd and browse from the phone, for the service to carry out
         self.arrival = 0
         self.stale = False
         self.lost_at: float | None = None
@@ -145,6 +226,7 @@ class Link:
     def connect(self, now: float):
         self.connected, self.greeted, self.close = True, False, False
         self.caps = set()
+        self.requests = []
         self.device = self.app = ""
         self.connected_at = self.last_rx = self.last_tx = now
 
@@ -188,6 +270,8 @@ class Link:
             self.weather = msg
         elif t == cl.POSITION:
             self.position = msg
+        elif t in (cl.MEDIA_CMD, cl.BROWSE):
+            self.requests.append(msg)
         return []
 
     def tick(self, now: float) -> list[dict]:
@@ -252,7 +336,9 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
     SOURCES = {"vehicle": ("de.r80.Vehicle", "/de/r80/Vehicle", "de.r80.Vehicle1"),
                "trip": ("de.r80.Trip", "/de/r80/Trip", "de.r80.Trip1"),
                "warnings": ("de.r80.Warnings", "/de/r80/Warnings", "de.r80.Warnings1"),
-               "system": ("de.r80.System", "/de/r80/System", "de.r80.System1")}
+               "system": ("de.r80.System", "/de/r80/System", "de.r80.System1"),
+               "media": ("de.r80.Media", "/de/r80/Media", "de.r80.Media1"),
+               "audio": ("de.r80.Audio", "/de/r80/Audio", "de.r80.Audio1")}
     BLUEZ, PROFILE_PATH = "org.bluez", "/de/r80/Nav/companion_profile"
     PROPS = "org.freedesktop.DBus.Properties"
     TYPES = {"connected": dbus.Boolean, "device": dbus.String, "app": dbus.String, "bad_lines": dbus.UInt32, "via": dbus.String,
@@ -295,6 +381,15 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             self.power = ""
             self.final_sent = False
             bus.add_signal_receiver(self.on_vehicle, "PropertiesChanged", PROPS, None, SOURCES["vehicle"][1])
+            # the remote: what plays, the volume, whether the phone may control them
+            self.remote = Remote()
+            self.media_due = None                                     # a pending (throttled) media message
+            self.media_sent = 0.0
+            for name, handler in (("media", self.on_media), ("audio", self.on_audio), ("system", self.on_system)):
+                svc, path, iface = SOURCES[name]
+                bus.add_signal_receiver(handler, "PropertiesChanged", PROPS, None, path)
+                bus.call_async(svc, path, PROPS, "GetAll", "s", (iface,), lambda p, h=handler, i=iface: h(i, p, []),
+                               lambda _e: None, timeout=2.0)
             svc, path, iface = SOURCES["vehicle"]                    # the power state navd starts in
             bus.call_async(svc, path, PROPS, "Get", "ss", (iface, "Power"),
                            lambda p: setattr(self, "power", self.power or str(p)), lambda _e: None, timeout=2.0)
@@ -359,6 +454,10 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                 self.send(self.link.receive(now, msg))
                 if not was and self.link.greeted:
                     self.send_status()               # how the car is, right after the hello
+                    self.media_changed()             # and what plays, for the remote
+            for req in self.link.requests:
+                self.carry_out(req)
+            self.link.requests.clear()
             for _ in range(self.decoder.errors - before):
                 self.link.bad_line()
             if self.decoder.errors > before:
@@ -397,6 +496,69 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             self.link.lost(time.monotonic())
             self.status_sent = 0.0
             self.publish()
+
+        # ---- the remote: media and volume to and from the phone (caps remote) ---
+        def wants_remote(self):
+            return self.conn is not None and self.link.greeted and "remote" in self.link.caps
+
+        def on_media(self, iface, changed, _inv):
+            if self.remote.update(media=plain(changed)):
+                self.media_changed()
+
+        def on_audio(self, iface, changed, _inv):
+            if self.remote.update(audio=plain(changed)):
+                self.media_changed()
+
+        def on_system(self, iface, changed, _inv):
+            settings = plain(changed.get("Settings", {}))
+            if "phone_remote" in settings and self.remote.update(allowed=bool(settings["phone_remote"])):
+                log.info(f"the phone may {'' if self.remote.allowed else 'not '}control the HU")
+                self.media_changed()
+
+        def media_changed(self):
+            """Send the media state, at most every MEDIA_EVERY_S (a burst of changes is one message)."""
+            if not self.wants_remote() or self.media_due is not None:
+                return
+            wait = max(0.0, MEDIA_EVERY_S - (time.monotonic() - self.media_sent))
+            self.media_due = GLib.timeout_add(int(wait * 1000), self.send_media)
+
+        def send_media(self):
+            self.media_due = None
+            if self.wants_remote():
+                self.media_sent = time.monotonic()
+                self.send([self.remote.message()])
+            return False
+
+        def carry_out(self, req: dict):
+            """A media_cmd or browse from the phone."""
+            msvc, mpath, miface = SOURCES["media"]
+            if req["type"] == cl.BROWSE:
+                def answer(title, total, entries):
+                    self.send([browse_result(req, str(title), int(total), plain(entries))])
+
+                def missing(_e):
+                    self.send([browse_result(req, "", -1, [])])
+                self.bus.call_async(msvc, mpath, miface, "Browse", "sii", (req["path"], req["offset"], req["count"]),
+                                    answer, missing, timeout=5.0)
+                return
+            if not self.remote.allowed:
+                log.info(f"phone command {req['cmd']} ignored: the phone may not control the HU (Settings -> Phone)")
+                self.media_changed()
+                return
+            cmd, v = req["cmd"], req.get("value")
+            calls = {"play": (miface, "Play", "", ()), "pause": (miface, "Pause", "", ()),
+                     "next": (miface, "Next", "", ()), "previous": (miface, "Previous", "", ()),
+                     "seek": (miface, "SetPosition", "x", (int((v or 0) * 1e6),)),
+                     "shuffle": (miface, "SetShuffle", "b", (bool(v),)), "repeat": (miface, "SetRepeatAll", "b", (bool(v),)),
+                     "source": (miface, "SetSource", "s", (str(v),)),
+                     "play_from": (miface, "PlayFrom", "si", (req.get("path", ""), req.get("index", 0))),
+                     "volume": (SOURCES["audio"][2], "SetMaster", "i", (int(v or 0),)),
+                     "mute": (SOURCES["audio"][2], "SetMuted", "b", (bool(v),))}
+            iface, method, sig, args = calls[cmd]
+            svc, path = (SOURCES["audio"][0], SOURCES["audio"][1]) if iface == SOURCES["audio"][2] else (msvc, mpath)
+            log.debug(f"phone command {cmd}")
+            self.bus.call_async(svc, path, iface, method, sig, args, lambda *_: None,
+                                lambda e: log.warning(f"phone command {cmd}: {e.get_dbus_message()}"), timeout=5.0)
 
         # ---- car_status: how the car is, to a phone that wants it ------------
         def wants_status(self):
