@@ -41,6 +41,7 @@ docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D14
 docs/companion-protocol.md        phone (R80 Companion app) <-> HU link protocol (D11)
 docs/companion-protocol-examples.jsonl  protocol examples both sides test against
 docs/bench-pi.md                  the Raspberry Pi bench: setup and operation
+docs/bench-measurements.md        start-up time and memory on the bench (./r80 bench measure)
 docs/screenshots/                 every UI screen, rendered by ./r80 demo screenshots
 docs/ui/, docs/images/            UI vision and car reference; pictures for the READMEs
 companion-android/                R80 Companion, the Android app on the driver's phone (D11, Kotlin)
@@ -98,7 +99,8 @@ dev/                              PC stand-ins for the virtual mode (PC only)
   udisks_emu.py                   stand-in for udisks2 with USB sticks (folders), for the tests
 test/boat/                        BoAt restbus node, tester panel and the BoAt tests (PC only; list in dev/README.md)
 bench/pi/                         Raspberry Pi bench: kiosk script, systemd units, CAN tunnel, PC helpers,
-                                  PipeWire / WirePlumber settings, the built-in Bluetooth's SCO routing
+                                  PipeWire / WirePlumber settings, the built-in Bluetooth's SCO routing,
+                                  measure.py (start-up time and memory, ./r80 bench measure)
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```
 
