@@ -10,7 +10,8 @@ Connects to hu-navd's companion link socket and speaks the companion protocol
             the distance to the next maneuver counts down with the car's speed
             (VehicleSpeed from hu-vehicled when it runs, else --speed-kmh), rounded the
             way navigation apps show it. At the destination it ends the guidance and
-            starts over. Reconnects when navd restarts.
+            starts over. Reconnects when navd restarts. Like the app, it also sends a demo
+            weather and the altitude when the HU asks for them (caps in its hello).
 
     python3 phone_emu.py                         # demo route, until Ctrl+C
     python3 phone_emu.py --route my_route.json --speed-kmh 80
@@ -57,7 +58,7 @@ class Phone:
         self._stop = threading.Event()
 
     def connect(self, hello: bool = True, proto: int = cl.PROTO_VERSION, timeout: float = 3.0,
-                sock: socket.socket | None = None) -> dict | None:
+                sock: socket.socket | None = None, caps=("guidance",)) -> dict | None:
         """Connect (or use `sock`, an already connected stream, e.g. the phone's end of what a test hands
         to navd as a Bluetooth connection); with hello, send ours and wait for the HU's.
         Returns the HU's hello (or None)."""
@@ -74,7 +75,7 @@ class Phone:
         threading.Thread(target=self._beater, daemon=True).start()
         if not hello:
             return None
-        msg = cl.hello(APP, VERSION, caps=["guidance"], device=self.device)
+        msg = cl.hello(APP, VERSION, caps=list(caps), device=self.device)
         msg["proto"] = proto
         self.send_raw((json.dumps({k: v for k, v in msg.items() if v is not None}) + "\n").encode())
         reply = self.wait_for(cl.HELLO, timeout)
@@ -133,6 +134,18 @@ class Phone:
                     self.send(cl.heartbeat())
                 except OSError:
                     return
+
+
+def demo_weather(now: float | None = None) -> dict:
+    """A weather message as the app sends it: partly cloudy, then four days from today."""
+    now = time.time() if now is None else now
+    days = [(time.strftime("%Y-%m-%d", time.localtime(now + 86400 * i)), code, hi, lo)
+            for i, (code, hi, lo) in enumerate([(2, 14.2, 6.1), (0, 17.0, 7.3), (61, 11.4, 5.2), (71, 1.5, -2.6)])]
+    return cl.weather("open-meteo", int(now) - 600, 12.3, 2, days)
+
+
+def demo_position(now: float | None = None) -> dict:
+    return cl.position(int(time.time() if now is None else now), alt_m=412.0, accuracy_m=5.0)
 
 
 # ---- route player -------------------------------------------------------------
@@ -200,8 +213,14 @@ def play(route: dict, path: str, fallback_kmh: float):
     while True:
         phone = Phone(path, device=route.get("device", "Emulated phone"))
         try:
-            if not phone.connect():
+            hu = phone.connect(caps=("guidance", "weather", "position"))
+            if not hu:
                 raise OSError("no hello from the HU")
+            wants = set(hu.get("caps") or [])
+            if "weather" in wants:
+                phone.send(demo_weather())
+            if "position" in wants:
+                phone.send(demo_position())
         except OSError as e:
             log(f"HU not reachable ({e}), retrying")
             phone.close()
@@ -209,6 +228,7 @@ def play(route: dict, path: str, fallback_kmh: float):
             continue
         log(f"connected, playing '{route['name']}' ({player.total / 1000:.1f} km)")
         player.driven, last_sent, t = 0.0, None, time.monotonic()
+        last_position = t
         try:
             while not phone.closed_by_hu.is_set():
                 time.sleep(0.25)
@@ -224,6 +244,9 @@ def play(route: dict, path: str, fallback_kmh: float):
                     time.sleep(5)
                     player.driven, last_sent, t = 0.0, None, time.monotonic()
                     continue
+                if "position" in wants and now - last_position >= 60:
+                    phone.send(demo_position())
+                    last_position = now
                 msg = player.guidance()
                 if msg != last_sent:
                     phone.send(msg)

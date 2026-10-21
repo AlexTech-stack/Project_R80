@@ -53,6 +53,7 @@ step "DBC up to date"    dbc_up_to_date
 step "simulator log"     sim_log
 if [[ -n "${SKIP_UI:-}" ]]; then echo "== UI screenshots: skipped (SKIP_UI)"; else
 step "UI screenshots"    screenshots
+step "app icons"         "$PY" companion-android/tools/make_icons.py --check
 fi
 
 echo

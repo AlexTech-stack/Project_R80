@@ -43,6 +43,11 @@ class Link(
     private val device: String?,
     private val version: String,
     private val onStatus: (Status) -> Unit,
+    /** How the car is (car_status), on the link's thread. */
+    private val onCarStatus: (CarStatus) -> Unit = {},
+    /** The remote: what plays (media) and browse pages, on the link's thread. */
+    private val onMedia: (MediaState) -> Unit = {},
+    private val onBrowsed: (BrowseResult) -> Unit = {},
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     enum class State { STOPPED, CONNECTING, CONNECTED, WAITING }
@@ -50,6 +55,10 @@ class Link(
 
     @Volatile private var running = false
     @Volatile private var current: Guidance? = null
+    @Volatile private var weatherLine: String? = null
+    @Volatile private var positionLine: String? = null
+    /** What the connected HU asked for in its hello (caps), besides guidance. */
+    @Volatile private var wants: Set<String> = emptySet()
     @Volatile private var transport: Transport? = null
     @Volatile private var opened = false
     private val outbox = LinkedBlockingQueue<String>()
@@ -73,6 +82,27 @@ class Link(
         if (g == current) return
         current = g
         outbox.put(Protocol.guidance(g))
+    }
+
+    /** A remote command or browse request (one protocol line); dropped while not connected. */
+    fun sendNow(line: String) {
+        if ("remote" in wants) outbox.put(line)
+    }
+
+    /** The latest weather; sent after hello and when it changed, if the HU wants it. */
+    fun updateWeather(w: Weather) {
+        val line = Protocol.weather(w)
+        if (line == weatherLine) return
+        weatherLine = line
+        if ("weather" in wants) outbox.put(line)
+    }
+
+    /** The latest position (altitude); sent like the weather, if the HU wants it. */
+    fun updatePosition(p: Position) {
+        val line = Protocol.position(p)
+        if (line == positionLine) return
+        positionLine = line
+        if ("position" in wants) outbox.put(line)
     }
 
     private fun loop() {
@@ -108,11 +138,13 @@ class Link(
                 while (true) {
                     val line = reader.next() ?: break
                     lastRx.set(clock())
-                    Protocol.parse(line)?.let { incoming.put(it) }
+                    Protocol.parse(line)?.let { incoming.offer(it) }
                 }
             } catch (_: Exception) {
             }
-            incoming.put(Protocol.HuMessage.Bye("link closed"))
+            // offer, not put: the session interrupts this thread when it ends, and an interrupted put
+            // throws, which would take the whole app down (the queue is unbounded, offer never waits)
+            incoming.offer(Protocol.HuMessage.Bye("link closed"))
         }, "r80-link-reader").apply { isDaemon = true; start() }
 
         fun send(s: String) {
@@ -120,14 +152,17 @@ class Link(
             output.flush()
         }
         try {
-            send(Protocol.hello("r80-companion", version, device, listOf("guidance")))
+            send(Protocol.hello("r80-companion", version, device, CAPS))
             val hello = incoming.poll(5, TimeUnit.SECONDS) ?: throw IllegalStateException("no hello from the HU")
             if (hello is Protocol.HuMessage.Bye) throw IllegalStateException("refused: ${hello.reason}")
             if (hello !is Protocol.HuMessage.Hello) throw IllegalStateException("HU did not start with hello")
             if (hello.proto != Protocol.VERSION) throw IllegalStateException("HU speaks protocol ${hello.proto}")
             val heartbeatMs = ((hello.heartbeatS ?: 2.0) * 1000).toLong()
             outbox.clear()
+            wants = hello.caps.toSet()
             send(Protocol.guidance(current))
+            weatherLine?.takeIf { "weather" in wants }?.let { send(it) }
+            positionLine?.takeIf { "position" in wants }?.let { send(it) }
             var lastTx = clock()
             onStatus(Status(State.CONNECTED, t.description))
             while (running) {
@@ -143,16 +178,27 @@ class Link(
                     send(Protocol.heartbeat())
                     lastTx = clock()
                 }
-                when (val m = incoming.poll()) {
-                    is Protocol.HuMessage.Bye -> throw IllegalStateException("HU closed the link (${m.reason ?: "no reason"})")
-                    else -> {}
+                while (true) {
+                    when (val m = incoming.poll() ?: break) {
+                        is Protocol.HuMessage.Bye -> throw IllegalStateException("HU closed the link (${m.reason ?: "no reason"})")
+                        is Protocol.HuMessage.Status -> onCarStatus(m.status)
+                        is Protocol.HuMessage.Media -> onMedia(m.media)
+                        is Protocol.HuMessage.Browsed -> onBrowsed(m.result)
+                        else -> {}
+                    }
                 }
                 if (clock() - lastRx.get() > 3 * heartbeatMs) throw IllegalStateException("HU silent")
             }
             send(Protocol.bye("user"))
         } finally {
+            wants = emptySet()
             reader.interrupt()
         }
+    }
+
+    companion object {
+        /** What this app can send. */
+        val CAPS = listOf("guidance", "weather", "position", "car_status", "remote")
     }
 }
 

@@ -61,6 +61,11 @@ jobs:
         with:
           gradle-version: "9.8.1"
           cache-provider: basic   # the MIT-licensed cache, not the proprietary default
+      - name: The fixed debug key (secret ANDROID_DEBUG_KEYSTORE), so each APK installs as an update
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          if [ -n "$KEYSTORE" ]; then mkdir -p ~/.android && echo "$KEYSTORE" | base64 -d > ~/.android/debug.keystore; fi
       - name: Build and unit-test the app
         run: ci/build_android.sh
       - name: Upload APK and test reports

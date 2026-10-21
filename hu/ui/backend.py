@@ -517,15 +517,17 @@ NAV_SERVICE, NAV_PATH, NAV_IFACE = "de.r80.Nav", "/de/r80/Nav", "de.r80.Nav1"
 
 class Nav(QObject):
     """QML singleton mirroring hu-navd (de.r80.Nav1, D11): the phone link as a dict
-    {connected, device, app, bad_lines} and the guidance as a dict {active, stale, source,
-    maneuver, modifier, exit, distance_m, street, text, remaining_m, remaining_s, arrival}."""
+    {connected, device, app, bad_lines}, the guidance as a dict {active, stale, source,
+    maneuver, modifier, exit, distance_m, street, text, remaining_m, remaining_s, arrival},
+    and from the phone the weather {valid, source, time, temp_c, code, days} and the
+    position {valid, time, alt_m, accuracy_m, heading_deg}."""
     changed = Signal()
     availableChanged = Signal()
 
     def __init__(self, system_bus=False, parent=None):
         super().__init__(parent)
         self._available = False
-        self._v = {"Phone": {}, "Guidance": {}}
+        self._v = {"Phone": {}, "Guidance": {}, "Weather": {}, "Position": {}}
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
         self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, NAV_PATH)
@@ -551,7 +553,7 @@ class Nav(QObject):
         if not self._available:
             self._available = True
             self.availableChanged.emit()
-        for k in ("Phone", "Guidance"):
+        for k in ("Phone", "Guidance", "Weather", "Position"):
             if k in changed:
                 self._v[k] = {str(a): _py(b) for a, b in changed[k].items()}
         self.changed.emit()
@@ -559,6 +561,8 @@ class Nav(QObject):
     available = Property(bool, lambda self: self._available, notify=availableChanged)
     phone = Property("QVariantMap", lambda self: dict(self._v["Phone"]), notify=changed)
     guidance = Property("QVariantMap", lambda self: dict(self._v["Guidance"]), notify=changed)
+    weather = Property("QVariantMap", lambda self: dict(self._v["Weather"]), notify=changed)
+    position = Property("QVariantMap", lambda self: dict(self._v["Position"]), notify=changed)
 
 
 SYS_SERVICE, SYS_PATH, SYS_IFACE = "de.r80.System", "/de/r80/System", "de.r80.System1"

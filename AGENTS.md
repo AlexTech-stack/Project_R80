@@ -44,7 +44,8 @@ docs/bench-pi.md                  the Raspberry Pi bench: setup and operation
 docs/bench-measurements.md        start-up time and memory on the bench (./r80 bench measure)
 docs/screenshots/                 every UI screen, rendered by ./r80 demo screenshots
 docs/ui/, docs/images/            UI vision and car reference; pictures for the READMEs
-companion-android/                R80 Companion, the Android app on the driver's phone (D11, Kotlin)
+companion-android/                R80 Companion, the Android app on the driver's phone (D11, Kotlin);
+                                  tools/make_icons.py: the app's icons from hu/ui/qml/Icons.qml
 r80                               the one entry point: ./r80 demo | virtual <cmd> | bench <cmd>
 hu/                               the headunit software (target software: runs unchanged on the Pi)
   services/                       the services, each with its config file
@@ -56,7 +57,7 @@ hu/                               the headunit software (target software: runs u
     warnd.py, warnings.ini        vehicle warnings (D10), D-Bus de.r80.Warnings, and its rules
     tripd.py, trip.ini            trip computer (D10), D-Bus de.r80.Trip, and its config
     companion_link.py             companion app <-> HU protocol (D11, docs/companion-protocol.md)
-    navd.py, nav.ini              navigation service (D11), D-Bus de.r80.Nav, and its timing
+    navd.py, nav.ini              navigation service and the companion link (D11): guidance, weather, car status, remote
     sysd.py, system.ini           system and settings service (D12), D-Bus de.r80.System, and the settings' schema
     saver.py                      a service's part in the shutdown: register with sysd, save, report
     removable.py                  USB sticks for mediad through udisks2 (mount read-only, gone)
@@ -252,7 +253,12 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
   `docs/companion-protocol-examples.jsonl`.
 - The companion app: Android 14+ (minSdk 34), no Google Play services, only open-source
   dependencies. Captured notifications contain the driver's streets: never commit them;
-  only the derived arrow fingerprints go into `maneuver_icons.json`.
+  only the derived arrow fingerprints go into `maneuver_icons.json`. The phone's position
+  (weather, where the car is parked) stays on the phone: the HU gets the weather and the
+  altitude, never coordinates; screenshots that show a position are not committed.
+- The app looks like the HU: its fonts come from `hu/ui/fonts` (assets), its icons are
+  generated from `hu/ui/qml/Icons.qml` (`companion-android/tools/make_icons.py`; add new
+  icons there, never draw them in the app), its colours are the HU's accent colours.
 - Phone (D13): calls go through PipeWire's own Bluetooth telephony service, not oFono.
   Contacts and call history are the driver's personal data: copied per phone only with
   consent, kept on the HU (mode 0600), never logged and never committed; tests use made-up

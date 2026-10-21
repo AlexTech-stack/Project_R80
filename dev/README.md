@@ -306,6 +306,14 @@ on D-Bus `de.r80.Nav` at `/de/r80/Nav` (interface `de.r80.Nav1`):
 - `Guidance`: active, stale, source, maneuver, modifier, exit, distance_m,
   street, text, remaining_m, remaining_s (-1 = not sent), arrival (unix time
   from the HU's clock + remaining_s; 0 = unknown).
+- `Weather` and `Position`: from the phone (the app gets the weather from open-meteo);
+  the Clock & Weather screen shows them. Position is only the altitude.
+
+To a phone that asks (its hello's `caps`) navd also sends `car_status` (after the hello,
+every `[car_status] interval_s`, and a final one when IgnitionState goes Off) and, for the
+passenger's remote, `media` (what plays and the volume, from mediad and audiod); it carries
+out the phone's `media_cmd` (unless the setting `phone_remote` is off) and answers `browse`
+from mediad's browse tree.
 
 One phone at a time; a new connection replaces the old one. A phone that sends
 nothing for `link_timeout_s` is dropped. The last guidance then stays, marked
@@ -323,7 +331,8 @@ authentication; see [`../companion-android/README.md`](../companion-android/READ
 (`./r80 virtual phone`) it plays `dev/phone_emu/route_demo.json`: the distance to
 the next maneuver counts down with `VehicleSpeed` (with `drive`) or
 `--speed-kmh`, rounded like a navigation app, and the route starts over after
-arriving. The tests use its `Phone` class.
+arriving. Like the app it also sends a demo weather and the altitude. The tests use its
+`Phone` class (`connect(caps=...)` says what it takes part in).
 
 In the UI (`hu/ui/backend.py` → `Sim.guidance`, `Sim.navPhone`) the Navigation
 screen shows the maneuver arrow, distance, street and arrival; dimmed with
@@ -508,6 +517,9 @@ gdbus call --session -d de.r80.Phone -o /de/r80/Phone -m de.r80.Phone1.Answer
 | TC_HU_036 | music from the phone (AVRCP stand-in): the Bluetooth source, Play / Pause / Next / Previous / shuffle to the phone, its track, a call pauses and resumes it, leaving pauses it, the phone starting switches over, gone: back to the Library |
 | TC_HU_037 | DLT log: every service a DLT application (over the daemon's TCP port, `hu/services/dltclient.py`), a service's warning in the stream and on the Diagnostics page, log level per service through sysd (refusals), ClearLog |
 | TC_HU_038 | log export onto a USB stick (udisks2 stand-in `dev/udisks_emu.py`): no stick fails, mediad lends the stick out writable and takes it back read-only, the music carries on, the DLT files and summary.txt on it, an unmount refused fails cleanly |
+| TC_HU_039 | weather and altitude from the phone: the HU asks for them (caps), Weather and Position on D-Bus, never coordinates, bad messages dropped, kept after the link is gone |
+| TC_HU_040 | car status to the phone (car_status): after the hello only to a phone that asks, the vehicle values, trip, warnings, accent; the final one when the ignition goes off; stale signals left out |
+| TC_HU_041 | the passenger's remote (companion media, media_cmd, browse): the state after the hello and on changes, commands reach mediad and audiod, browsing page by page, play from a list, setting phone_remote off: told and ignored |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).

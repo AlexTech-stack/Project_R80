@@ -43,11 +43,12 @@ Item {
             spacing: 18
             Row {
                 spacing: 20
-                Icon { path: Icons.partCloud; width: 90; height: 90; stroke: 1.3 }
+                Icon { path: Icons[Sim.weatherNow.icon]; width: 90; height: 90; stroke: 1.3
+                       color: Sim.weatherKnown || Sim.demo ? Theme.accent : Theme.accentDim }
                 Column {
                     anchors.verticalCenter: parent.verticalCenter
-                    T { text: Fmt.num(Sim.outsideTemp, 0, "°C"); font.family: Theme.numberFamily; font.pixelSize: 64 }
-                    T { text: "Partly cloudy"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
+                    T { text: Fmt.num(Sim.weatherNow.temp, 0, "°C"); font.family: Theme.numberFamily; font.pixelSize: 64 }
+                    T { text: Sim.weatherNow.text; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
                 }
             }
             Rectangle { width: 340; height: 1; color: Theme.accentDim }

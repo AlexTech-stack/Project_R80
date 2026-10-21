@@ -122,7 +122,9 @@ QtObject {
     readonly property var tyres: live ? Vehicle.tyres : demo ? [2.3, 2.3, 2.2, 2.2] : [NaN, NaN, NaN, NaN]   // FL FR RL RR, bar
     readonly property real serviceKm: live ? Vehicle.serviceKm : demo ? 6400 : NaN
     readonly property real serviceDays: live ? Vehicle.serviceDays : demo ? 112 : NaN
-    readonly property real altitude: demo ? 412 : NaN      // no source yet (GNSS on the board, or the phone)
+    // the altitude from the phone (hu-navd's Position), while not older than 10 minutes
+    readonly property bool _altKnown: navLive && Nav.position.valid === true && now.getTime() / 1000 - Nav.position.time < 600
+    readonly property real altitude: _altKnown ? Nav.position.alt_m : demo ? 412 : NaN
     readonly property bool audioKnown: demo || audioLive    // the volume: shown as "–" until audiod answers
     property int volume: 14                // master volume, 0 .. volumeMax
     property int volumeMax: 30
@@ -418,11 +420,13 @@ QtObject {
 
     // ---- settings (D12): live from hu-sysd; without it local values as in the mockup -----
     readonly property bool settingsLive: System.available && System.settings.accent !== undefined
-    property var _local: ({ accent: "signal_red", brightness: 0.9, night_dimming: true, clock_24h: true, units: "metric" })
+    property var _local: ({ accent: "signal_red", brightness: 0.9, night_dimming: true, clock_24h: true, units: "metric",
+                            phone_remote: true })
     function _setting(name) { return settingsLive && System.settings[name] !== undefined ? System.settings[name] : _local[name] }
     readonly property string accent: _setting("accent")
     readonly property real brightness: _setting("brightness")
     readonly property bool nightDimming: _setting("night_dimming")
+    readonly property bool phoneRemote: _setting("phone_remote")     // the R80 Companion app may control media and volume
     // What the display shows: hu-sysd computes it from the user's brightness, day/night and
     // the car's dimmer (D12); without sysd the user's brightness.
     readonly property real displayBrightness: settingsLive ? System.displayBrightness : brightness
@@ -565,13 +569,36 @@ QtObject {
                  remainingS: g.remaining_s, arrival: g.arrival > 0 ? new Date(g.arrival * 1000) : null };
     }
 
-    // ---- weather -------------------------------------------------------------
-    property var forecast: [
+    // ---- weather: from the phone (an internet weather service) through hu-navd ------
+    // shown while not older than 3 h; weatherNow {temp, icon, text}, forecast [{day, icon, hi, lo}]
+    readonly property bool weatherKnown: navLive && Nav.weather.valid === true && now.getTime() / 1000 - Nav.weather.time < 3 * 3600
+    function weatherIcon(code) {                 // WMO weather code -> Icons name
+        return code <= 0 ? "sun" : code <= 2 ? "partCloud" : code === 3 ? "cloud" : code === 45 || code === 48 ? "fog"
+             : code >= 95 ? "storm" : (code >= 71 && code <= 77) || code === 85 || code === 86 ? "snow"
+             : code >= 51 ? "rain" : "cloud"
+    }
+    function weatherText(code) {
+        return code <= 0 ? "Clear" : code <= 2 ? "Partly cloudy" : code === 3 ? "Overcast" : code === 45 || code === 48 ? "Fog"
+             : code >= 95 ? "Thunderstorm" : (code >= 71 && code <= 77) || code === 85 || code === 86 ? "Snow"
+             : code >= 51 && code <= 57 ? "Drizzle" : code >= 51 ? "Rain" : "Cloudy"
+    }
+    function _weekday(date) {                    // "2026-10-23" -> "Fr"
+        const p = date.split("-").map(Number)
+        return Qt.locale("de_DE").dayName(new Date(p[0], p[1] - 1, p[2]).getDay(), Locale.ShortFormat).replace(".", "")
+    }
+    readonly property var weatherNow: weatherKnown
+        ? { temp: Nav.weather.temp_c, icon: weatherIcon(Nav.weather.code), text: weatherText(Nav.weather.code) }
+        : demo ? { temp: 12, icon: "partCloud", text: "Partly cloudy" } : { temp: NaN, icon: "cloud", text: "–" }
+    readonly property var _demoForecast: [
         { day: "Fr", icon: "partCloud", hi: 14, lo: 6 },
         { day: "Sa", icon: "sun",       hi: 17, lo: 7 },
         { day: "So", icon: "rain",      hi: 11, lo: 5 },
         { day: "Mo", icon: "cloud",     hi: 12, lo: 4 }
     ]
+    readonly property var forecast: weatherKnown
+        ? Nav.weather.days.slice(0, 4).map(d => ({ day: _weekday(d.date), icon: weatherIcon(d.code),
+                                                  hi: Math.round(d.max_c), lo: Math.round(d.min_c) }))
+        : demo ? _demoForecast : []
 
     // ---- ticking -------------------------------------------------------------
     property Timer secondTimer: Timer {

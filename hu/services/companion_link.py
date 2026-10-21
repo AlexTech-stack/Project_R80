@@ -28,7 +28,21 @@ HELLO = "hello"         # both ways, first message on a new connection
 HEARTBEAT = "heartbeat"  # both ways, keeps the link alive
 GUIDANCE = "guidance"   # phone -> HU, the whole current guidance state
 BYE = "bye"             # both ways, the sender closes the link
-TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE)
+WEATHER = "weather"     # phone -> HU, the weather where the phone is (from an internet service)
+POSITION = "position"   # phone -> HU, the altitude (never coordinates)
+CAR_STATUS = "car_status"   # HU -> phone, how the car is (also when parked)
+MEDIA = "media"         # HU -> phone, what plays and the volume (the remote)
+MEDIA_CMD = "media_cmd"  # phone -> HU, a remote control command
+BROWSE = "browse"       # phone -> HU, a page of the media browse tree, please
+BROWSE_RESULT = "browse_result"  # HU -> phone, that page
+TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE, WEATHER, POSITION, CAR_STATUS, MEDIA, MEDIA_CMD, BROWSE, BROWSE_RESULT)
+MEDIA_CMDS = ("play", "pause", "next", "previous", "seek", "shuffle", "repeat", "mute", "volume", "source", "play_from")
+MAX_UP_NEXT = 5
+MAX_PAGE = 20
+MAX_ENTRY_TEXT = 60     # browse titles and subtitles, so a page fits into a line
+MAX_DAYS = 7
+MAX_WARNINGS = 10
+SEVERITIES = ("warning", "information", "notice")
 
 # guidance.maneuver
 MANEUVERS = ("depart", "turn", "continue", "merge", "fork", "on_ramp", "off_ramp",
@@ -91,6 +105,29 @@ def validate(msg) -> dict:
         return {"type": t}
     if t == BYE:
         return {"type": t, "reason": _text(msg, "reason")}
+    if t == WEATHER:
+        return _weather(msg)
+    if t == CAR_STATUS:
+        return _car_status(msg)
+    if t == MEDIA:
+        return _media(msg)
+    if t == MEDIA_CMD:
+        return _media_cmd(msg)
+    if t == BROWSE:
+        req = _number(msg, "id", integer=True, lo=0, hi=2**31)
+        if req is None:
+            raise ProtocolError("browse: 'id' is required")
+        return {"type": t, "id": req, "path": _text(msg, "path") or "",
+                "offset": _number(msg, "offset", integer=True, hi=2**31) or 0,
+                "count": _number(msg, "count", integer=True, lo=1, hi=MAX_PAGE) or MAX_PAGE}
+    if t == BROWSE_RESULT:
+        return _browse_result(msg)
+    if t == POSITION:
+        when = _number(msg, "time", integer=True, lo=0, hi=2**40)
+        if when is None:
+            raise ProtocolError("position: 'time' is missing")
+        return {"type": t, "time": when, "alt_m": _number(msg, "alt_m", lo=-500, hi=9000),
+                "accuracy_m": _number(msg, "accuracy_m"), "heading_deg": _number(msg, "heading_deg", lo=0, hi=360)}
     # guidance
     active = msg.get("active")
     if not isinstance(active, bool):
@@ -114,6 +151,148 @@ def validate(msg) -> dict:
             "remaining_s": _number(msg, "remaining_s")}
 
 
+def _weather(msg: dict) -> dict:
+    t = msg["type"]
+    when = _number(msg, "time", integer=True, lo=0, hi=2**40)
+    if when is None:
+        raise ProtocolError("weather: 'time' is missing")
+    now = msg.get("now")
+    if not isinstance(now, dict):
+        raise ProtocolError("weather: 'now' must be an object")
+    temp = _number({"type": t, **now}, "temp_c", lo=-100, hi=100)
+    code = _number({"type": t, **now}, "code", integer=True, lo=0, hi=99)
+    if temp is None or code is None:
+        raise ProtocolError("weather: 'now' needs temp_c and code")
+    days = msg.get("days", [])
+    if not isinstance(days, list) or not all(isinstance(d, dict) for d in days):
+        raise ProtocolError("weather: 'days' must be a list of objects")
+    out_days = []
+    for d in days[:MAX_DAYS]:
+        date = _text({"type": t, **d}, "date", required=True)
+        if len(date) != 10 or date[4] != "-" or date[7] != "-" or not (date[:4] + date[5:7] + date[8:]).isdigit():
+            raise ProtocolError(f"weather: date {date!r} is not YYYY-MM-DD")
+        day = {"date": date, "code": _number({"type": t, **d}, "code", integer=True, lo=0, hi=99),
+               "max_c": _number({"type": t, **d}, "max_c", lo=-100, hi=100),
+               "min_c": _number({"type": t, **d}, "min_c", lo=-100, hi=100)}
+        if None in day.values():
+            raise ProtocolError("weather: a day needs date, code, max_c and min_c")
+        out_days.append(day)
+    return {"type": t, "source": _text(msg, "source", required=True), "time": when,
+            "now": {"temp_c": temp, "code": code}, "days": out_days}
+
+
+def _car_status(msg: dict) -> dict:
+    t = msg["type"]
+    when = _number(msg, "time", integer=True, lo=0, hi=2**40)
+    final = msg.get("final")
+    if when is None or not isinstance(final, bool):
+        raise ProtocolError("car_status: 'time' and 'final' are required")
+    out = {"type": t, "time": when, "final": final,
+           "fuel_pct": _number(msg, "fuel_pct", hi=100), "range_km": _number(msg, "range_km"),
+           "odometer_km": _number(msg, "odometer_km"), "battery_v": _number(msg, "battery_v", hi=100),
+           "outside_c": _number(msg, "outside_c", lo=-100, hi=100),
+           "service_km": _number(msg, "service_km", lo=-1e6, hi=1e6),
+           "service_days": _number(msg, "service_days", lo=-1e5, hi=1e5), "accent": _text(msg, "accent")}
+    trip = msg.get("trip")
+    if trip is not None:
+        if not isinstance(trip, dict):
+            raise ProtocolError("car_status: 'trip' must be an object")
+        tt = {"type": t, **trip}
+        out["trip"] = {"km": _number(tt, "km"), "minutes": _number(tt, "minutes"), "avg_kmh": _number(tt, "avg_kmh")}
+    warnings = msg.get("warnings")
+    if warnings is not None:
+        if not isinstance(warnings, list) or not all(isinstance(w, dict) for w in warnings):
+            raise ProtocolError("car_status: 'warnings' must be a list of objects")
+        out["warnings"] = []
+        for w in warnings[:MAX_WARNINGS]:
+            if w.get("severity") not in SEVERITIES:
+                raise ProtocolError(f"car_status: severity {w.get('severity')!r} is not one of {', '.join(SEVERITIES)}")
+            out["warnings"].append({"severity": w["severity"], "text": _text({"type": t, **w}, "text", required=True)})
+    return out
+
+
+def _bool(msg: dict, key: str, default=None):
+    v = msg.get(key, default)
+    if v is not None and not isinstance(v, bool):
+        raise ProtocolError(f"{msg.get('type')}: '{key}' must be true or false")
+    return v
+
+
+def _media(msg: dict) -> dict:
+    t = msg["type"]
+    status = msg.get("status")
+    if status not in ("playing", "paused", "stopped"):
+        raise ProtocolError(f"media: status {status!r} is not playing, paused or stopped")
+    sources = msg.get("sources", [])
+    if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
+        raise ProtocolError("media: 'sources' must be a list of strings")
+    up = msg.get("up_next", [])
+    if not isinstance(up, list) or not all(isinstance(u, dict) for u in up):
+        raise ProtocolError("media: 'up_next' must be a list of objects")
+    return {"type": t, "allowed": _bool(msg, "allowed", False), "status": status,
+            "source": _text(msg, "source") or "", "sources": [s[:MAX_TEXT] for s in sources],
+            "title": _text(msg, "title") or "", "artist": _text(msg, "artist") or "", "album": _text(msg, "album") or "",
+            "duration_s": _number(msg, "duration_s"), "position_s": _number(msg, "position_s"),
+            "time": _number(msg, "time", hi=2**40), "shuffle": _bool(msg, "shuffle", False),
+            "repeat": _bool(msg, "repeat", False), "track": _number(msg, "track", integer=True, hi=2**31),
+            "tracks": _number(msg, "tracks", integer=True, hi=2**31), "queue": _text(msg, "queue") or "",
+            "up_next": [{"title": _text({"type": t, **u}, "title") or "", "artist": _text({"type": t, **u}, "artist") or ""}
+                        for u in up[:MAX_UP_NEXT]],
+            "volume": _number(msg, "volume", integer=True, hi=1000), "volume_max": _number(msg, "volume_max", integer=True, hi=1000),
+            "muted": _bool(msg, "muted", False)}
+
+
+def _media_cmd(msg: dict) -> dict:
+    t = msg["type"]
+    cmd = msg.get("cmd")
+    if cmd not in MEDIA_CMDS:
+        raise ProtocolError(f"media_cmd: cmd {cmd!r} is not one of {', '.join(MEDIA_CMDS)}")
+    out = {"type": t, "cmd": cmd}
+    if cmd == "seek":
+        out["value"] = _number(msg, "value", hi=1e6)
+    elif cmd in ("shuffle", "repeat", "mute"):
+        out["value"] = _bool(msg, "value")
+    elif cmd == "volume":
+        out["value"] = _number(msg, "value", integer=True, hi=1000)
+    elif cmd == "source":
+        out["value"] = _text(msg, "value")
+    elif cmd == "play_from":
+        out["path"] = _text(msg, "path", required=True)
+        out["index"] = _number(msg, "index", integer=True, hi=2**31)
+        if out["index"] is None:
+            raise ProtocolError("media_cmd: play_from needs 'index'")
+        return out
+    else:
+        return out
+    if out["value"] is None:
+        raise ProtocolError(f"media_cmd: {cmd} needs 'value'")
+    return out
+
+
+KINDS = ("menu", "folder", "artist", "album", "track")
+
+
+def _browse_result(msg: dict) -> dict:
+    t = msg["type"]
+    req = _number(msg, "id", integer=True, lo=0, hi=2**31)
+    if req is None:
+        raise ProtocolError("browse_result: 'id' is required")
+    entries = msg.get("entries", [])
+    if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
+        raise ProtocolError("browse_result: 'entries' must be a list of objects")
+    out = []
+    for e in entries[:MAX_PAGE]:
+        if e.get("kind") not in KINDS:
+            raise ProtocolError(f"browse_result: kind {e.get('kind')!r} is not one of {', '.join(KINDS)}")
+        te = {"type": t, **e}
+        out.append({"kind": e["kind"], "id": (_text(te, "id") or ""), "title": (_text(te, "title") or "")[:MAX_ENTRY_TEXT],
+                    "subtitle": (_text(te, "subtitle") or "")[:MAX_ENTRY_TEXT],
+                    "index": _number(te, "index", integer=True, lo=-1, hi=2**31)})
+    return {"type": t, "id": req, "path": _text(msg, "path") or "", "title": _text(msg, "title") or "",
+            "total": _number(msg, "total", integer=True, lo=-1, hi=2**31), "offset": _number(msg, "offset", integer=True, hi=2**31) or 0,
+            "entries": out}
+
+
 def _reject_constant(name):
     raise ValueError(f"{name} is not a valid number")
 
@@ -123,6 +302,10 @@ def encode(msg: dict) -> bytes:
     clean = validate(msg)
     if clean["type"] == GUIDANCE and clean["active"]:
         clean["maneuver"] = {k: v for k, v in clean["maneuver"].items() if v is not None}
+    if clean["type"] == CAR_STATUS and "trip" in clean:
+        clean["trip"] = {k: v for k, v in clean["trip"].items() if v is not None}
+    if clean["type"] == BROWSE_RESULT:
+        clean["entries"] = [{k: v for k, v in e.items() if v is not None} for e in clean["entries"]]
     line = json.dumps({k: v for k, v in clean.items() if v is not None},
                       ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode() + b"\n"
     if len(line) > MAX_LINE:
@@ -205,3 +388,20 @@ def guidance(source: str, maneuver: str, modifier: str | None = None, exit: int 
 
 def guidance_ended() -> dict:
     return {"type": GUIDANCE, "active": False}
+
+
+def weather(source: str, time: int, temp_c: float, code: int, days=()) -> dict:
+    """days: (date, code, max_c, min_c) tuples, today first."""
+    return {"type": WEATHER, "source": source, "time": time, "now": {"temp_c": temp_c, "code": code},
+            "days": [{"date": d, "code": c, "max_c": hi, "min_c": lo} for d, c, hi, lo in days]}
+
+
+def car_status(time: int, final: bool = False, **values) -> dict:
+    """values: fuel_pct, range_km, odometer_km, battery_v, outside_c, service_km, service_days,
+    trip ({km, minutes, avg_kmh}), warnings ([{severity, text}]), accent; None = not known."""
+    return {"type": CAR_STATUS, "time": time, "final": final, **values}
+
+
+def position(time: int, alt_m: float | None = None, accuracy_m: float | None = None,
+             heading_deg: float | None = None) -> dict:
+    return {"type": POSITION, "time": time, "alt_m": alt_m, "accuracy_m": accuracy_m, "heading_deg": heading_deg}
