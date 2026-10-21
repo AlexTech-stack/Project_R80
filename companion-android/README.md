@@ -3,7 +3,13 @@
 The app on the driver's phone (decision D11): the phone navigates, the headunit
 displays. The app reads the turn-by-turn guidance of Google Maps' navigation
 notification and sends it to the HU over the companion link
-([`../docs/companion-protocol.md`](../docs/companion-protocol.md)).
+([`../docs/companion-protocol.md`](../docs/companion-protocol.md)). It also brings the HU
+the weather and the altitude, keeps how the car was parked for when the driver is away
+from it, and is a remote for the passenger. It looks like the HU (below).
+
+| Car | Remote |
+|---|---|
+| ![Car tab](../docs/images/companion-car.png) | ![Remote tab](../docs/images/companion-remote.png) |
 
 Android 14 or newer, Kotlin, no Google Play services, MIT like the rest of R80.
 
@@ -24,6 +30,28 @@ Android 14 or newer, Kotlin, no Google Play services, MIT like the rest of R80.
   also Wi-Fi: TCP to a PC running `hu-navd --tcp 47800` (trusted network only, no
   authentication). The link reconnects by itself and runs as a foreground
   service, so Android keeps it alive during a drive.
+- **Weather and altitude for the HU:** the phone's position from Android's own location
+  service (no Google library), the altitude above sea level from it (Android 14's
+  `AltitudeConverter`), the weather there from [open-meteo.com](https://open-meteo.com)
+  (free, no key, data CC BY 4.0; the position rounded to about 1 km). The HU shows them on
+  its Clock & Weather screen. The HU never gets the coordinates. Settings → "Weather and
+  altitude" switches it off.
+- **Car (tab):** the HU tells the app how the car is (fuel, range, odometer, battery,
+  outside temperature, service, warnings, the trip) every minute and when the ignition goes
+  off. The app keeps the last state and, when the ignition goes off or the link ends, the
+  phone's position as "Parked here" (with "Open in maps"). The position stays on the phone.
+  Warnings still open at ignition off become a notification.
+- **Remote (tab):** for the passenger with the driver's phone: what plays on the HU, the
+  sources, play / pause / next / previous / seek / shuffle / repeat, the master volume and
+  mute, up next, and browsing the HU's library (folders, artists, albums, all tracks) to
+  play from any list. Only while the HU allows it (on the HU: Settings → Phone → "Remote
+  from the app", on by default); otherwise it only shows. No covers yet.
+- **The look:** black, line art in the HU's accent colour (the HU tells it), the HU's fonts
+  (B612, OSP-DIN: taken from [`../hu/ui/fonts`](../hu/ui/fonts) as the app's assets, with
+  their licence files) and the HU's icons (`res/drawable/hu_*.xml`, generated from
+  [`../hu/ui/qml/Icons.qml`](../hu/ui/qml/Icons.qml) by `tools/make_icons.py`;
+  `ci/check_static.sh` fails when they are out of date). Keep it that way: new icons go
+  into Icons.qml and the generator's list, not into the app.
 - **Capture (development):** records every Google Maps notification (all text
   fields, the arrow's fingerprint) and each different arrow image once. "Export
   to Downloads" saves a zip. The recording contains the streets of the drive and
@@ -37,8 +65,11 @@ Android 14 or newer, Kotlin, no Google Play services, MIT like the rest of R80.
 3. Open the app → "Open notification access" → enable R80 Companion. Android 13+
    greys this out for apps not installed from a store: App info → ⋮ → "Allow
    restricted settings", then try again.
-4. Allow notifications and "Nearby devices" when asked (the foreground service
-   shows a notification; "Nearby devices" lets the app list the paired HU).
+4. Allow notifications, "Nearby devices" and location when asked (the foreground service
+   shows a notification; "Nearby devices" lets the app list the paired HU; location is for
+   the weather, the altitude and where the car is parked).
+5. Settings tab: choose the HU, Connect. From then on the app connects again whenever it
+   is opened (until Disconnect).
 
 CI signs every build with the same debug key (the repository secret
 `ANDROID_DEBUG_KEYSTORE`, a base64 PKCS#12 keystore, alias `androiddebugkey`,
@@ -79,7 +110,7 @@ brings the SDK and can open `companion-android/` directly. The unit tests run on
 the PC (no phone): the protocol against
 [`../docs/companion-protocol-examples.jsonl`](../docs/companion-protocol-examples.jsonl)
 (the HU checks the same file in TC_HU_020), the Maps parser, the arrow
-fingerprints, and the link against a fake HU.
+fingerprints, the link against a fake HU, open-meteo's answer, the car store.
 
 ## Files
 
@@ -93,7 +124,13 @@ app/src/main/java/de/r80/companion/
   MapsListenerService.kt  notification listener; capture hook
   LinkService.kt          foreground service holding the link
   Capture.kt              capture mode and export
-  MainActivity.kt, Settings.kt, AppState.kt   screen, settings, shared state
+  Surroundings.kt         position, altitude and the weather (open-meteo) for the HU
+  CarStore.kt             the last car_status and where the car was parked (on the phone)
+  RemotePage.kt           the Remote tab
+  Hu.kt                   the HU's look: accent colours, fonts, icons, buttons, tabs, rows
+  MainActivity.kt, Settings.kt, AppState.kt   screen (header, tabs Car | Remote | Settings), settings, shared state
 app/src/main/assets/maneuver_icons.json        known arrows (built from captures)
+app/src/main/res/drawable/hu_*.xml             the HU's icons (generated, do not edit)
 app/src/test/                                  JVM unit tests
+tools/make_icons.py                            Icons.qml -> hu_*.xml (needs PySide6)
 ```

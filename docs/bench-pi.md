@@ -367,6 +367,18 @@ Xiaomi / HyperOS phones: allow the app "Autostart" and set its battery saver to
 "No restrictions" (App info), or Android may not start its notification listener
 (the app then shows "No navigation running" although Maps navigates).
 
+### Weather, car status and the remote (the app)
+
+With the link up the app also sends the weather and the altitude (Clock & Weather on the
+HU; the app needs location), gets the car's status (its Car tab; set the ignition to Off in
+the tester panel to see the final one and "Parked here") and works as a remote (its Remote
+tab; on the HU Settings → Phone → "Remote from the app" switches that off):
+
+```bash
+gdbus call --session -d de.r80.Nav -o /de/r80/Nav \
+  -m org.freedesktop.DBus.Properties.Get de.r80.Nav1 Weather
+```
+
 ### Calls, contacts and music from the phone (D13)
 
 The paired phone also does hands-free calls, contacts and music; hu-phoned and hu-mediad

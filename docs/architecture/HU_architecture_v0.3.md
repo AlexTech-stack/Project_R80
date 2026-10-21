@@ -17,7 +17,7 @@ in `hu/` (runs on a PC and on the Raspberry Pi bench, started with `./r80`) and 
 | D8 | CAN channels | Agreed for now (2026-09-29): vehicle MCU gets two CAN channels, CAN 1 active on Infotainment, CAN 2 listen-only on Motor or Comfort. Revisit once real bus logs exist. |
 | D9 | Audio and volume | Agreed 2026-10-13: one audio service (`audiod`) owns all audio: master volume, one volume per source (media, navigation, phone, radio), mute, and how sources affect each other. A navigation prompt lowers music; a call (from ringing on) pauses media and mutes radio, media resumes afterwards; while the HU is off, media is paused (2026-10-20). The last volume is remembered and capped at startup. Volume is handled in the HU for now (the DSP amp of D3 is not chosen) and does not depend on CAN signals. The numbers live in a config file, not in code. UI: volume shown on every screen, master volume popup from it, per-source volumes under Settings → Audio. |
 | D10 | Vehicle warnings and trip computer | Agreed 2026-10-14: a warning service (`warnd`) watches the CAN signals and shows as many warnings as possible, even where the stock cluster (D1) shows the same. Thresholds, hysteresis and timing live in a file, not in code; the first values are placeholders, not the real car's. Severity says how soon the driver has to act: *warning* within seconds (tyre pressure falling fast, oil pressure gone; warning chime, banner until acknowledged), *information* within minutes or hours, the car can still reach a workshop or fuel (tyre pressure low, range low; information chime, banner until acknowledged), *notice* not dangerous, some time soon (service due or overdue; silent). For tyre pressure the speed of a drop counts: a fast drop is a warning even while the value is still fine. Oil pressure has a static limit only (it falls fast on every lift-off). The chimes are generated in code; the information chime follows the chime volume and mute, the warning chime is audible even when muted. A trip computer (`tripd`) keeps a trip since start (resets itself after more than 2 h with the ignition off) and a long-term trip (reset by hand); consumption comes from the car's own value for now. |
-| D11 | Navigation | Agreed 2026-10-14: the phone navigates, the HU displays. A full offline navigation on the HU is not built: it would be the most resource-hungry part of the device, always worse than the phone's, and a readable map in the HU's style is a project of its own. An own Android app (R80 Companion, in this repo, Android 14 and newer) reads the turn-by-turn guidance of the phone's navigation app (Google Maps' navigation notification first, OsmAnd's interface as a second source) and sends it over Bluetooth RFCOMM to the HU (`docs/companion-protocol.md`). A navigation service (`navd`) publishes it; the UI shows the next maneuver, distance, street and arrival in its own style. Navigation needs the phone; that is accepted. The voice prompts come from the phone. Later: a reduced overview map drawn by the HU itself (main roads only), more phone sensors, and extending the HU's UI from the phone (concept open). A pointer towards the destination is dropped for now: there is no easy way to get the destination's coordinates. |
+| D11 | Navigation | Agreed 2026-10-14: the phone navigates, the HU displays. A full offline navigation on the HU is not built: it would be the most resource-hungry part of the device, always worse than the phone's, and a readable map in the HU's style is a project of its own. An own Android app (R80 Companion, in this repo, Android 14 and newer) reads the turn-by-turn guidance of the phone's navigation app (Google Maps' navigation notification first, OsmAnd's interface as a second source) and sends it over Bluetooth RFCOMM to the HU (`docs/companion-protocol.md`). A navigation service (`navd`) publishes it; the UI shows the next maneuver, distance, street and arrival in its own style. Navigation needs the phone; that is accepted. The voice prompts come from the phone. Later: a reduced overview map drawn by the HU itself (main roads only). Since 2026-10-21 the app also brings the HU the weather (open-meteo) and the altitude (never coordinates), keeps how the car was parked for when the driver is away from it (the HU sends a car status every minute and at ignition off; the parking position stays on the phone), and is a remote for the passenger (media and volume, browsing; the HU's setting "Remote from the app" can switch it off). The app looks like the HU: same fonts, accent colour and icons (generated from `Icons.qml`). A pointer towards the destination is dropped for now: there is no easy way to get the destination's coordinates. |
 | D12 | System and settings | Agreed 2026-10-15: a system service (`sysd`) keeps the user's settings and saves them, so they survive a restart; what each setting may be (type, range, default) lives in a file, not in code. It also coordinates the shutdown: when the MCU announces off, the services save their state, then the MCU gets its acknowledgement, and on the target Linux powers off cleanly before the MCU cuts the power (off on the bench). Display brightness at night follows the car's dimmer as the base, with the user's brightness setting on top (like modern devices). English only, no language setting, at least until feature complete. The HU always starts on Home. Logging and software updates come later. |
 | D13 | Phone | Agreed 2026-10-20: a phone service (`phoned`) does calls over Bluetooth hands-free on PipeWire's own telephony service (no oFono): ringing with caller ID, answer, reject, end, dial, microphone mute; one phone at a time, the one that connected last. Contacts and call history are copied from the phone (PBAP) and kept on the HU per phone, only with the driver's consent (asked the first time a phone connects; Settings → Phone syncs again or deletes the copy); favourites are local to the HU. Phone sound keeps the phone at full level; the HU sets the level itself on PipeWire stages of its own (calls: phone volume plus a call boost; music from the phone: the media volume). Music from the phone is a media source (A2DP + AVRCP): the phone plays and keeps the queue. |
 | D14 | Logging and diagnostics | Agreed 2026-10-21: the HU logs with DLT (AUTOSAR Diagnostic Log and Trace), protocol version 1 so DLT Viewer and the COVESA tools read it: the HU runs the COVESA dlt-daemon (ECU ID `R80`), every service and the UI is a DLT application with contexts per part, and log levels can be changed from outside (DLT Viewer, Settings → Diagnostics) and are kept. The daemon keeps a 16 MB ring of files on the HU. Settings → Diagnostics shows the warnings and errors per service and exports the files onto a USB stick; the stick, mounted read-only for music, is mounted writable only for that (the music from it stops for a few seconds). Logs never hold personal data (D13). The vehicle MCU's own log can join later as a second ECU (AUTOSAR CP Dlt). |
@@ -160,7 +160,7 @@ All open source, in line with the project rule:
 | vehicle info | own code (`warnd`, `tripd`, D10) | Built: warnings with chimes, trip computer. |
 | phone | own code (`phoned`, D13) on PipeWire's Bluetooth telephony, BlueZ obexd (PBAP) | Built: calls (HFP: caller ID, answer, reject, end, dial, microphone mute), contacts and call history copied per phone with consent, local favourites, the call's own PipeWire stage at the phone volume plus a call boost. Planned: echo cancellation (a PipeWire filter in the call stage), messages (MAP). |
 | radio | own driver for the tuner module | Planned: FM/DAB+, RDS/DLS text, presets (tuner not chosen). |
-| navigation | own code (`navd`), guidance from the R80 Companion app over BlueZ RFCOMM (D11) | Built: the phone's navigation app routes; the HU shows its guidance in the line-art style. Later: a small overview map drawn by the HU. |
+| navigation, companion link | own code (`navd`), the R80 Companion app over BlueZ RFCOMM (D11) | Built: the phone's navigation app routes; the HU shows its guidance in the line-art style. The weather and the altitude from the phone; the car's status to the phone (also at ignition off); the passenger's remote (media, volume, browsing). Later: a small overview map drawn by the HU, covers on the remote. |
 | system | own code (`sysd`, D12) | Built: settings storage, shutdown coordination with the MCU, display brightness, system information. Later: software updates. |
 | logging | COVESA dlt-daemon and libdlt (D14) | Built: one DLT log for the services and the UI (`hu/services/dlt.py`), a 16 MB ring of files on the HU, DLT Viewer over TCP 3490; sysd reads it as a client for Settings → Diagnostics (warnings and errors per service, log level per service) and the export onto a USB stick. Later: the system's own log (PipeWire, BlueZ, kernel) through `dlt-system`, the MCU's log as a second ECU. |
 
@@ -176,10 +176,10 @@ Done as planned:
 1. **Every screen and the Theme stayed.** They are the HMI.
 2. **A backend replaces the simulated data**: `hu/ui/qml/Sim.qml` keeps the
    mockup's property names and fills them from the D-Bus services (`hu/ui/backend.py`).
-3. **The simulation stays in the same Sim.qml**: where a service is missing, Sim falls
-   back to its simulated values. The demo mode (`./r80 demo`, Qt Design Studio) loads
-   stand-ins for the backends (`hu/ui/qml-demo/`) that are never available, so the UI
-   runs on any PC without the services.
+3. **The simulation stays in the same Sim.qml**, for the demo mode only (`./r80 demo`,
+   Qt Design Studio): it loads stand-ins for the backends (`hu/ui/qml-demo/`) that are
+   never available, so the UI runs on any PC without the services. In the live UI a
+   service that is missing shows "–" (since 2026-10-21), never simulated values.
 4. **Knob and keys** arrive from the MCU as the same events as the keyboard.
 
 Still open: a small C++ launcher instead of PySide6 boots faster and saves RAM on a small
@@ -202,6 +202,10 @@ Done:
   favourites, music from the phone; stand-ins for PipeWire's telephony, obexd and BlueZ's
   player in the virtual environment.
 - Logging and diagnostics (D14): one DLT log, Settings → Diagnostics, export onto a stick.
+- Startup time and memory measured on the Pi 3B (`docs/bench-measurements.md`); the live UI
+  shows "–" until a service answers.
+- R80 Companion v2: weather and altitude from the phone, the car's status and parking
+  position on the phone, the passenger's remote; the app in the HU's look.
 - One product, three run modes (`./r80 demo | virtual | bench`).
 - Raspberry Pi 3B bench: CAN tunnel from the test PC, headless display over VNC, the
   phone over real Bluetooth, USB sticks (`docs/bench-pi.md`).
@@ -209,14 +213,13 @@ Done:
 Next:
 1. Bench: a USB Bluetooth adapter instead of the Pi 3B's built-in one, then the long call
    and phone-music tests; echo cancellation for the car's speakers and microphone.
-2. Startup time and memory on the Pi against the targets of §5 (UI < 8 s).
-3. Software updates (D12); the system's own log (PipeWire, BlueZ, kernel) into DLT.
-4. Radio with a simulated tuner behind a thin hardware layer (needs: FM only or FM + DAB+).
-5. Log the three real buses and replace the test DBC with the real messages (also: DIS
+2. Software updates (D12); the system's own log (PipeWire, BlueZ, kernel) into DLT.
+3. Radio with a simulated tuner behind a thin hardware layer (needs: FM only or FM + DAB+).
+4. Log the three real buses and replace the test DBC with the real messages (also: DIS
    text to the cluster, the dimmer input).
-6. Hardware: vehicle MCU and its firmware, the DSP amplifier (D3), the tuner, the final
+5. Hardware: vehicle MCU and its firmware, the DSP amplifier (D3), the tuner, the final
    board (D4).
-7. Requirements per function.
+6. Requirements per function.
 
 ---
 

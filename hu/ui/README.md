@@ -65,10 +65,11 @@ artists, albums, all tracks; Bluetooth: the phone's music), Radio (FM dial),
 Phone (favourites/recent/contacts from the phone's copy, a contact's numbers and the
 favourite switch, keypad, call popup; the first time a phone connects the HU asks whether
 to copy its contacts), Vehicle (status, trip, tyres,
-service), Drive (virtual cluster), Clock & Weather, Settings. Under
+service), Drive (virtual cluster), Clock & Weather (the weather and the altitude come
+from the phone, the R80 Companion app; "–" without it), Settings. Under
 Settings → Display you can change brightness and the accent colour (red, amber,
 white, ice blue) live; Settings → Phone keeps, syncs or deletes the copy of the
-phone's contacts (D13); Settings → System shows what runs (live: the values
+phone's contacts (D13) and allows or stops the app's remote ("Remote from the app"); Settings → System shows what runs (live: the values
 of `hu-sysd`, D12); Settings → Diagnostics shows the log's warnings and errors per
 service, sets a service's log level with the knob and exports the log onto a USB stick (D14).
 The UI logs into DLT as application `HMI`, Qt's and QML's own messages as its context `QML`.
