@@ -29,6 +29,7 @@ import sys
 
 VERBOSE = 5                                         # DLT_LOG_VERBOSE, below logging.DEBUG
 logging.addLevelName(VERBOSE, "VERBOSE")
+EXIT_FLUSH_MS = 500                                 # at exit, how long buffered lines may wait for the daemon
 MAX_TEXT = 1000                                     # bytes; libdlt's message buffer is 1390
 
 # DLT log levels (PRS_Dlt: 0 off, 1 fatal ... 6 verbose) <-> logging levels
@@ -72,6 +73,7 @@ def _load():
         lib.dlt_register_context.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
         lib.dlt_log_string.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
         lib.dlt_register_log_level_changed_callback.argtypes = [ctypes.c_void_p, _CALLBACK]
+        lib.dlt_set_resend_timeout_atexit.argtypes = [ctypes.c_uint32]
         return lib
     return None
 
@@ -143,6 +145,7 @@ def app(apid: str, description: str, tag: str) -> bool:
     if _lib is None or _lib.dlt_register_app(_app.encode(), description.encode()) != 0:
         _lib = None
         return False
+    _lib.dlt_set_resend_timeout_atexit(EXIT_FLUSH_MS)      # without a daemon libdlt would wait 10 s at exit
     atexit.register(_lib.dlt_unregister_app_flush_buffered_logs)
     for cid in list(_contexts):
         _register(cid)

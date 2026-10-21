@@ -15,11 +15,19 @@ saves them as state, so they survive a restart.
                                 kernel, host, uptime_s, cpu_temp_c, load, mem_total_mb, mem_available_mb,
                                 disk_free_mb, services_up / services_missing (as, of [info] services),
                                 bt_name, bt_address, bt_powered (BlueZ adapter; bt_name "" = none)
+                  Log (a{sv}): Settings -> System -> Diagnostics, from the HU's DLT daemon (dltclient.py,
+                               diagnostics.py): connected (b), apps (aa{sv}: id, description, level,
+                               running, errors, warnings; in [diagnostics] apps order), entries (aa{sv}:
+                               time, app, context, level, text; the newest first, at most [diagnostics] keep)
                   Shutdown (a{sv}): state (idle|saving|acked|cancelled), savers (as), waiting (as),
                                     last_saved (as), last_timed_out (as), last_ms (u), last_cancelled (b)
       methods     Set(s name, v value)   checked against system.ini; errors:
                                          de.r80.System1.Error.UnknownSetting / InvalidValue
                   Reset(s name), ResetAll()
+                  SetLogLevel(s app, s level)  default | off | fatal | error | warning | info | debug |
+                                         verbose, for every context of the DLT application (kept by
+                                         the daemon); errors InvalidValue / UnknownApp / NotConnected
+                  ClearLog()             the page's counters and list back to zero
                   RegisterSaver(s name)  a service that has to save before a shutdown
                   Saved(s name)          ... has saved after PrepareForShutdown
       signals     PrepareForShutdown()
@@ -43,12 +51,15 @@ import configparser
 import json
 import math
 import os
+import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 import dlt
+import dltclient as dc
+from diagnostics import Diagnostics
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "system.ini"
 SYSTEM_CONFIG = Path("/etc/r80/system.ini")
@@ -72,7 +83,8 @@ class SettingError(ValueError):
 
 def load_config(extra: str | None = None) -> dict:
     """{"settings": {name: {"type", "default", "min", "max" | "choices"}},
-        "shutdown": {"save_timeout_s", "after_ack"}}, checked."""
+        "shutdown": {"save_timeout_s", "after_ack"}, "brightness": {...}, "info": {...},
+        "diagnostics": {"keep", "apps"}}, checked."""
     cp = configparser.ConfigParser()
     if extra and not Path(extra).is_file():
         raise ConfigError(f"config file not found: {extra}")
@@ -81,7 +93,20 @@ def load_config(extra: str | None = None) -> dict:
     shutdown = {}
     brightness = {}
     info = {}
+    diag = {}
     for section in cp.sections():
+        if section == "diagnostics":
+            unknown = set(cp.options(section)) - {"keep", "apps"}
+            if unknown:
+                raise ConfigError(f"[diagnostics] unknown key(s): {', '.join(sorted(unknown))}")
+            try:
+                diag["keep"] = int(cp.get(section, "keep"))
+                diag["apps"] = [x.strip() for x in cp.get(section, "apps").split(",") if x.strip()]
+            except (configparser.Error, ValueError) as e:
+                raise ConfigError(f"[diagnostics] {e}") from None
+            if not 1 <= diag["keep"] <= 1000:
+                raise ConfigError(f"[diagnostics] keep = {diag['keep']} is outside 1..1000")
+            continue
         if section == "info":
             unknown = set(cp.options(section)) - {"refresh_s", "services"}
             if unknown:
@@ -159,10 +184,12 @@ def load_config(extra: str | None = None) -> dict:
         raise ConfigError("[brightness] is missing")
     if not info:
         raise ConfigError("[info] is missing")
+    if not diag:
+        raise ConfigError("[diagnostics] is missing")
     for need, t in (("brightness", "number"), ("night_dimming", "bool")):
         if settings.get(need, {}).get("type") != t:
             raise ConfigError(f"[setting {need}] ({t}) is needed for the display brightness")
-    return {"settings": settings, "shutdown": shutdown, "brightness": brightness, "info": info}
+    return {"settings": settings, "shutdown": shutdown, "brightness": brightness, "info": info, "diagnostics": diag}
 
 
 def display_brightness(cfg: dict, values: dict, night: bool, dim_level: float) -> float:
@@ -390,6 +417,94 @@ def run_service(cfg: dict, state_path: Path, system: bool):
             GLib.timeout_add(int(cfg["info"]["refresh_s"] * 1000), self.refresh_info)
             bus.add_signal_receiver(self.on_owner, "NameOwnerChanged", "org.freedesktop.DBus",
                                     "org.freedesktop.DBus", "/org/freedesktop/DBus")
+            self.diag = Diagnostics(cfg["diagnostics"]["apps"], cfg["diagnostics"]["keep"])
+            self.dlt_sock, self.dlt_parser, self.log_pending = None, None, False
+            self.dlt_connect()
+
+        # ---- diagnostics: the DLT daemon's warnings and errors (Settings -> System) ---
+        def dlt_connect(self):
+            port = int(os.environ.get("DLT_DAEMON_TCP_PORT", "3490"))
+            try:
+                s = socket.create_connection(("127.0.0.1", port), timeout=1.0)
+            except OSError:
+                GLib.timeout_add(2000, self.dlt_connect)
+                return False
+            s.setblocking(False)
+            self.dlt_sock, self.dlt_parser = s, dc.Parser()
+            GLib.io_add_watch(s.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.dlt_read)
+            self.dlt_send(dc.get_log_info())
+            self.publish_log()
+            return False
+
+        def dlt_send(self, data: bytes) -> bool:
+            try:
+                self.dlt_sock.sendall(data)
+                return True
+            except (OSError, AttributeError):
+                return False
+
+        def dlt_read(self, _fd, cond):
+            data = b""
+            try:
+                data = self.dlt_sock.recv(65536)
+            except BlockingIOError:
+                return True
+            except OSError:
+                pass
+            if not data or cond & (GLib.IO_HUP | GLib.IO_ERR):
+                self.dlt_sock.close()
+                self.dlt_sock = None
+                self.publish_log()
+                GLib.timeout_add(2000, self.dlt_connect)
+                return False
+            changed = False
+            for m in self.dlt_parser.feed(data):
+                changed |= self.diag.message(m)
+            if changed:
+                self.publish_log()
+            return True
+
+        def log_v(self):
+            def var(v):
+                return (dbus.Boolean(v) if isinstance(v, bool) else dbus.UInt32(v) if isinstance(v, int)
+                        else dbus.Double(v) if isinstance(v, float) else dbus.String(v))
+            return dbus.Dictionary({
+                "connected": dbus.Boolean(self.dlt_sock is not None),
+                "apps": dbus.Array([dbus.Dictionary({k: var(v) for k, v in a.items()}, signature="sv")
+                                    for a in self.diag.apps()], signature="a{sv}"),
+                "entries": dbus.Array([dbus.Dictionary({k: var(v) for k, v in e.items()}, signature="sv")
+                                       for e in self.diag.entries], signature="a{sv}")}, signature="sv")
+
+        def publish_log(self):
+            # at most twice a second: a burst of warnings is one update for the UI
+            if not self.log_pending:
+                self.log_pending = True
+                GLib.timeout_add(500, self.send_log)
+
+        def send_log(self):
+            self.log_pending = False
+            self.PropertiesChanged(IFACE, dbus.Dictionary({"Log": self.log_v()}, signature="sv"),
+                                   dbus.Array([], signature="s"))
+            return False
+
+        @dbus.service.method(IFACE, in_signature="ss")
+        def SetLogLevel(self, app, level):
+            app, level = str(app), str(level)
+            if level != "default" and level not in dc.LEVELS:
+                raise dbus.exceptions.DBusException(f"level {level!r}: default, {', '.join(dc.LEVELS)}",
+                                                    name=IFACE + ".Error.InvalidValue")
+            if not 1 <= len(app) <= 4:
+                raise dbus.exceptions.DBusException(f"no application {app!r}", name=IFACE + ".Error.UnknownApp")
+            n = -1 if level == "default" else dc.LEVELS.index(level)
+            if not (self.dlt_send(dc.set_log_level(app, "", n)) and self.dlt_send(dc.store_configuration())
+                    and self.dlt_send(dc.get_log_info())):
+                raise dbus.exceptions.DBusException("no DLT daemon", name=IFACE + ".Error.NotConnected")
+            log.info(f"log level of {app}: {level}")
+
+        @dbus.service.method(IFACE)
+        def ClearLog(self):
+            self.diag.clear()
+            self.publish_log()
 
         # ---- shutdown (D12) -------------------------------------------------------
         # ---- system information (Settings -> System) ------------------------------
@@ -596,13 +711,15 @@ def run_service(cfg: dict, state_path: Path, system: bool):
                 return dbus.Double(self.display)
             if name == "Info":
                 return self.info_v()
+            if name == "Log":
+                return self.log_v()
             raise dbus.exceptions.DBusException(f"no property {name}", name="org.freedesktop.DBus.Error.UnknownProperty")
 
         @dbus.service.method(PROPS, in_signature="s", out_signature="a{sv}")
         def GetAll(self, iface):
             return dbus.Dictionary({"Settings": self.settings_v(), "Schema": self.schema_v(),
                                     "Shutdown": self.shutdown_v(), "DisplayBrightness": dbus.Double(self.display),
-                                    "Info": self.info_v()},
+                                    "Info": self.info_v(), "Log": self.log_v()},
                                    signature="sv")
 
         @dbus.service.signal(PROPS, signature="sa{sv}as")
@@ -626,7 +743,6 @@ def main():
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
     ap.add_argument("--check", action="store_true", help="check the config, list the settings and exit")
     a = ap.parse_args()
-    dlt.app("SYS", "System service", "sysd")
     try:
         cfg = load_config(a.config)
     except ConfigError as e:
@@ -636,6 +752,7 @@ def main():
             rng = f"{s['min']:g}..{s['max']:g}" if s["type"] == "number" else ", ".join(s.get("choices", [])) or "true/false"
             print(f"{n:16s} {s['type']:7s} {rng:45s} default {s['default']}")
         return
+    dlt.app("SYS", "System service", "sysd")
     run_service(cfg, Path(a.state), a.system)
 
 

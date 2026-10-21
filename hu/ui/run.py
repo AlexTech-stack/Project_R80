@@ -43,7 +43,7 @@ Rectangle {
 
 SHOTS = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media",
          "media_browse", "media_album", "radio", "phone", "phone_contact", "vehicle", "cluster", "clock", "settings", "call",
-         "volume", "audio", "phone_settings", "system", "trip", "warning", "warnings"]
+         "volume", "audio", "phone_settings", "system", "diagnostics", "trip", "warning", "warnings"]
 
 
 def register_backends(system_bus: bool):
@@ -175,6 +175,16 @@ def run_screenshots(app, win, out: Path):
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")
             QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 5))
+        elif name == "diagnostics":
+            win.setProperty("demoVolume", False)
+            win.setProperty("current", "settings")
+
+            def diagnostics():
+                screen = win.findChild(QObject, "settingsScreen")
+                screen.setProperty("cat", 6)
+                screen.setProperty("inPanel", True)
+                screen.setProperty("item", 2)               # the media service, its level switch
+            QTimer.singleShot(300, diagnostics)
         elif name in ("media_browse", "media_album"):
             win.setProperty("demoWarnings", False)
             win.setProperty("current", "media")

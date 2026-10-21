@@ -9,7 +9,10 @@ QtObject {
     property var settings: ({})
     property real displayBrightness: 0.9
     property var info: ({})
+    property var log: ({})
     signal changed()
     function set(name, value) {}
     function resetAll() {}
+    function setLogLevel(app, level) {}
+    function clearLog() {}
 }

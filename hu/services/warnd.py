@@ -537,7 +537,6 @@ def main():
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
     ap.add_argument("--chime-dir", default=str(runtime / "r80-chimes"), help="where the generated chimes go")
     a = ap.parse_args()
-    dlt.app("WRN", "Vehicle warnings", "warnd")
     try:
         general, rules = load_config(a.config)
     except ConfigError as e:
@@ -546,6 +545,7 @@ def main():
         for r in rules:
             print(f"{r['id']:34} {r['kind']:6} {r['severity']:8} {', '.join(r['signals'])}")
         return
+    dlt.app("WRN", "Vehicle warnings", "warnd")
     run_service(general, rules, a.system, a.sink, Path(a.chime_dir))
 
 

@@ -19,5 +19,10 @@ mkdir -p "$STATE/trace" "$RUN"
 # the daemon writes the files only in logging mode "both" (internal and external); it keeps the mode here
 CFG="$STATE/dlt-runtime.cfg"
 { grep -v '^LoggingMode' "$CFG" 2>/dev/null || true; echo "LoggingMode = 3"; } >"$CFG.new" && mv "$CFG.new" "$CFG"
+# one daemon per RUN_DIR: it holds the lock while it runs; a control socket left by one that was
+# killed (power cut, SIGKILL) would stop the next one from starting
+exec 9>"$RUN/dlt.lock"
+flock -n 9 || { echo "a DLT daemon already runs with $RUN" >&2; exit 1; }
+rm -f "$RUN/dlt-ctrl.sock"
 sed -e "s|@STATE@|$STATE|" -e "s|@TRACE@|$STATE/trace|" -e "s|@RUN@|$RUN|" "$HERE/dlt.conf" >"$RUN/dlt.conf"
 exec dlt-daemon -c "$RUN/dlt.conf" -t "$RUN" -p "$PORT"

@@ -566,8 +566,9 @@ SYS_SERVICE, SYS_PATH, SYS_IFACE = "de.r80.System", "/de/r80/System", "de.r80.Sy
 
 class System(QObject):
     """QML singleton mirroring hu-sysd (de.r80.System1, D12): the user's settings as a dict
-    {name: value} (names as in hu/system.ini; sysd checks and saves every change) and the
-    display brightness sysd computes from them, day/night and the car's dimmer."""
+    {name: value} (names as in hu/system.ini; sysd checks and saves every change), the
+    display brightness sysd computes from them, day/night and the car's dimmer, the system
+    information and the DLT log's warnings and errors (log: connected, apps, entries)."""
     changed = Signal()
     availableChanged = Signal()
 
@@ -577,6 +578,7 @@ class System(QObject):
         self._settings = {}
         self._display = 0.9
         self._info = {}
+        self._log = {}
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
         self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, SYS_PATH)
@@ -605,6 +607,8 @@ class System(QObject):
             self._display = float(changed["DisplayBrightness"])
         if "Info" in changed:
             self._info = {str(k): _py(v) for k, v in changed["Info"].items()}
+        if "Log" in changed:
+            self._log = _py(changed["Log"])
         if not self._available:
             self._available = True
             self.availableChanged.emit()
@@ -614,6 +618,7 @@ class System(QObject):
     settings = Property("QVariantMap", lambda self: dict(self._settings), notify=changed)
     displayBrightness = Property(float, lambda self: self._display, notify=changed)
     info = Property("QVariantMap", lambda self: dict(self._info), notify=changed)
+    log = Property("QVariantMap", lambda self: dict(self._log), notify=changed)
 
     @Slot(str, "QVariant")
     def set(self, name, value):
@@ -625,6 +630,16 @@ class System(QObject):
     @Slot()
     def resetAll(self):
         self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "ResetAll", "", (),
+                            lambda *_: None, lambda *_: None, timeout=1.0)
+
+    @Slot(str, str)
+    def setLogLevel(self, app, level):
+        self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "SetLogLevel", "ss", (str(app), str(level)),
+                            lambda *_: None, lambda e: log.warning(f"log level of {app} refused: {e}"), timeout=2.0)
+
+    @Slot()
+    def clearLog(self):
+        self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "ClearLog", "", (),
                             lambda *_: None, lambda *_: None, timeout=1.0)
 
 
