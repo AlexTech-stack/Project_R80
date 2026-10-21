@@ -6,6 +6,7 @@ import QtQuick
 // screenshots, Qt Design Studio); the live UI registers the real backend instead.
 QtObject {
     property bool available: false
+    readonly property bool demo: true          // Sim.qml shows its demo data
     property var settings: ({})
     property real displayBrightness: 0.9
     property var info: ({})

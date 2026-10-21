@@ -71,20 +71,20 @@ Item {
         anchors.centerIn: parent
         anchors.verticalCenterOffset: 6
         radius: 270
-        value: Sim.speed
+        value: Fmt.known(Sim.speed) ? Sim.speed : 0
         maxValue: 260
         majorTicks: 13
         startAngle: 140; sweep: 260
         lineWidth: 12
         Column {
             anchors.centerIn: parent
-            T { anchors.horizontalCenter: parent.horizontalCenter; text: Math.round(Sim.speed); font.family: Theme.numberFamily; font.pixelSize: 150 }
+            T { anchors.horizontalCenter: parent.horizontalCenter; text: Fmt.num(Sim.speed, 0); font.family: Theme.numberFamily; font.pixelSize: 150 }
             T { anchors.horizontalCenter: parent.horizontalCenter; text: "km/h"; color: Theme.accentMid }
         }
         T {
             anchors.horizontalCenter: parent.horizontalCenter
             y: parent.height - 120
-            text: Sim.gear
+            text: Sim.gear || "–"
             font.family: Theme.numberFamily
             font.pixelSize: 64
         }
@@ -94,7 +94,7 @@ Item {
     ArcGauge {
         x: 20; anchors.verticalCenter: parent.verticalCenter
         radius: 150
-        value: Sim.rpm
+        value: Fmt.known(Sim.rpm) ? Sim.rpm : 0
         maxValue: 7000
         majorTicks: 7
         startAngle: 110; sweep: 140
@@ -103,7 +103,7 @@ Item {
         Column {
             x: 120; anchors.verticalCenter: parent.verticalCenter
             T { text: "rpm"; font.pixelSize: Theme.fontSmall; color: Theme.accentMid }
-            T { text: Math.round(Sim.rpm / 10) * 10; font.family: Theme.numberFamily; font.pixelSize: 48 }
+            T { text: Fmt.known(Sim.rpm) ? Math.round(Sim.rpm / 10) * 10 : "–"; font.family: Theme.numberFamily; font.pixelSize: 48 }
             T { text: "x1000"; font.pixelSize: 14; color: Theme.accentDim }
         }
     }
@@ -130,16 +130,16 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 6
             Icon { anchors.right: parent.right; path: Icons.fuel; width: 40; height: 40 }
-            T { anchors.right: parent.right; text: Sim.rangeKm; font.family: Theme.numberFamily; font.pixelSize: 48 }
+            T { anchors.right: parent.right; text: Fmt.num(Sim.rangeKm, 0); font.family: Theme.numberFamily; font.pixelSize: 48 }
             T { anchors.right: parent.right; text: "km range"; font.pixelSize: Theme.fontSmall; color: Theme.accentMid }
         }
     }
 
     // bottom info line
     T { x: Theme.margin; anchors.bottom: parent.bottom; anchors.bottomMargin: 18
-        text: Math.floor(Sim.odometer) + " km"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
+        text: (Fmt.known(Sim.odometer) ? Math.floor(Sim.odometer) : "–") + " km"; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
     T { anchors.right: parent.right; anchors.rightMargin: Theme.margin; anchors.bottom: parent.bottom; anchors.bottomMargin: 18
-        text: (Sim.outsideTemp >= 0 ? "+" : "") + Math.round(Sim.outsideTemp) + " °C"; font.pixelSize: Theme.fontNormal }
+        text: Fmt.known(Sim.outsideTemp) ? (Sim.outsideTemp >= 0 ? "+" : "") + Math.round(Sim.outsideTemp) + " °C" : "– °C"; font.pixelSize: Theme.fontNormal }
     Row {
         anchors.left: parent.left; anchors.leftMargin: Theme.margin
         anchors.top: parent.top; anchors.topMargin: 18

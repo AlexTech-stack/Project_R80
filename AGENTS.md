@@ -76,7 +76,7 @@ hu/                               the headunit software (target software: runs u
     hu.qmlproject                 Qt Design Studio project (open this in Design Studio)
     qml/main.qml                  window, screen switching, knob/key handling
     qml/Theme.qml                 all colours, fonts and sizes
-    qml/Sim.qml                   the data the screens show: from R80.Backend, or fake when a backend is unavailable
+    qml/Sim.qml                   the data the screens show: from R80.Backend; live "–" while a service is missing, demo: fake
     qml/Icons.qml                 self-drawn line icons as SVG path data
     qml/ManeuverIcon.qml          navigation maneuver arrows, drawn in code (D11)
     qml/*Screen.qml               one file per screen
@@ -274,7 +274,10 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
 - Visual style: black background, monochrome line art in the accent colour (red by default).
   See `docs/ui/UI_vision_V01.png`.
 - The screens read their data only from `hu/ui/qml/Sim.qml`. Sim takes it from the
-  R80.Backend singletons and falls back to its fake data when a backend is unavailable.
+  R80.Backend singletons. In the live UI a service that is not there (yet) shows nothing:
+  numbers NaN (show them through `Fmt.num` / `Fmt.known`: "–"), texts and lists empty. Only in
+  demo mode (`System.demo`, the stand-ins) does Sim show its fake data. Never show fake
+  values in the live UI.
   When you add or rename a Property, Signal or Slot in `hu/ui/backend.py`, add it to its
   demo stand-in in `hu/ui/qml-demo/R80/Backend/` too (`ci/check_rules.py` checks this).
 - D-Bus property names in `vehicled.py` are the DBC signal names.

@@ -20,7 +20,7 @@ Item {
         }
         T {
             anchors.verticalCenter: parent.verticalCenter
-            text: Sim.muted ? "Muted" : Sim.volume
+            text: Sim.muted ? "Muted" : Sim.audioKnown ? Sim.volume : "–"
             color: Sim.muted ? Theme.accentDim : Theme.accentMid
             font.pixelSize: Theme.fontSmall + 2
         }

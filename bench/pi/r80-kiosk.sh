@@ -4,12 +4,16 @@
 # dbus-run-session so all of them share one session bus.
 #
 # Override paths with R80_REPO, R80_VENV and R80_MUSIC; extra navd flags with R80_NAV_ARGS.
+# Start-up (docs/bench-measurements.md): the services that are not on the audio path run at a lower
+# CPU priority (R80_SERVICE_NICE, default 10), so the UI gets the CPU first and shows its first
+# frame about 1.5 s earlier; until a service answers, the UI shows "–" for its values.
 set -euo pipefail
 
 VENV="${R80_VENV:-$HOME/r80-venv}"
 R="${R80_REPO:-$HOME/Project_R80}"
 MUSIC="${R80_MUSIC:-$HOME/Music}"
 PY="$VENV/bin/python"
+LOW=(nice -n "${R80_SERVICE_NICE:-10}" "$PY")          # not on the audio path: the UI first
 
 [[ -x "$PY" ]] || { echo "python not found at $PY" >&2; exit 1; }
 [[ -f "$R/hu/ui/run.py" ]] || { echo "headunit not found at $R" >&2; exit 1; }
@@ -18,20 +22,19 @@ PY="$VENV/bin/python"
 # (16 MB ring), DLT Viewer / dlt-receive on port 3490
 export DLT_PIPE_DIR="${XDG_RUNTIME_DIR:-/tmp}/r80-dlt"
 "$R/hu/services/dlt-daemon.sh" "${XDG_STATE_HOME:-$HOME/.local/state}/r80/dlt" "$DLT_PIPE_DIR" >/tmp/r80-dlt.log 2>&1 &
-"$PY" "$R/dev/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 vcan_motor --can2-bus motor >/tmp/r80-mcu.log 2>&1 &
-"$PY" "$R/hu/services/vehicled.py" >/tmp/r80-vehicled.log 2>&1 &
+"${LOW[@]}" "$R/dev/mcu_emu/mcu_emu.py" --can1 vcan_info --can2 vcan_motor --can2-bus motor >/tmp/r80-mcu.log 2>&1 &
+"${LOW[@]}" "$R/hu/services/vehicled.py" >/tmp/r80-vehicled.log 2>&1 &
 "$PY" "$R/hu/services/mediad.py" --music-dir "$MUSIC" --usb system --bluetooth system >/tmp/r80-mediad.log 2>&1 &
 "$PY" "$R/hu/services/audiod.py" >/tmp/r80-audiod.log 2>&1 &
-"$PY" "$R/hu/services/warnd.py" >/tmp/r80-warnd.log 2>&1 &
-"$PY" "$R/hu/services/tripd.py" >/tmp/r80-tripd.log 2>&1 &
-"$PY" "$R/hu/services/sysd.py" >/tmp/r80-sysd.log 2>&1 &
+"${LOW[@]}" "$R/hu/services/warnd.py" >/tmp/r80-warnd.log 2>&1 &
+"${LOW[@]}" "$R/hu/services/tripd.py" >/tmp/r80-tripd.log 2>&1 &
+"${LOW[@]}" "$R/hu/services/sysd.py" >/tmp/r80-sysd.log 2>&1 &
 # shellcheck disable=SC2086  # R80_NAV_ARGS: extra navd flags, e.g. --tcp 47800 for the phone panel on the PC
-"$PY" "$R/hu/services/navd.py" --bluetooth system ${R80_NAV_ARGS:-} >/tmp/r80-navd.log 2>&1 &
+"${LOW[@]}" "$R/hu/services/navd.py" --bluetooth system ${R80_NAV_ARGS:-} >/tmp/r80-navd.log 2>&1 &
 # calls and contacts: PipeWire's telephony service (WirePlumber, r80-telephony.conf) and obexd run on
 # the desktop's session bus
 DESKTOP_BUS="unix:path=/run/user/$(id -u)/bus"
-"$PY" "$R/hu/services/phoned.py" --telephony "$DESKTOP_BUS" --obex "$DESKTOP_BUS" --bluez system >/tmp/r80-phoned.log 2>&1 &
-sleep 1
+"${LOW[@]}" "$R/hu/services/phoned.py" --telephony "$DESKTOP_BUS" --obex "$DESKTOP_BUS" --bluez system >/tmp/r80-phoned.log 2>&1 &
 
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-eglfs}"
 export QT_QPA_EGLFS_HIDECURSOR="${QT_QPA_EGLFS_HIDECURSOR:-1}"

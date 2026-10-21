@@ -8,7 +8,8 @@ The same QML runs in all three modes (see the [root README](../../README.md)):
 - **live** (`./r80 virtual ui`, the Pi bench): `run.py` registers the R80.Backend
   singletons from `backend.py`, which talk to the services over D-Bus.
 - **demo** (`./r80 demo`, Qt Design Studio): `qml-demo/R80/Backend/` stands in for
-  them. Every stand-in says `available: false`, so `qml/Sim.qml` shows its fake data.
+  them. Every stand-in says `available: false` (and `System.demo: true`), so `qml/Sim.qml`
+  shows its fake data. In the live UI a service that is not there yet shows "–" instead.
 
 ![Overview](../../docs/screenshots/overview.png)
 
@@ -92,7 +93,7 @@ covers.py              image://cover: a track's cover tinted in the accent colou
 hu.qmlproject          Qt Design Studio project
 qml/main.qml           window, header, screen switching, knob/key handling
 qml/Theme.qml          colours, fonts, sizes (single place to restyle)
-qml/Sim.qml            the screens' data: from R80.Backend, fake when a backend is unavailable
+qml/Sim.qml            the screens' data: from R80.Backend; live: "–" while a service is missing; demo: fake
 qml/Icons.qml          ~60 self-drawn line icons as SVG path data (24x24)
 qml/*Screen.qml        one file per screen
 qml/MediaBrowser.qml   media browse list: folders, artists, albums, tracks (knob, press, back)
@@ -113,7 +114,8 @@ fonts/                 B612 (OFL/EPL) and OSP-DIN (OFL) with licence files
 - Design resolution is 1280 x 768 (5:3, the proportions of the vision sheet); the
   window scales to any size.
 - New backend Property, Signal or Slot in `backend.py`: add it to its stand-in in
-  `qml-demo/R80/Backend/` too, and the fake value to `qml/Sim.qml`.
+  `qml-demo/R80/Backend/` too, and to `qml/Sim.qml` its fake value for demo mode and
+  "unknown" (NaN, empty) for the live UI while the service is missing.
 - The brand mark is a placeholder ("R80"). Swap `qml/Logo.qml` if you want something else.
 - No third-party icon sets or images: icons, car drawings, maneuver arrows and the
   placeholder cover art are drawn in code. A track's own cover (live) is shown tinted

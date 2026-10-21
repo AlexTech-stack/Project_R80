@@ -4,13 +4,16 @@ import R80.Backend 1.0
 
 // Everything the screens show, in one place. Each value comes from its service through
 // the R80.Backend singletons (hu/ui/backend.py: Vehicle, Media, Audio, Warnings, Trip,
-// Nav, System) when that service runs, and falls back to built-in demo data when it does
-// not. Demo mode (hu/ui/run.py --demo, screenshots, Qt Design Studio) loads stand-ins
-// for the backends (hu/ui/qml-demo) that report nothing connected, so the whole UI runs
-// on demo data. Radio and phone calls are still simulated.
+// Nav, System, Phone) when that service runs. Demo mode (hu/ui/run.py --demo, screenshots,
+// Qt Design Studio) loads stand-ins for the backends (hu/ui/qml-demo) that report nothing
+// connected, and the UI runs on the demo data below. In the live UI a service that is not
+// there (yet) shows nothing: numbers are NaN (the screens show "–", Fmt.num), texts and
+// lists empty. The settings keep their defaults; radio and weather have no service yet and
+// stay simulated.
 QtObject {
     id: sim
 
+    readonly property bool demo: System.demo === true      // demo mode: the stand-ins are loaded
     readonly property bool live: Vehicle.linkUp
     property Connections vehicleConn: Connections {
         target: Vehicle
@@ -20,6 +23,7 @@ QtObject {
     }
 
     signal navigate(string screen)
+    Component.onCompleted: if (!demo) { playing = false; trackPos = 0; mediaSource = "" }   // live: nothing until mediad says so
 
     // ---- audio (hu-audiod) -------------------------------------------------
     // Master volume, mute and the per-source volumes mirror audiod; changing one asks
@@ -74,17 +78,17 @@ QtObject {
     property real _fuelLevel: 0.62
     property real _odometer: 187432.4
 
-    readonly property real speed: live ? Vehicle.speed : _speed
-    readonly property real rpm: live ? Vehicle.rpm : (speed < 1 ? 780 : 900 + (speed % 45) * 48 + speed * 6)
-    readonly property string gear: live ? Vehicle.gear : "D"
-    readonly property real outsideTemp: live ? Vehicle.outsideTemp : 12
-    readonly property real oilTemp: live ? Vehicle.oilTemp : _oilTemp
-    readonly property real coolantTemp: live ? Vehicle.coolantTemp : 88
-    readonly property real batteryVolt: live ? Vehicle.batteryVolt : _batteryVolt
-    readonly property real fuelLevel: live ? Vehicle.fuelLevel : _fuelLevel          // 0..1
-    readonly property int rangeKm: live ? Vehicle.rangeKm : Math.round(fuelLevel * 760)
-    readonly property real odometer: live ? Vehicle.odometer : _odometer
-    readonly property real avgConsumption: live ? Vehicle.avgConsumption : 11.8
+    readonly property real speed: live ? Vehicle.speed : (demo ? _speed : NaN)
+    readonly property real rpm: live ? Vehicle.rpm : (demo ? (speed < 1 ? 780 : 900 + (speed % 45) * 48 + speed * 6) : NaN)
+    readonly property string gear: live ? Vehicle.gear : demo ? "D" : ""
+    readonly property real outsideTemp: live ? Vehicle.outsideTemp : (demo ? 12 : NaN)
+    readonly property real oilTemp: live ? Vehicle.oilTemp : (demo ? _oilTemp : NaN)
+    readonly property real coolantTemp: live ? Vehicle.coolantTemp : (demo ? 88 : NaN)
+    readonly property real batteryVolt: live ? Vehicle.batteryVolt : (demo ? _batteryVolt : NaN)
+    readonly property real fuelLevel: live ? Vehicle.fuelLevel : (demo ? _fuelLevel : NaN)          // 0..1
+    readonly property real rangeKm: live ? Vehicle.rangeKm : demo ? Math.round(fuelLevel * 760) : NaN
+    readonly property real odometer: live ? Vehicle.odometer : (demo ? _odometer : NaN)
+    readonly property real avgConsumption: live ? Vehicle.avgConsumption : (demo ? 11.8 : NaN)
     // ---- trip computer (D10; from hu-tripd when live) -------------------
     // {km, minutes, avgSpeed, maxSpeed}; "since start" and "long-term"
     // Live from hu-tripd; without it the fake data counts its own (as in the mockup).
@@ -95,8 +99,9 @@ QtObject {
         return { km: v.distance || 0, minutes: Math.floor((v.time || 0) / 60),
                  avgSpeed: Math.round(v.avg_speed || 0), maxSpeed: Math.round(v.max_speed || 0) }
     }
-    readonly property var tripStart: tripLive ? _fromTripd(Trip.sinceStart) : _fakeStart
-    readonly property var tripLong: tripLive ? _fromTripd(Trip.longTerm) : _fakeLong
+    readonly property var _noTrip: ({ km: NaN, minutes: NaN, avgSpeed: NaN, maxSpeed: NaN })
+    readonly property var tripStart: tripLive ? _fromTripd(Trip.sinceStart) : demo ? _fakeStart : _noTrip
+    readonly property var tripLong: tripLive ? _fromTripd(Trip.longTerm) : demo ? _fakeLong : _noTrip
     function resetTrip(which) {
         if (tripLive) Trip.reset(which === "start" ? "since_start" : "long_term")
         else _setTrip(which, { km: 0, minutes: 0, avgSpeed: 0, maxSpeed: 0 })
@@ -114,10 +119,11 @@ QtObject {
         }
         if (_tripSeconds >= 60) _tripSeconds = 0
     }
-    readonly property var tyres: live ? Vehicle.tyres : [2.3, 2.3, 2.2, 2.2]   // FL FR RL RR, bar
-    readonly property int serviceKm: live ? Vehicle.serviceKm : 6400
-    readonly property int serviceDays: live ? Vehicle.serviceDays : 112
-    property int altitude: 412
+    readonly property var tyres: live ? Vehicle.tyres : demo ? [2.3, 2.3, 2.2, 2.2] : [NaN, NaN, NaN, NaN]   // FL FR RL RR, bar
+    readonly property real serviceKm: live ? Vehicle.serviceKm : demo ? 6400 : NaN
+    readonly property real serviceDays: live ? Vehicle.serviceDays : demo ? 112 : NaN
+    readonly property real altitude: demo ? 412 : NaN      // no source yet (GNSS on the board, or the phone)
+    readonly property bool audioKnown: demo || audioLive    // the volume: shown as "–" until audiod answers
     property int volume: 14                // master volume, 0 .. volumeMax
     property int volumeMax: 30
     property bool muted: false
@@ -132,7 +138,7 @@ QtObject {
     // Most urgent first: {id, severity: warning | information | notice, text, acknowledged, since}
     readonly property bool warnLive: Warnings.available
     property var _demoWarnings: []
-    readonly property var warnings: warnLive ? Warnings.active : _demoWarnings
+    readonly property var warnings: warnLive ? Warnings.active : demo ? _demoWarnings : []
     function acknowledgeWarning(id) {
         if (warnLive) Warnings.acknowledge(id)
         else _demoWarnings = _demoWarnings.map(w => w.id === id ? Object.assign({}, w, { acknowledged: true }) : w)
@@ -173,20 +179,20 @@ QtObject {
     property bool shuffle: false
     property bool repeatAll: true
     property string mediaSource: "USB"
-    readonly property var mediaSources: mediaLive ? Media.sources : ["Library", "USB"]
+    readonly property var mediaSources: mediaLive ? Media.sources : demo ? ["Library", "USB"] : []
 
     // the queue: how many tracks, its name, the next ones in play order
-    readonly property int trackCount: mediaLive ? Media.trackCount : _tracks.length
+    readonly property int trackCount: mediaLive ? Media.trackCount : demo ? _tracks.length : 0
     property string _demoQueueTitle: "All tracks"
-    readonly property string queueTitle: mediaLive ? Media.queueTitle : _demoQueueTitle
-    readonly property var upNext: mediaLive ? Media.upNext : _demoUpNext(trackIndex, repeatAll)
+    readonly property string queueTitle: mediaLive ? Media.queueTitle : demo ? _demoQueueTitle : ""
+    readonly property var upNext: mediaLive ? Media.upNext : demo ? _demoUpNext(trackIndex, repeatAll) : []
     // reading the tags of a (new) source: how far (equal when done)
-    readonly property int mediaScanned: mediaLive ? Media.scanned : _tracks.length
-    readonly property int mediaTotal: mediaLive ? Media.sourceTrackCount : _tracks.length
+    readonly property int mediaScanned: mediaLive ? Media.scanned : demo ? _tracks.length : 0
+    readonly property int mediaTotal: mediaLive ? Media.sourceTrackCount : demo ? _tracks.length : 0
     // never null: an empty source shows a blank track
     readonly property var _blankTrack: ({ title: "", artist: "", album: "", trackNumber: 0, duration: 0, cover: "" })
     readonly property var track: mediaLive ? (Media.trackCount > 0 ? Media.track : _blankTrack)
-                                           : (_tracks[Math.min(trackIndex, _tracks.length - 1)] || _blankTrack)
+                                           : demo ? (_tracks[Math.min(trackIndex, _tracks.length - 1)] || _blankTrack) : _blankTrack
 
     function _demoUpNext(index, repeat) {
         const out = [], n = _tracks.length
@@ -314,7 +320,7 @@ QtObject {
     // hu-phoned (de.r80.Phone1, singleton Phone) drives these when it runs (also with no
     // phone connected); otherwise the simulated phone below (key C, Settings -> System).
     readonly property bool phoneLive: Phone.available
-    readonly property bool phoneConnected: phoneLive ? Phone.connected : true
+    readonly property bool phoneConnected: phoneLive ? Phone.connected : demo
     property string _demoCallState: "idle"
     property string _demoCaller: "Anna"
     property string _demoNumber: "+49 171 2345 678"
@@ -331,18 +337,18 @@ QtObject {
     readonly property bool micMuted: phoneLive ? Phone.micMuted : _demoMicMuted
     readonly property bool micAvailable: phoneLive ? Phone.micAvailable : true     // a real microphone feeds the call
     function setMicMuted(muted) { if (phoneLive) Phone.setMicMuted(muted); else _demoMicMuted = muted }
-    readonly property string phoneName: phoneLive ? (Phone.connected ? Phone.deviceName : "No phone connected") : "Alex's phone"
-    readonly property int phoneBattery: phoneLive ? Phone.battery : 78       // -1 = unknown
+    readonly property string phoneName: phoneLive ? (Phone.connected ? Phone.deviceName : "No phone connected") : demo ? "Alex's phone" : "–"
+    readonly property int phoneBattery: phoneLive ? Phone.battery : demo ? 78 : -1       // -1 = unknown
     // the copy of the phone's contacts and call history (hu-phoned, with consent); entries
     // { id, name, number (the first), numbers [{number, type}], fav } and { name, number, kind, when }
     readonly property var _favIds: phoneLive ? Phone.favourites.map(f => f.id) : []
     function _contact(c) { return { id: c.id, name: c.name, number: c.numbers.length ? c.numbers[0].number : "",
                                     numbers: c.numbers, fav: _favIds.indexOf(c.id) >= 0 } }
-    readonly property var contacts: phoneLive ? Phone.contacts.map(_contact) : _demoContacts
-    readonly property var favourites: phoneLive ? Phone.favourites.map(_contact) : _demoContacts.filter(c => c.fav)
+    readonly property var contacts: phoneLive ? Phone.contacts.map(_contact) : demo ? _demoContacts : []
+    readonly property var favourites: phoneLive ? Phone.favourites.map(_contact) : demo ? _demoContacts.filter(c => c.fav) : []
     readonly property var recents: phoneLive ? Phone.history.map(h => ({ name: h.name || h.number, number: h.number,
                                                                         kind: h.kind, when: _when(h.time) }))
-                                             : _demoRecents
+                                             : demo ? _demoRecents : []
     function _when(t) {         // "2026-10-20 14:44" -> 14:44 today, Yesterday, Mon, 12.10.
         const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2})/.exec(t || "")
         if (!m) return ""
@@ -356,12 +362,12 @@ QtObject {
         _demoContacts = _demoContacts.map(c => c.name === contact.name ? Object.assign({}, c, { fav: on }) : c)
     }
     // Settings -> Phone: may the HU keep a copy, sync, delete it (demo: a pretend copy)
-    readonly property string phoneConsent: phoneLive ? Phone.consent : "yes"
+    readonly property string phoneConsent: phoneLive ? Phone.consent : demo ? "yes" : ""
     readonly property bool askPhoneConsent: phoneLive && Phone.connected && Phone.consent === ""
     readonly property string phoneSyncState: phoneLive ? Phone.syncState : "idle"
     readonly property string phoneSyncError: phoneLive ? Phone.syncError : ""
-    readonly property real phoneSyncedAt: phoneLive ? Phone.syncedAt : now.getTime() / 1000 - 3600
-    readonly property int phoneContactCount: phoneLive ? Phone.contactCount : _demoContacts.length
+    readonly property real phoneSyncedAt: phoneLive ? Phone.syncedAt : demo ? now.getTime() / 1000 - 3600 : 0
+    readonly property int phoneContactCount: phoneLive ? Phone.contactCount : demo ? _demoContacts.length : 0
     function phoneSetConsent(allowed) { if (phoneLive) Phone.setConsent(allowed) }
     function phoneSync() { if (phoneLive) Phone.sync() }
     function phoneDeleteCopy() { if (phoneLive) Phone.deleteCopy() }
@@ -435,7 +441,10 @@ QtObject {
                       "de.r80.Nav", "de.r80.System"],
         services_missing: [], bt_name: "R80", bt_address: "B8:27:EB:00:00:00", bt_powered: true
     })
-    readonly property var systemInfo: settingsLive && System.info.version !== undefined ? System.info : _fakeInfo
+    readonly property var _noInfo: ({ version: "–", os: "–", kernel: "–", host: "", uptime_s: -1, cpu_temp_c: -1, load: -1,
+                                      mem_total_mb: 0, mem_available_mb: 0, disk_free_mb: -1, services_up: [],
+                                      services_missing: [], bt_name: "", bt_address: "", bt_powered: false })
+    readonly property var systemInfo: settingsLive && System.info.version !== undefined ? System.info : demo ? _fakeInfo : _noInfo
 
     // ---- diagnostics (Settings -> Diagnostics): the DLT log's warnings and errors from hu-sysd;
     // without it demo values. apps: {id, description, level, running, errors, warnings};
@@ -463,7 +472,7 @@ QtObject {
                 { time: t + 35, app: "HMI", context: "QML", level: "warning", text: "Failed to register with host portal" }]
         };
     }
-    readonly property var systemLog: logLive ? System.log : _demoLog
+    readonly property var systemLog: logLive ? System.log : demo ? _demoLog : { connected: false, apps: [], entries: [] }
     function setLogLevel(app, level) {
         if (logLive) { System.setLogLevel(app, level); return }
         const l = Object.assign({}, _demoLevels); l[app] = level; _demoLevels = l;
@@ -471,7 +480,8 @@ QtObject {
     function clearLog() { if (logLive) System.clearLog(); else _demoCleared = true }
     // the log onto a USB stick (hu-sysd): {state: idle | writing | done | failed, message, dir}
     property var _demoExport: ({ state: "done", message: "8 log files, 15.8 MB in R80-logs/2026-10-21_111530", dir: "" })
-    readonly property var logExport: logLive && System.logExport.state !== undefined ? System.logExport : _demoExport
+    readonly property var logExport: logLive && System.logExport.state !== undefined ? System.logExport
+                                                                                        : demo ? _demoExport : { state: "idle", message: "", dir: "" }
     function exportLog() {
         if (logLive) { System.exportLog(); return }
         _demoExport = { state: "done", message: "8 log files, 15.8 MB in R80-logs/" + Qt.formatDateTime(now, "yyyy-MM-dd_HHmmss"), dir: "" };
@@ -545,8 +555,9 @@ QtObject {
                  modifier: leg.modifier || "", exit: leg.exit || 0, distance: at - _navDriven, street: leg.street,
                  text: "", remainingM: remaining, remainingS: secs, arrival: new Date(now.getTime() + secs * 1000) };
     }
-    readonly property var navPhone: navLive ? { connected: Nav.phone.connected === true, device: Nav.phone.device || "" } : _fakePhone
-    readonly property var guidance: navLive ? _fromNavd(Nav.guidance) : _fakeGuidance
+    readonly property var navPhone: navLive ? { connected: Nav.phone.connected === true, device: Nav.phone.device || "" }
+                                            : demo ? _fakePhone : { connected: false, device: "" }
+    readonly property var guidance: navLive ? _fromNavd(Nav.guidance) : demo ? _fakeGuidance : _noGuidance
     function _fromNavd(g) {
         if (!g.active) return _noGuidance;
         return { active: true, stale: g.stale === true, source: g.source, maneuver: g.maneuver, modifier: g.modifier,
@@ -567,12 +578,12 @@ QtObject {
         interval: 1000; running: true; repeat: true
         onTriggered: {
             sim.now = new Date();
-            if (sim.playing && !sim.mediaLive) {
+            if (sim.playing && !sim.mediaLive && sim.demo) {
                 sim.trackPos += 1;
                 if (sim.trackPos >= sim.track.duration) sim.nextTrack();
             }
             if (sim._demoCallState === "active") sim._demoCallSeconds += 1;
-            if (!sim.live) {
+            if (!sim.live && sim.demo) {
                 sim._odometer += sim.speed / 3600;
                 sim._driveTrips(1);
                 sim._fuelLevel = Math.max(0.05, sim._fuelLevel - sim.speed * 0.0000004);
@@ -592,7 +603,7 @@ QtObject {
             }
             sim._speed += (sim.targetSpeed - sim._speed) * 0.02;
             if (sim._speed < 0.3 && sim.targetSpeed === 0) sim._speed = 0;
-            if (sim.navDemo === "live" && !sim.navLive) sim._driveRoute(0.05);
+            if (sim.navDemo === "live" && !sim.navLive && sim.demo) sim._driveRoute(0.05);
         }
     }
 }

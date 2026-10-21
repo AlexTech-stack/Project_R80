@@ -40,7 +40,7 @@ Item {
         }
         T {
             anchors.right: parent.right; anchors.rightMargin: 28; y: 10
-            text: Sim.volume
+            text: Sim.audioKnown ? Sim.volume : "–"
             font.family: Theme.numberFamily
             font.pixelSize: 56
             color: Sim.muted ? Theme.accentDim : Theme.accent

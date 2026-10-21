@@ -87,8 +87,8 @@ RESTBUS_ARGS="--lights LowBeam" ./r80 virtual restbus   # night mode (stop the d
 MCU_CAN2=vcan_comfort MCU_CAN2_BUS=comfort ./r80 virtual up   # CAN 2 on Comfort instead of Motor
 ```
 
-The UI falls back to the mockup's own fake data whenever hu-vehicled or the
-MCU link is not there, so `hu/ui/run.py` also works on its own.
+The live UI shows "–" for the vehicle values while hu-vehicled or the MCU link is not
+there; `./r80 demo` runs the UI on fake data without any service.
 
 ## Media (hu-mediad)
 
@@ -171,8 +171,8 @@ the media level (`--bt-audio pipewire`; the virtual HU runs `none`). Leaving the
 pauses the phone and closes the stage; the phone starting its music while nothing else
 plays switches over; the phone going away falls back to the Library. MPRIS is not wired
 up yet. `hu/ui/qml/Sim.qml` binds the
-Media screen to this service and falls back to the mockup's own playlist when
-`hu-mediad` is not on the bus, so `hu/ui/run.py` still works alone.
+Media screen to this service; without `hu-mediad` on the bus the live UI shows "–"
+(the demo mode has a playlist of its own).
 
 ## Audio (hu-audiod)
 
@@ -329,7 +329,7 @@ In the UI (`hu/ui/backend.py` → `Sim.guidance`, `Sim.navPhone`) the Navigation
 screen shows the maneuver arrow, distance, street and arrival; dimmed with
 "Phone connection lost" while stale, and what to do when there is no route or
 no phone. The Home tile and the Drive screen show the next maneuver too.
-Without navd the UI falls back to the mockup's fake guidance.
+Without navd the live UI shows no guidance ("no phone"); the demo mode has a fake route.
 
 ```bash
 ./r80 virtual drive && ./r80 virtual phone
