@@ -20,3 +20,10 @@
 {"type":"media_cmd","cmd":"play_from","path":"albums/Kilometer%20Null","index":2}
 {"type":"browse","id":7,"path":"albums","offset":0,"count":20}
 {"type":"browse_result","id":7,"path":"albums","title":"Albums","total":2,"offset":0,"entries":[{"kind":"album","id":"albums/Kilometer%20Null","title":"Kilometer Null","subtitle":"Neon Autobahn","index":-1},{"kind":"album","id":"albums/V8%20Sessions","title":"V8 Sessions","subtitle":"The Quattro Lines","index":-1}]}
+{"type":"update_status","version":"0.1.0","pending":"","state":"idle","message":""}
+{"type":"update_offer","id":1,"version":"0.2.0","size":368640,"sha256":"5f0c6a1c3d2b4e8f9a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f"}
+{"type":"update_status","version":"0.1.0","pending":"","state":"receiving","message":"","id":1,"received":0}
+{"type":"update_chunk","id":1,"offset":0,"data":"cjgwLWh1IHVwZGF0ZQ=="}
+{"type":"update_ack","id":1,"received":14}
+{"type":"update_done","id":1}
+{"type":"update_status","version":"0.1.0","pending":"0.2.0","state":"ready","message":"0.2.0 starts with the next start of the HU"}

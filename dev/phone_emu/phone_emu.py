@@ -19,6 +19,7 @@ Connects to hu-navd's companion link socket and speaks the companion protocol
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import socket
@@ -101,6 +102,55 @@ class Phone:
                 break
             time.sleep(0.02)
         return next((m for m in self.received if m["type"] == msg_type), None)
+
+    def send_update(self, path: Path | str, id: int = 1, version: str | None = None, stop_after: int | None = None,
+                    timeout: float = 60.0) -> dict | None:
+        """Offer an update file and send it as the app does (docs/companion-protocol.md: at most
+        UPDATE_WINDOW pieces before an update_ack, going on where the HU says). stop_after: stop
+        after that many bytes (a link that breaks off). Returns the HU's last update_status for it
+        (refused, or after update_done: ready / failed), or None on timeout."""
+        data = Path(path).read_bytes()
+        if version is None:                                   # r80-hu-<version>.r80u
+            version = Path(path).name[len("r80-hu-"):-len(".r80u")]
+        start = len(self.received)
+        self.send(cl.update_offer(id, version, len(data), hashlib.sha256(data).hexdigest()))
+        deadline = time.monotonic() + timeout
+
+        def statuses():
+            return [m for m in self.received[start:] if m["type"] == cl.UPDATE_STATUS]
+        answer = None
+        while time.monotonic() < deadline and answer is None:
+            answer = next((m for m in statuses() if m["state"] == "refused"
+                           or (m["state"] == "receiving" and m.get("id") == id)), None)
+            time.sleep(0.01)
+        if answer is None or answer["state"] == "refused":
+            return answer
+        sent = acked = answer.get("received") or 0
+        end = len(data) if stop_after is None else min(len(data), stop_after)
+        while acked < end and time.monotonic() < deadline:
+            while sent < end and sent - acked < cl.UPDATE_WINDOW * cl.MAX_CHUNK:
+                piece = data[sent:sent + cl.MAX_CHUNK]
+                self.send(cl.update_chunk(id, sent, piece))
+                sent += len(piece)
+            acks = [m["received"] for m in self.received[start:] if m["type"] == cl.UPDATE_ACK and m["id"] == id]
+            if acks and acks[-1] != acked:
+                acked = acks[-1]
+                if acked < sent - cl.UPDATE_WINDOW * cl.MAX_CHUNK:   # the HU missed some: go back
+                    sent = acked
+            failed = [m for m in statuses() if m["state"] == "failed"]
+            if failed:
+                return failed[-1]
+            time.sleep(0.002)
+        if stop_after is not None:
+            return None
+        mark = len(self.received)
+        self.send(cl.update_done(id))
+        while time.monotonic() < deadline:
+            done = [m for m in self.received[mark:] if m["type"] == cl.UPDATE_STATUS and m["state"] in ("ready", "failed")]
+            if done:
+                return done[-1]
+            time.sleep(0.05)
+        return None
 
     def close(self, bye: bool = False):
         self._stop.set()

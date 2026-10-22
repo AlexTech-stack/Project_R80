@@ -48,7 +48,7 @@ step; the Android app (`companion-android/`, later) implements the same rules.
 | `app` | string | required | `r80-companion` or `r80-hu` |
 | `version` | string | required | software version of the sender |
 | `device` | string | optional | phone model, for logs |
-| `caps` | list of strings | optional | what the sender takes part in. The phone: `guidance`, `weather`, `position` (it sends them), `car_status` (it wants them), `remote` (it wants `media` and `browse_result`, sends `media_cmd` and `browse`). The HU: `weather`, `position` (it wants them), `car_status` (it sends them), `remote` (the other side of it). Each side sends an optional message type only to a peer that lists it |
+| `caps` | list of strings | optional | what the sender takes part in. The phone: `guidance`, `weather`, `position` (it sends them), `car_status` (it wants them), `remote` (it wants `media` and `browse_result`, sends `media_cmd` and `browse`), `update` (it may send software updates). The HU: `weather`, `position` (it wants them), `car_status` (it sends them), `remote` (the other side of it), `update` (it takes software updates and sends `update_status`). Each side sends an optional message type only to a peer that lists it |
 | `heartbeat_s` | number | HU only | heartbeat interval the phone has to keep |
 
 ### `heartbeat` (both directions)
@@ -186,6 +186,33 @@ albums, all tracks), `offset` (integer, default 0), `count` (integer 1–20, def
 `subtitle` (both at most 60 characters), `index` (a track's position in the list, for
 `play_from`; -1 otherwise). A page may have fewer entries than asked for, so that it fits
 into a line; the phone asks for the next one from `offset` + their number.
+
+### Software updates: `update_status`, `update_offer`, `update_chunk`, `update_ack`, `update_done`
+
+The phone brings the HU's software (D12): an update file `r80-hu-<version>.r80u` from the
+project's releases, sent in pieces. The HU trusts nothing the phone says about it: hu-sysd
+checks the file's signature and hashes before it installs anything. An installed update starts
+with the next start of the HU.
+
+`update_status` (HU → phone): after the hello and whenever something changes. `version` (the
+running software; may be a development name that is not a version), `pending` (installed,
+starts next; `""` = none), `state` (`idle`, `receiving`, `checking`, `unpacking`, `ready`,
+`failed`, `refused`), `message` (why, for the user), and while receiving `id` and `received`
+(bytes the HU has).
+
+`update_offer` (phone → HU): `id` (integer of the phone's choice), `version`, `size` (bytes,
+at most 50 MB), `sha256` (of the whole file, 64 lower-case hex). The HU answers with
+`update_status`: `refused` (not newer than the running or the waiting version, busy, no
+space; `message` says which) or `receiving` with `received`: where the phone starts. That is
+0, or more when an earlier transfer of the same file broke off; the HU keeps the pieces
+under the file's SHA-256 until another update is offered.
+
+`update_chunk` (phone → HU): `id`, `offset` (bytes), `data` (base64, at most 2048 bytes).
+The HU answers each with `update_ack`: `id`, `received`. The phone sends at most 8 pieces
+before their ack; a piece that is not the next one is not taken (the ack says where to go on).
+
+`update_done` (phone → HU): `id`. The HU checks size and SHA-256 and hands the file to
+hu-sysd; the phone hears `checking`, `unpacking`, then `ready` (with `pending`) or `failed`.
 
 ### `bye` (both directions)
 

@@ -60,7 +60,7 @@ hu/                               the headunit software (target software: runs u
     warnd.py, warnings.ini        vehicle warnings (D10), D-Bus de.r80.Warnings, and its rules
     tripd.py, trip.ini            trip computer (D10), D-Bus de.r80.Trip, and its config
     companion_link.py             companion app <-> HU protocol (D11, docs/companion-protocol.md)
-    navd.py, nav.ini              navigation service and the companion link (D11): guidance, weather, car status, remote
+    navd.py, nav.ini              navigation service and the companion link (D11): guidance, weather, car status, remote, updates
     sysd.py, system.ini           system and settings service (D12), D-Bus de.r80.System, and the settings' schema
     saver.py                      a service's part in the shutdown: register with sysd, save, report
     removable.py                  USB sticks for mediad through udisks2 (mount read-only, gone)

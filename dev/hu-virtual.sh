@@ -117,7 +117,8 @@ up() {
   # updates (D12): releases and trusted development keys in $RUN (TC_HU_043 brings its own key)
   start sysd python3 "$REPO/hu/services/sysd.py" --state "$RUN/settings.json" --log-dir "$RUN/dlt-state/trace" \
     --releases "$RUN/releases" --dev-keys "$RUN/update-keys" --allow-dev-key ${SYS_ARGS:-}
-  start navd python3 "$REPO/hu/services/navd.py" --socket "$RUN/companion.sock" --bluetooth "${NAV_BLUETOOTH:-session}" ${NAV_ARGS:-}
+  start navd python3 "$REPO/hu/services/navd.py" --socket "$RUN/companion.sock" --bluetooth "${NAV_BLUETOOTH:-session}" \
+    --update-dir "$RUN/update-incoming" ${NAV_ARGS:-}
   # calls and contacts: the tests' / phone panel's stand-ins for PipeWire's telephony and obexd on the
   # session bus (PHONE_TELEPHONY / PHONE_OBEX = a D-Bus address for real ones); copies of contacts in $RUN/phone
   start phoned python3 "$REPO/hu/services/phoned.py" --telephony "${PHONE_TELEPHONY:-session}" --bluez "${PHONE_BLUEZ:-none}" \
