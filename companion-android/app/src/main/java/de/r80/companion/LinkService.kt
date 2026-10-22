@@ -23,6 +23,7 @@ import android.os.IBinder
 class LinkService : Service() {
     private var link: Link? = null
     private var surroundings: Surroundings? = null
+    private var generation = 0                  // the current link's; a stopped one's callbacks are ignored
     private val onChange: () -> Unit = { link?.update(AppState.guidance) }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -33,7 +34,16 @@ class LinkService : Service() {
                 checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
         startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
             (if (located) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0))
+        if (intent?.action == RESTART && link != null) {      // another HU or transport chosen
+            generation++
+            surroundings?.stop()
+            surroundings = null
+            AppState.unlisten(onChange)
+            link?.stop()
+            link = null
+        }
         if (link == null) {
+            val gen = generation
             val transports: () -> Transport
             if (Settings.transport(this) == "wifi") {
                 val address = Settings.parseAddress(Settings.huAddress(this)) ?: return fail("bad HU address")
@@ -48,7 +58,8 @@ class LinkService : Service() {
                 transports = transports,
                 device = "${Build.MANUFACTURER} ${Build.MODEL}",
                 version = BuildConfig.VERSION_NAME,
-                onStatus = { s ->
+                onStatus = onStatus@{ s ->
+                    if (gen != generation) return@onStatus
                     // the link ends (the phone leaves the car, or the HU switched off): park here
                     if (AppState.link.state == Link.State.CONNECTED && s.state != Link.State.CONNECTED) {
                         park()
@@ -144,5 +155,8 @@ class LinkService : Service() {
         private const val CAR_CHANNEL = "car"
         fun start(ctx: Context) = ctx.startForegroundService(Intent(ctx, LinkService::class.java))
         fun stop(ctx: Context) = ctx.stopService(Intent(ctx, LinkService::class.java))
+        private const val RESTART = "de.r80.companion.RESTART"
+        /** The link with the HU and transport chosen now; only if it runs. */
+        fun restart(ctx: Context) = ctx.startForegroundService(Intent(ctx, LinkService::class.java).setAction(RESTART))
     }
 }

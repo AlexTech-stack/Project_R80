@@ -98,7 +98,11 @@ class MainActivity : Activity() {
         devices = settingsPage.findViewById(R.id.hu_device)
         devices.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                paired.getOrNull(pos)?.let { Settings.setHuDevice(this@MainActivity, it.first) }
+                val chosen = paired.getOrNull(pos)?.first ?: return
+                if (chosen == Settings.huDevice(this@MainActivity)) return     // also: the list was filled
+                Settings.setHuDevice(this@MainActivity, chosen)
+                // a running link (it also retries by itself) keeps its HU until told
+                if (AppState.link.state != Link.State.STOPPED) LinkService.restart(this@MainActivity)
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
@@ -106,6 +110,7 @@ class MainActivity : Activity() {
         transport.check(if (Settings.transport(this) == "wifi") R.id.transport_wifi else R.id.transport_bluetooth)
         transport.setOnCheckedChangeListener { _, id ->
             Settings.setTransport(this, if (id == R.id.transport_wifi) "wifi" else "bluetooth")
+            if (AppState.link.state != Link.State.STOPPED) LinkService.restart(this)
             show()
         }
         connect.setOnClickListener {
