@@ -1,68 +1,19 @@
 #!/usr/bin/env python3
 """TC_HU_037: the DLT log (hu/services/dlt.py, dlt-daemon.sh) and Settings -> Diagnostics
 (hu-sysd, diagnostics.py). Over the DLT daemon's TCP port, as DLT Viewer would
-(hu/services/dltclient.py): every service is registered as its DLT application with a
+(hu/services/dltclient.py): every service (and hu-syslogd: OS) is registered as its DLT application with a
 MAIN context and descriptions; a warning a service logs (navd: a bad line from the phone)
 arrives in the stream with its application, context and level, and in sysd's Log (counted,
 newest first). SetLogLevel through sysd changes every context of a service at the daemon
 (back to default too), refuses unknown levels and applications; ClearLog empties the page.
 The DLT files on the HU are TC_HU_038's."""
-import os
-import socket
-import sys
-import threading
 import time
 
 import dbus
 
-from common import SERVICES, check, finish, phone, sys_props, system
+from common import DLT_PORT, DltStream, check, finish, phone, sys_props, system
 
-sys.path.insert(0, str(SERVICES))
-import dltclient as dc  # noqa: E402
-
-PORT = int(os.environ.get("DLT_DAEMON_TCP_PORT", "3490"))
-APPS = ["VEH", "MED", "AUD", "WRN", "TRP", "NAV", "SYS", "PHN"]
-
-
-class Stream:
-    """A DLT client: every message the daemon sends, collected in the background."""
-
-    def __init__(self):
-        self.sock = socket.create_connection(("127.0.0.1", PORT), timeout=3.0)
-        self.parser, self.messages, self.lock = dc.Parser(), [], threading.Lock()
-        threading.Thread(target=self.read, daemon=True).start()
-
-    def read(self):
-        while True:
-            try:
-                data = self.sock.recv(65536)
-            except OSError:
-                return
-            if not data:
-                return
-            with self.lock:
-                self.messages += self.parser.feed(data)
-
-    def send(self, data: bytes):
-        self.sock.sendall(data)
-
-    def wait(self, cond, timeout=4.0):
-        t0 = time.monotonic()
-        while time.monotonic() - t0 < timeout:
-            with self.lock:
-                hit = [m for m in self.messages if cond(m)]
-            if hit:
-                return hit[-1]
-            time.sleep(0.05)
-        return None
-
-    def log_info(self, timeout=3.0) -> dict:
-        """Get Log Info: {apid: {"description", "contexts": {ctid: {"level", "description"}}}}."""
-        with self.lock:
-            self.messages = [m for m in self.messages if m.service != dc.GET_LOG_INFO]
-        self.send(dc.get_log_info())
-        m = self.wait(lambda m: m.service == dc.GET_LOG_INFO and m.subtype == dc.CONTROL_RESPONSE, timeout)
-        return dc.log_info(m.data, m.big_endian) if m and m.status == 7 else {}
+APPS = ["VEH", "MED", "AUD", "WRN", "TRP", "NAV", "SYS", "PHN", "OS"]
 
 
 def error_of(fn, *args):
@@ -93,11 +44,11 @@ def wait_log(cond, timeout=4.0):
 
 
 try:
-    dlt = Stream()
+    dlt = DltStream()
 except OSError as e:
-    check(False, f"the DLT daemon answers on TCP {PORT} ({e})")
+    check(False, f"the DLT daemon answers on TCP {DLT_PORT} ({e})")
     finish()
-check(True, f"the DLT daemon answers on TCP {PORT}")
+check(True, f"the DLT daemon answers on TCP {DLT_PORT}")
 
 info = dlt.log_info()
 missing = [a for a in APPS if a not in info]
@@ -109,7 +60,7 @@ check({"USB", "BTPL", "SAVE"} <= set(info.get("MED", {}).get("contexts", {})),
 
 ok, v = wait_log(lambda v: v["connected"] and all(app_view(a).get("running") for a in APPS), timeout=6.0)
 check(ok, f"sysd reads the daemon: connected, every service running ({[(a['id'], a['running']) for a in v.get('apps', [])]})")
-check([a["id"] for a in v["apps"]][:9] == ["HMI", "VEH", "MED", "AUD", "WRN", "TRP", "NAV", "SYS", "PHN"],
+check([a["id"] for a in v["apps"]][:10] == ["HMI", "VEH", "MED", "AUD", "WRN", "TRP", "NAV", "SYS", "PHN", "OS"],
       "in the order of system.ini's [diagnostics] apps")
 
 # --- a warning: navd drops a bad line from the phone

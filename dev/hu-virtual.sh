@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start / stop the virtual R80 headunit environment. Usually run as ./r80 virtual <command>.
 #
-#   ./hu-virtual.sh up          buses, BoAt gateway, DLT daemon, MCU emulator, hu-vehicled, hu-mediad, hu-audiod, hu-warnd, hu-tripd, hu-navd, hu-sysd, hu-phoned
+#   ./hu-virtual.sh up          buses, BoAt gateway, DLT daemon, MCU emulator, hu-vehicled, hu-mediad, hu-audiod, hu-warnd, hu-tripd, hu-navd, hu-sysd, hu-phoned, hu-syslogd
 #   ./hu-virtual.sh drive       ... plus the BoAt restbus playing the drive cycle
 #   ./hu-virtual.sh phone       phone emulator: plays a navigation route as the companion app would (D11)
 #   ./hu-virtual.sh phonepanel  phone panel: a GUI that plays the phone (routes, any guidance, link loss)
@@ -15,7 +15,7 @@
 #
 # Env overrides: BOAT_ROOT (~/BoAt), BOAT_PORT (50061), UI_ARGS (extra hu/ui/run.py arguments, e.g. --fullscreen),
 #                HU_DUT=external (up starts only buses + gateway; the DUT, i.e. MCU emulator,
-#                vehicled, mediad, audiod, warnd, tripd, navd, sysd and phoned, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
+#                vehicled, mediad, audiod, warnd, tripd, navd, sysd, phoned and syslogd, runs elsewhere, e.g. in a container: ci/run_boat_sil.sh --dut-arch=arm64),
 #                MCU_CAN2 / MCU_CAN2_BUS (vcan_motor / motor; or vcan_comfort / comfort),
 #                MUSIC_DIR (media library; unset = the test library in $RUN/test-music, dev/media_tags.py),
 #                MEDIA_ARGS (extra hu/mediad.py arguments), MEDIA_USB (session: the tests' udisks2 stand-in, default;
@@ -91,7 +91,7 @@ up() {
   start gateway env BOAT_CAN_INTERFACES="$(IFS=,; echo "${BUSES[*]}")" BOAT_GRPC_PORT="$BOAT_PORT" "$GATEWAY"
   wait_gateway
   [[ -z "${PI_IP:-}" || -n "${R80_NO_TUNNEL:-}" ]] || start tunnel env PI_IP="$PI_IP" "$REPO/bench/pi/pc-cannelloni.sh"
-  if [[ "${HU_DUT:-}" == external ]]; then echo "  DUT is external: not starting mcu, vehicled, mediad, audiod, warnd, tripd, navd, sysd and phoned"; return; fi
+  if [[ "${HU_DUT:-}" == external ]]; then echo "  DUT is external: not starting mcu, vehicled, mediad, audiod, warnd, tripd, navd, sysd, phoned and syslogd"; return; fi
   if command -v dlt-daemon >/dev/null; then
     start dlt "$REPO/hu/services/dlt-daemon.sh" "$RUN/dlt-state" "$DLT_PIPE_DIR" "$DLT_DAEMON_TCP_PORT"
   else
@@ -120,6 +120,9 @@ up() {
   # session bus (PHONE_TELEPHONY / PHONE_OBEX = a D-Bus address for real ones); copies of contacts in $RUN/phone
   start phoned python3 "$REPO/hu/services/phoned.py" --telephony "${PHONE_TELEPHONY:-session}" --bluez "${PHONE_BLUEZ:-none}" \
     --obex "${PHONE_OBEX:-session}" --state-dir "$RUN/phone" --call-audio "${PHONE_CALL_AUDIO:-none}"
+  # the system log: the PC's journal is not the HU's, so a stand-in file of journal entries (JSON lines;
+  # the tests append to it)
+  start syslogd python3 "$REPO/hu/services/syslogd.py" --journal-file "$RUN/journal.jsonl" --state "$RUN/syslog.cursor"
 }
 
 case "${1:-status}" in
@@ -148,9 +151,9 @@ case "${1:-status}" in
     cd "$REPO/test/boat"
     BOAT_HOST="localhost:$BOAT_PORT" boat test run manifest_hu_smoke.json --report-dir "$RUN/reports" "${@:2}"
     ;;
-  down) for n in ui panel phonepanel phone restbus mcufwd tunnel phoned sysd navd tripd warnd audiod mediad vehicled mcu dlt gateway; do stop "$n"; done ;;
+  down) for n in ui panel phonepanel phone restbus mcufwd tunnel syslogd phoned sysd navd tripd warnd audiod mediad vehicled mcu dlt gateway; do stop "$n"; done ;;
   status)
-    for n in gateway tunnel mcufwd dlt mcu vehicled mediad audiod warnd tripd navd sysd phoned restbus phone phonepanel panel ui; do
+    for n in gateway tunnel mcufwd dlt mcu vehicled mediad audiod warnd tripd navd sysd phoned syslogd restbus phone phonepanel panel ui; do
       if [[ -f "$RUN/$n.pid" ]] && kill -0 "$(cat "$RUN/$n.pid")" 2>/dev/null; then s=running; else s=stopped; fi
       printf "  %-9s %s\n" "$n" "$s"
     done

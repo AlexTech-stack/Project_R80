@@ -33,11 +33,12 @@ import dltclient as dc  # noqa: E402
 
 TRACE = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "r80" / "dlt" / "trace"
 SERVICES = {"VEH": "vehicled", "MED": "mediad", "AUD": "audiod", "WRN": "warnd", "TRP": "tripd",
-            "NAV": "navd", "SYS": "sysd", "PHN": "phoned", "HMI": "UI"}
+            "NAV": "navd", "SYS": "sysd", "PHN": "phoned", "OS": "syslogd", "HMI": "UI"}
 HU_PROCS = [("dlt-daemon", r"^dlt-daemon "), ("mcu_emu", r"mcu_emu\.py"), ("vehicled", r"services/vehicled\.py"),
             ("mediad", r"services/mediad\.py"), ("audiod", r"services/audiod\.py"), ("warnd", r"services/warnd\.py"),
             ("tripd", r"services/tripd\.py"), ("navd", r"services/navd\.py"), ("sysd", r"services/sysd\.py"),
-            ("phoned", r"services/phoned\.py"), ("UI", r"hu/ui/run\.py")]
+            ("phoned", r"services/phoned\.py"), ("syslogd", r"services/syslogd\.py"),
+            ("UI", r"hu/ui/run\.py")]
 
 
 def run(*cmd) -> str:

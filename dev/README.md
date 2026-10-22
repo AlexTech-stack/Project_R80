@@ -414,8 +414,17 @@ gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set ac
 services: its pipes in `$XDG_RUNTIME_DIR/r80-hu/dlt` (`DLT_PIPE_DIR`, exported to everything the
 environment starts), its files in `$XDG_RUNTIME_DIR/r80-hu/dlt-state/trace`, clients on
 `DLT_PORT` (3490). Every service is a DLT application (`VEH MED AUD WRN TRP NAV SYS PHN`, the
-UI `HMI`) with contexts per part (`MED USB`, `PHN PBAP`, `PY` for uncaught exceptions, ...);
+UI `HMI`, the system log `OS`) with contexts per part (`MED USB`, `PHN PBAP`, `PY` for uncaught exceptions, ...);
 each line also goes to the service's `.log` file.
+
+The system's own log (`hu/services/syslogd.py`, DLT application `OS`) reads a stand-in here:
+the PC's journal is not the HU's. It follows `$XDG_RUNTIME_DIR/r80-hu/journal.jsonl`, journal
+entries as `journalctl -o json` prints them; append made-up ones to see them cleaned (TC_HU_042):
+
+```bash
+echo '{"MESSAGE": "hci0: link to 5A:3C:00:11:7E:42 lost", "PRIORITY": "4", "_TRANSPORT": "kernel"}' \
+  >>$XDG_RUNTIME_DIR/r80-hu/journal.jsonl        # OS KERN warning: "hci0: link to ..:7E:42 lost"
+```
 
 ```bash
 dlt-receive -a localhost                          # the live log as text (dlt-tools)
@@ -520,6 +529,7 @@ gdbus call --session -d de.r80.Phone -o /de/r80/Phone -m de.r80.Phone1.Answer
 | TC_HU_039 | weather and altitude from the phone: the HU asks for them (caps), Weather and Position on D-Bus, never coordinates, bad messages dropped, kept after the link is gone |
 | TC_HU_040 | car status to the phone (car_status): after the hello only to a phone that asks, the vehicle values, trip, warnings, accent; the final one when the ignition goes off; stale signals left out |
 | TC_HU_041 | the passenger's remote (companion media, media_cmd, browse): the state after the hello and on changes, commands reach mediad and audiod, browsing page by page, play from a list, setting phone_remote off: told and ignored |
+| TC_HU_042 | the system's own log in DLT (hu-syslogd, a stand-in journal): each source its context and level, other sources left out; addresses shortened, numbers masked, lines with names left out, quoted network names masked; 30 repeats written once plus a count; counted in Diagnostics; log level through sysd |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).
