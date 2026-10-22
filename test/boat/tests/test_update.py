@@ -33,7 +33,8 @@ from udisks_emu import UD, FakeUDisks  # noqa: E402
 
 RUN = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu"
 RELEASES, KEYS, STICK = RUN / "releases", RUN / "update-keys", RUN / "test-update-stick"
-TMP = Path(tempfile.mkdtemp(prefix="r80-update-test-"))
+RUN.mkdir(parents=True, exist_ok=True)
+TMP = Path(tempfile.mkdtemp(prefix="update-test-", dir=RUN))    # shared with a DUT in a container, /tmp is not
 
 
 def key(name):
