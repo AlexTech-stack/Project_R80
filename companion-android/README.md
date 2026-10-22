@@ -46,6 +46,12 @@ Android 14 or newer, Kotlin, no Google Play services, MIT like the rest of R80.
   mute, up next, and browsing the HU's library (folders, artists, albums, all tracks) to
   play from any list. Only while the HU allows it (on the HU: Settings → Phone → "Remote
   from the app", on by default); otherwise it only shows. No covers yet.
+- **Headunit software (Settings):** the app fetches the HU's software updates from the
+  project's [releases](https://github.com/AlexTech-stack/Project_R80/releases) (the newest
+  `r80-hu-<version>.r80u`, at most every 6 hours while connected, or "Check now") and sends a
+  newer one to the HU over the link in the background. The HU checks its signature itself and
+  installs it with its next start; the app shows the HU's version, what waits and the progress.
+  Settings → "Bring updates to the headunit" switches it off.
 - **The look:** black, line art in the HU's accent colour (the HU tells it), the HU's fonts
   (B612, OSP-DIN: taken from [`../hu/ui/fonts`](../hu/ui/fonts) as the app's assets, with
   their licence files) and the HU's icons (`res/drawable/hu_*.xml`, generated from
@@ -127,6 +133,7 @@ app/src/main/java/de/r80/companion/
   Surroundings.kt         position, altitude and the weather (open-meteo) for the HU
   CarStore.kt             the last car_status and where the car was parked (on the phone)
   RemotePage.kt           the Remote tab
+  Releases.kt, UpdateSender.kt, Versions.kt   the HU's software updates: releases, sending, version order
   Hu.kt                   the HU's look: accent colours, fonts, icons, buttons, tabs, rows
   MainActivity.kt, Settings.kt, AppState.kt   screen (header, tabs Car | Remote | Settings), settings, shared state
 app/src/main/assets/maneuver_icons.json        known arrows (built from captures)

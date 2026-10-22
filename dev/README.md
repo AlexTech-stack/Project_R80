@@ -408,6 +408,22 @@ python3 hu/services/sysd.py --check              # check system.ini and list the
 gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set accent "<'amber'>"
 ```
 
+## Software updates (D12)
+
+`hu/services/update.py` is the update file and the release folders, `ci/make_bundle.py`
+(`./r80 bundle`) makes an update file, hu-sysd installs one (`InstallFile`, a USB stick's
+`R80-update/`), hu-navd takes one from the phone (caps `update`). In the virtual mode sysd keeps
+its releases in `$XDG_RUNTIME_DIR/r80-hu/releases` and trusts the development keys in
+`$XDG_RUNTIME_DIR/r80-hu/update-keys` (the tests put their own there; TC_HU_043, TC_HU_044).
+
+```bash
+./r80 bundle --out /tmp/upd                                          # signed with your development key
+ci/make_bundle.py --public-key > $XDG_RUNTIME_DIR/r80-hu/update-keys/dev.pem    # trust it here
+gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.InstallFile /tmp/upd/r80-hu-*.r80u file
+python3 -c 'import sys; sys.path[:0]=["dev/phone_emu","hu/services"]; from phone_emu import Phone; \
+  p=Phone(); p.connect(caps=("update",)); print(p.send_update(sys.argv[1]))' /tmp/upd/r80-hu-*.r80u   # as the phone
+```
+
 ## Log and diagnostics (DLT, D14)
 
 `./r80 virtual up` starts the HU's DLT daemon (`hu/services/dlt-daemon.sh`) before the

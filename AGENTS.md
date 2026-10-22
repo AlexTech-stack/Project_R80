@@ -280,6 +280,11 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
   car (the export): never phone numbers, contact or device names, streets; Bluetooth addresses
   only through `dlt.address()`. The system's own log goes in only through `hu/services/syslogd.py`,
   which cleans it (`syslog.ini`); never forward the journal or syslog raw (COVESA `dlt-system`).
+- Software updates (D12): the HU installs only update files signed with a key it trusts
+  (`hu/services/update.py` checks the signature and every file; the phone and the USB stick are
+  not trusted). An update never changes the running release: it starts with the next start, and
+  a release that is not healthy goes back to the previous one. Keep the update file format in
+  `update.py`, `ci/make_bundle.py` and the app (`Releases.kt`, `UpdateSender.kt`) in step.
 - The architecture decisions D1 to D14 are in `docs/architecture/HU_architecture_v0.3.md`.
   Do not contradict them. If a change needs a different decision, ask Alex first.
 
