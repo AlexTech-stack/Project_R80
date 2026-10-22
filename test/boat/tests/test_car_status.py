@@ -48,8 +48,8 @@ cl.validate(s)
 with Restbus(address=ADDRESS) as rb:
     rb.set(IgnitionState="IgnitionOn", FuelLevel=40, Range=300, BatteryVoltage=14.1, OutsideTemp=-4.5,
            ServiceDistance=-150, ServiceDays=20)
-    ok, _, _ = wait_for(lambda h: h["Power"] == "on" and abs(h.get("Range", 0) - 300) < 1 and h.get("ServiceDistance") == -150,
-                        timeout=8.0)
+    ok, _, _ = wait_for(lambda h: h["Power"] == "on" and abs(h.get("Range", 0) - 300) < 1 and h.get("ServiceDistance") == -150
+                        and h.get("OutsideTemp") == -4.5, timeout=8.0)     # sent once a second: the slow arm64 DUT
     check(ok, "the HU is on and has the values")
 
     quiet = phone(device="No status phone")
