@@ -54,7 +54,8 @@ The ready-made files live in `bench/pi/`:
 Pi 3B, 5 V/2.5 A supply, microSD >= 16 GB (A1/A2), heatsink (the 3B throttles
 under sustained Qt + GStreamer load), HDMI monitor, USB keyboard and mouse,
 speakers/headphones on the 3.5 mm jack. PC and Pi on the same LAN. The Pi's
-built-in Bluetooth is the link to the phone; keep it enabled. For the
+Bluetooth link to the phone is a USB adapter (the bench uses a TP-Link UB500); the
+built-in one is switched off (section 10). For the
 navigation test an Android 14+ phone with Google Maps and the R80 Companion app.
 
 ## 2. Operating system
@@ -418,6 +419,23 @@ Then switch the built-in one off (`dtoverlay=disable-bt` in `/boot/firmware/conf
 reboot) and pair the phone again (new address); `r80-bt-sco.sh` does nothing on a USB
 adapter. The copies of the contacts are per phone and stay.
 
+After the reboot the adapter may come up blocked and off: `systemd-rfkill` can block a new
+device, and BlueZ remembers an adapter that was the second one as switched off. Unblock it
+(per USB port: in another port it may be blocked again) and switch it on; both are kept:
+
+```bash
+for r in /sys/class/rfkill/rfkill*; do [ "$(cat $r/type)" = bluetooth ] && echo 0 | sudo tee $r/soft; done
+bluetoothctl power on
+bluetoothctl list                                # only the USB adapter, as hci0
+```
+
+On the phone, forget the old "R80-Pi", pair again (steps 2 to 4 above), and in the app choose
+the new R80-Pi (Bluetooth → the device list); a running link switches to it.
+
+With the UB500 (2026-10-22): phone music over A2DP and the app link together for 10 minutes
+without a drop or a stall, no kernel or BlueZ errors (the built-in chip lost frames within
+minutes).
+
 ## 11. eglfs kiosk (with a monitor)
 
 Only with a monitor on the Pi: eglfs takes the display from the desktop, so VNC
@@ -515,7 +533,7 @@ and times that start. Results: [bench-measurements.md](bench-measurements.md).
 - The BoAt tests still validate the PC's `vehicled`; testing the Pi's D-Bus
   remotely is separate future work.
 - Hands-free calls and phone music on the Pi 3B's built-in Bluetooth are unreliable
-  (section 10); a USB adapter fixes that. No echo cancellation yet (a headset does not
+  (section 10); the bench uses a USB adapter instead. No echo cancellation yet (a headset does not
   need it; the car's speakers and microphone will).
 - UDP can lose and reorder frames. If that matters, lower `-t` further or switch
   cannelloni to TCP (`-C s` / `-C c`) or SCTP.
