@@ -703,6 +703,9 @@ def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path, upd_op
             def done(version, err):
                 if err is None:
                     log.info(f"update {version} installed from {origin}: starts with the next start")
+                    if version == self.upd["found"]:               # the stick has nothing newer now (the scan
+                        self.found_file = None                     # below says so too, a moment later)
+                        self.upd["found"] = ""
                     self.set_update(state="ready", message=f"{version} starts with the next start of the HU")
                 else:
                     log.warning(f"update from {origin} refused ({err.code}): {err}")
