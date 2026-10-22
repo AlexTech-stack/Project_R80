@@ -196,3 +196,22 @@ jobs:
           python-version: "3.9"
       - name: py_compile on Python 3.9
         run: git ls-files -z '*.py' | xargs -0 python3 -m py_compile
+
+  release:
+    # A tag v<major>.<minor>.<patch>, once the checks and the BoAt tests passed: the signed update
+    # file of the HU software as a GitHub Release (D12; the app fetches it from there).
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [static, static-arm64, boat-sil, boat-sil-dut]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Build, sign and publish the update file
+        env:
+          R80_UPDATE_KEY: ${{ secrets.R80_UPDATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: ci/release.sh

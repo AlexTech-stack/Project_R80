@@ -273,9 +273,11 @@ def system_info(repo: Path) -> dict:
     info = {"version": "unknown", "os": "unknown", "kernel": os.uname().release, "host": os.uname().nodename,
             "uptime_s": -1, "cpu_temp_c": -1.0, "load": -1.0, "mem_total_mb": -1, "mem_available_mb": -1,
             "disk_free_mb": -1}
+    info["version"] = read(repo / "VERSION", "unknown")          # an installed release (update.py)
     try:
-        info["version"] = subprocess.run(["git", "-C", str(repo), "describe", "--always", "--dirty"],
-                                         capture_output=True, text=True, timeout=3).stdout.strip() or "unknown"
+        if info["version"] == "unknown":
+            info["version"] = subprocess.run(["git", "-C", str(repo), "describe", "--always", "--dirty"],
+                                             capture_output=True, text=True, timeout=3).stdout.strip() or "unknown"
     except (OSError, subprocess.SubprocessError):
         pass
     if info["version"] == "unknown":           # no git program (e.g. a minimal image): read the commit

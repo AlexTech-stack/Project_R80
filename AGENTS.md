@@ -37,6 +37,9 @@ ci/dut/                           emulated aarch64 DUT for CI: Dockerfile, start
 ci/fetch_boat_gateway.py          gets boat_gateway for a BoAt commit from BoAt's CI image (no Docker)
 ci/boat_report.py                 BoAt reports as Markdown (CI job summaries)
 ci/build_android.sh               builds and unit-tests the companion app (companion-android/)
+ci/make_bundle.py                 a signed update file of the HU software (./r80 bundle; D12)
+ci/check_update.py                CI check of the update files (throwaway keys)
+ci/release.sh                     on a tag v*: the update file, signed with the release key, as a GitHub Release
 docs/architecture/HU_architecture_v0.3.md   architecture and decisions D1 to D14
 docs/companion-protocol.md        phone (R80 Companion app) <-> HU link protocol (D11)
 docs/companion-protocol-examples.jsonl  protocol examples both sides test against
@@ -70,7 +73,9 @@ hu/                               the headunit software (target software: runs u
     dlt.conf, dlt-daemon.sh       the HU's own DLT daemon (COVESA dlt-daemon): files on the HU, DLT Viewer on TCP 3490
     dltclient.py                  reads DLT (protocol version 1) from the daemon or a file; control messages
     diagnostics.py                Settings -> Diagnostics: warnings and errors per service (sysd)
+    update.py                     software updates (D12): versions, the update file and its check (signature, hashes)
     syslogd.py, syslog.ini        the system's own log (journal: kernel, BlueZ, PipeWire, ...) into DLT, cleaned
+  update-keys/release.pem         the public release key the HU trusts for updates (private part: CI secret R80_UPDATE_KEY)
   ui/                             Qt 6 / QML UI, launched with PySide6
     run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
     backend.py                    the R80.Backend QML singletons, one per service, over D-Bus
@@ -188,7 +193,10 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
   asks.
 - Write short, clear commit messages that say what changed and why.
 - Never force-push `master`. Never rewrite published history.
-- Never commit secrets, tokens, or personal data.
+- Never commit secrets, tokens, or personal data. Private keys (the update release key, the
+  development update key, the app's signing key) stay out of the repo.
+- Releases: a tag `v<major>.<minor>.<patch>` on `master` makes CI publish the signed update file
+  (`ci/release.sh`). Tag only when Alex asks.
 - Run `git pull` before you start and before you push.
 
 ## 5. Naming and branding

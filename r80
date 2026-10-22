@@ -7,6 +7,9 @@
 #   ./r80 virtual <command>            the headunit on this PC, BoAt restbus and tests (dev/hu-virtual.sh):
 #                                      up | drive | restbus | panel | phone | phonepanel | tunnel | ui | test | status | logs | down
 #
+#   ./r80 bundle [--out DIR] [--key K]  a signed update file of the HU software (ci/make_bundle.py;
+#                                      default key: the development key, docs/bench-pi.md)
+#
 #   ./r80 bench <command>              the Raspberry Pi bench (docs/bench-pi.md)
 #     on the Pi:  install [--desktop] [PC_IP]   install the systemd units for this checkout
 #                 start | stop | restart        the HU (the desktop unit if installed, else the kiosk unit)
@@ -74,6 +77,7 @@ case "$mode" in
     esac ;;
   virtual) [[ $# -gt 0 ]] || usage 2; exec "$REPO/dev/hu-virtual.sh" "$@" ;;
   bench) bench "$@" ;;
+  bundle) exec "$PY" "$REPO/ci/make_bundle.py" "$@" ;;
   -h|--help|help|"") usage ;;
   *) echo "unknown mode: '$mode'" >&2; usage 2 ;;
 esac
