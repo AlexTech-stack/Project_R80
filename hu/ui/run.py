@@ -63,7 +63,8 @@ Rectangle {
 
 SHOTS = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media",
          "media_browse", "media_album", "radio", "phone", "phone_contact", "vehicle", "cluster", "clock", "settings", "call",
-         "volume", "audio", "phone_settings", "system", "diagnostics", "trip", "warning", "warnings"]
+         "volume", "audio", "phone_settings", "system", "diagnostics", "trip", "warning", "warnings",
+         "software_update"]
 
 
 def register_backends(system_bus: bool):
@@ -201,7 +202,7 @@ def run_screenshots(app, win, out: Path):
 
             def diagnostics():
                 screen = win.findChild(QObject, "settingsScreen")
-                screen.setProperty("cat", 6)
+                screen.setProperty("cat", 7)
                 screen.setProperty("inPanel", True)
                 screen.setProperty("item", 2)               # the media service, its level switch
             QTimer.singleShot(300, diagnostics)
@@ -229,6 +230,10 @@ def run_screenshots(app, win, out: Path):
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")
             QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 3))
+        elif name == "software_update":
+            win.setProperty("demoWarnings", False)
+            win.setProperty("current", "settings")
+            QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 6))
         elif name == "audio":
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")
@@ -236,7 +241,8 @@ def run_screenshots(app, win, out: Path):
         else:
             win.setProperty("current", name)
         state["i"] += 1
-        QTimer.singleShot(1500, step)
+        # after the warnings, their notice banner stays up for 5 s (WarningBanner.qml)
+        QTimer.singleShot(6000 if name == "software_update" else 1500, step)
 
     QTimer.singleShot(1200, step)
 

@@ -20,6 +20,11 @@ saves them as state, so they survive a restart.
                                running, errors, warnings; in [diagnostics] apps order), entries (aa{sv}:
                                time, app, context, level, text; the newest first, at most [diagnostics] keep)
                   Export (a{sv}): the last ExportLog: state (idle|writing|done|failed), message, dir
+                  Update (a{sv}): software updates (D12, update.py): version (running), previous, pending
+                                  (installed, starts next), trial (b: the running one is not confirmed yet),
+                                  state (idle|checking|unpacking|ready|failed), message, source (phone|usb|
+                                  file|rollback), found (a newer version on a USB stick), can_restart (b:
+                                  pending, a restart command and the car stands still), can_rollback (b)
                   Shutdown (a{sv}): state (idle|saving|acked|cancelled), savers (as), waiting (as),
                                     last_saved (as), last_timed_out (as), last_ms (u), last_cancelled (b)
       methods     Set(s name, v value)   checked against system.ini; errors:
@@ -32,6 +37,12 @@ saves them as state, so they survive a restart.
                   ExportLog()            the DLT files (--log-dir) and a summary.txt onto a USB stick,
                                          into R80-logs/<date_time>/ (hu-mediad lends the stick out
                                          writable); error Busy while one runs
+                  InstallFile(s path, s source)  check and install an update file (async: Update);
+                                         errors NotFound, Busy
+                  InstallFound()         the one on a USB stick (Update.found)
+                  RestartNow()           start the installed update now (errors NotFound, NotAllowed:
+                                         moving, or no --restart-command)
+                  Rollback()             the previous release starts next
                   RegisterSaver(s name)  a service that has to save before a shutdown
                   Saved(s name)          ... has saved after PrepareForShutdown
       signals     PrepareForShutdown()
@@ -66,6 +77,7 @@ from pathlib import Path
 import dlt
 import dltclient as dc
 from diagnostics import Diagnostics
+import update
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "system.ini"
 SYSTEM_CONFIG = Path("/etc/r80/system.ini")
@@ -90,7 +102,8 @@ class SettingError(ValueError):
 def load_config(extra: str | None = None) -> dict:
     """{"settings": {name: {"type", "default", "min", "max" | "choices"}},
         "shutdown": {"save_timeout_s", "after_ack"}, "brightness": {...}, "info": {...},
-        "diagnostics": {"keep", "apps"}}, checked."""
+        "diagnostics": {"keep", "apps"}, "update": {"health_s", "health_needs_ui", "max_starts",
+        "allow_dev_key", "standstill_kmh"}}, checked."""
     cp = configparser.ConfigParser()
     if extra and not Path(extra).is_file():
         raise ConfigError(f"config file not found: {extra}")
@@ -100,7 +113,24 @@ def load_config(extra: str | None = None) -> dict:
     brightness = {}
     info = {}
     diag = {}
+    upd = {}
     for section in cp.sections():
+        if section == "update":
+            keys = {"health_s": (10, 600), "max_starts": (1, 10), "standstill_kmh": (0, 10)}
+            unknown = set(cp.options(section)) - set(keys) - {"health_needs_ui", "allow_dev_key"}
+            if unknown:
+                raise ConfigError(f"[update] unknown key(s): {', '.join(sorted(unknown))}")
+            try:
+                for k, (lo, hi) in keys.items():
+                    upd[k] = float(cp.get(section, k))
+                    if not lo <= upd[k] <= hi:
+                        raise ValueError(f"{k} = {upd[k]:g} is outside {lo}..{hi}")
+                upd["max_starts"] = int(upd["max_starts"])
+                upd["health_needs_ui"] = cp.getboolean(section, "health_needs_ui")
+                upd["allow_dev_key"] = cp.getboolean(section, "allow_dev_key")
+            except (configparser.Error, ValueError) as e:
+                raise ConfigError(f"[update] {e}") from None
+            continue
         if section == "diagnostics":
             unknown = set(cp.options(section)) - {"keep", "apps"}
             if unknown:
@@ -192,10 +222,13 @@ def load_config(extra: str | None = None) -> dict:
         raise ConfigError("[info] is missing")
     if not diag:
         raise ConfigError("[diagnostics] is missing")
+    if not upd:
+        raise ConfigError("[update] is missing")
     for need, t in (("brightness", "number"), ("night_dimming", "bool")):
         if settings.get(need, {}).get("type") != t:
             raise ConfigError(f"[setting {need}] ({t}) is needed for the display brightness")
-    return {"settings": settings, "shutdown": shutdown, "brightness": brightness, "info": info, "diagnostics": diag}
+    return {"settings": settings, "shutdown": shutdown, "brightness": brightness, "info": info, "diagnostics": diag,
+            "update": upd}
 
 
 def display_brightness(cfg: dict, values: dict, night: bool, dim_level: float) -> float:
@@ -424,7 +457,15 @@ def write_state(path: Path, values: dict):
     os.replace(tmp, path)
 
 
-def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path):
+def update_view(running: str, rel: "update.Releases", u: dict, can_restart: bool) -> dict:
+    """The Update property: what Settings -> System -> Software update shows."""
+    return {"version": running, "previous": rel.version("previous"), "pending": rel.version("pending"),
+            "trial": rel.on_trial() == running and bool(running), "state": u["state"], "message": u["message"],
+            "source": u["source"], "found": u["found"], "can_restart": can_restart,
+            "can_rollback": bool(rel.version("previous")) and not rel.version("pending")}
+
+
+def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path, upd_opts: dict):
     import dbus
     import dbus.service
     from dbus.mainloop.glib import DBusGMainLoop
@@ -471,6 +512,19 @@ def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path):
             self.dlt_sock, self.dlt_parser, self.log_pending = None, None, False
             self.dlt_connect()
             self.export = {"state": "idle", "message": "", "dir": ""}
+            # ---- software updates (D12)
+            self.releases = update.Releases(upd_opts["releases"], cfg["update"]["max_starts"])
+            self.upd = {"state": "idle", "message": "", "source": "", "found": ""}
+            self.found_file = None                         # the newest update file on a stick
+            self.mounts = []
+            self.speed = None                              # km/h; None: not known
+            self.running = self.info.get("version", "unknown")
+            if self.releases.on_trial() == self.running:
+                log.info(f"release {self.running} is on trial: healthy within {cfg['update']['health_s']:g} s?")
+                self.trial_since = time.monotonic()
+                GLib.timeout_add(1000, self.health_tick)
+            bus.add_signal_receiver(self.on_media, "PropertiesChanged", PROPS, None, MEDIA[1])
+            GLib.idle_add(self.read_media)
 
         # ---- diagnostics: the DLT daemon's warnings and errors (Settings -> System) ---
         def dlt_connect(self):
@@ -599,6 +653,169 @@ def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path):
         def export_v(self):
             return dbus.Dictionary({k: dbus.String(v) for k, v in self.export.items()}, signature="sv")
 
+        # ---- software updates (D12): from the phone (navd) or a USB stick -------
+        def keys(self) -> list:
+            ks = sorted((self.repo / "hu" / "update-keys").glob("*.pem"))
+            if upd_opts["allow_dev_key"] or cfg["update"]["allow_dev_key"]:
+                ks += sorted(Path(upd_opts["dev_keys"]).glob("*.pem"))
+            return ks
+
+        def can_restart(self) -> bool:
+            return (bool(self.releases.version("pending")) and bool(upd_opts["restart_command"])
+                    and self.speed is not None and self.speed < cfg["update"]["standstill_kmh"])
+
+        def update_v(self):
+            v = update_view(self.running, self.releases, self.upd, self.can_restart())
+            return dbus.Dictionary({k: dbus.Boolean(x) if isinstance(x, bool) else dbus.String(x)
+                                    for k, x in v.items()}, signature="sv")
+
+        def publish_update(self):
+            self.PropertiesChanged(IFACE, dbus.Dictionary({"Update": self.update_v()}, signature="sv"),
+                                   dbus.Array([], signature="s"))
+
+        def set_update(self, **kw):
+            self.upd.update(kw)
+            self.publish_update()
+
+        def install(self, path: Path, source: str):
+            if self.upd["state"] in ("checking", "unpacking"):
+                raise dbus.exceptions.DBusException("an update is being installed", name=IFACE + ".Error.Busy")
+            self.set_update(state="checking", message=f"checking {path.name}", source=source)
+            origin = {"phone": "the phone", "usb": "a USB stick"}.get(source, "a file")
+            log.info(f"update from {origin}: checking {path.name}")
+
+            def progress(what):
+                GLib.idle_add(lambda: self.set_update(state=what) and False)
+
+            def work():
+                try:
+                    m = self.releases.install(path, self.keys(), self.running, progress)
+                    GLib.idle_add(done, m["version"], None)
+                except update.UpdateError as e:
+                    GLib.idle_add(done, "", e)
+                except OSError as e:
+                    GLib.idle_add(done, "", update.UpdateError("io", str(e)))
+
+            def done(version, err):
+                if err is None:
+                    log.info(f"update {version} installed from {origin}: starts with the next start")
+                    self.set_update(state="ready", message=f"{version} starts with the next start of the HU")
+                else:
+                    log.warning(f"update from {origin} refused ({err.code}): {err}")
+                    self.set_update(state="failed", message=str(err))
+                self.scan_sticks()
+                return False
+            threading.Thread(target=work, daemon=True).start()
+
+        @dbus.service.method(IFACE, in_signature="ss")
+        def InstallFile(self, path, source):
+            """An update file (navd: received from the phone; tests). source: phone | usb | file."""
+            p = Path(str(path))
+            if not p.is_file():
+                raise dbus.exceptions.DBusException(f"no file {p}", name=IFACE + ".Error.NotFound")
+            self.install(p, str(source) or "file")
+
+        @dbus.service.method(IFACE)
+        def InstallFound(self):
+            """The update file found on a USB stick (Update.found)."""
+            if self.found_file is None:
+                raise dbus.exceptions.DBusException("no update on a USB stick", name=IFACE + ".Error.NotFound")
+            self.install(self.found_file, "usb")
+
+        @dbus.service.method(IFACE)
+        def RestartNow(self):
+            """Start the installed update now: only while the car stands still."""
+            if not self.releases.version("pending"):
+                raise dbus.exceptions.DBusException("no update waiting", name=IFACE + ".Error.NotFound")
+            if not self.can_restart():
+                why = ("this HU cannot restart itself" if not upd_opts["restart_command"]
+                       else "only while the car stands still")
+                raise dbus.exceptions.DBusException(why, name=IFACE + ".Error.NotAllowed")
+            self.restart(f"restart for {self.releases.version('pending')}")
+
+        @dbus.service.method(IFACE)
+        def Rollback(self):
+            """The previous release starts with the next start (or RestartNow)."""
+            try:
+                v = self.releases.rollback()
+            except update.UpdateError as e:
+                raise dbus.exceptions.DBusException(str(e), name=IFACE + ".Error.NotFound") from None
+            log.info(f"back to {v} with the next start")
+            self.set_update(state="ready", message=f"{v} starts with the next start of the HU", source="rollback")
+
+        def restart(self, why: str):
+            """Saves, then the restart command (the HU's unit; it ends this process too)."""
+            log.info(f"{why}: {upd_opts['restart_command']}")
+            if self.save_pending:
+                self.save()
+            os.sync()
+            try:
+                subprocess.Popen(upd_opts["restart_command"], shell=True, start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError as e:
+                log.error(f"restart failed: {e}")
+
+        def health_tick(self):
+            names = cfg["info"]["services"]
+            missing = [n for n in names if n != BUS_NAME and not self.bus.name_has_owner(n)]
+            ui = not cfg["update"]["health_needs_ui"] or any(a["id"] == "HMI" and a["running"] for a in self.diag.apps())
+            if not missing and ui:
+                if self.releases.healthy(self.running):
+                    log.info(f"release {self.running} is healthy: it stays")
+                    self.publish_update()
+                return False
+            if time.monotonic() - self.trial_since < cfg["update"]["health_s"]:
+                return True
+            back = self.releases.give_up(self.running)
+            what = ", ".join(missing + ([] if ui else ["the UI"]))
+            log.error(f"release {self.running} is not healthy after {cfg['update']['health_s']:g} s "
+                      f"(missing: {what}): back to {back or 'the checkout'}")
+            self.set_update(state="failed", message=f"{self.running} did not start properly: back to {back or 'the previous one'}")
+            if upd_opts["restart_command"]:
+                self.restart("rollback")
+            return False
+
+        def read_media(self):
+            self.bus.call_async(MEDIA[0], MEDIA[1], PROPS, "Get", "ss", (MEDIA[2], "Mounts"),
+                                lambda v: self.on_media(MEDIA[2], {"Mounts": v}, []), lambda e: None, timeout=2.0)
+            return False
+
+        def on_media(self, iface, changed, _inv):
+            if iface != MEDIA[2] or "Mounts" not in changed:
+                return
+            mounts = sorted(str(m.get("mount", "")) for m in changed["Mounts"])
+            if mounts != self.mounts:
+                self.mounts = mounts
+                self.scan_sticks()
+
+        def scan_sticks(self):
+            """The newest update file on the sticks that this HU would take (checked in a thread)."""
+            mounts = list(self.mounts)
+
+            def work():
+                best = None
+                for m in mounts:
+                    for f in sorted(Path(m, "R80-update").glob("*" + update.SUFFIX)) if m else []:
+                        try:
+                            v = update.verify(f, self.keys())["version"]
+                        except (update.UpdateError, OSError) as e:
+                            log.info(f"update file on the stick not usable: {f.name}: {e}")
+                            continue
+                        if (update.newer(v, self.running) and v != self.releases.version("pending")
+                                and (best is None or update.newer(v, best[0]))):
+                            best = (v, f)
+                GLib.idle_add(found, best)
+
+            def found(best):
+                self.found_file = best[1] if best else None
+                v = best[0] if best else ""
+                if v != self.upd["found"]:
+                    if v:
+                        log.info(f"update {v} on a USB stick")
+                    self.set_update(found=v)
+                return False
+            threading.Thread(target=work, daemon=True).start()
+
         @dbus.service.method(IFACE)
         def ClearLog(self):
             self.diag.clear()
@@ -656,6 +873,14 @@ def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path):
         def on_owner(self, name, _old, new):
             if name == VEHICLE[0] and new:
                 self.read_vehicle()
+            if name == VEHICLE[0] and not new and self.speed is not None:
+                self.speed = None
+                self.publish_update()
+            if name == MEDIA[0]:
+                if new:
+                    self.read_media()
+                else:
+                    self.on_media(MEDIA[2], {"Mounts": []}, [])
             if not new and name.startswith(":"):
                 before = set(self.shutdown.savers)
                 self.shutdown.gone(name)
@@ -667,6 +892,10 @@ def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path):
         def on_vehicle(self, iface, changed, _inv):
             if iface != VEHICLE[2]:
                 return
+            if "VehicleSpeed" in changed:
+                v = float(changed["VehicleSpeed"])
+                self.speed = None if math.isnan(v) else v
+                self.publish_update()
             if "Night" in changed or "DimLevel" in changed:
                 self.night = bool(changed.get("Night", self.night))
                 self.dim_level = float(changed.get("DimLevel", self.dim_level))
@@ -813,6 +1042,8 @@ def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path):
                 return self.log_v()
             if name == "Export":
                 return self.export_v()
+            if name == "Update":
+                return self.update_v()
             raise dbus.exceptions.DBusException(f"no property {name}", name="org.freedesktop.DBus.Error.UnknownProperty")
 
         @dbus.service.method(PROPS, in_signature="s", out_signature="a{sv}")
@@ -820,7 +1051,7 @@ def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path):
             return dbus.Dictionary({"Settings": self.settings_v(), "Schema": self.schema_v(),
                                     "Shutdown": self.shutdown_v(), "DisplayBrightness": dbus.Double(self.display),
                                     "Info": self.info_v(), "Log": self.log_v(),
-                                    "Export": self.export_v()},
+                                    "Export": self.export_v(), "Update": self.update_v()},
                                    signature="sv")
 
         @dbus.service.signal(PROPS, signature="sa{sv}as")
@@ -845,6 +1076,15 @@ def main():
     ap.add_argument("--log-dir", default=str(state_home / "r80" / "dlt" / "trace"),
                     help="the DLT daemon's files, what ExportLog copies (hu/services/dlt-daemon.sh STATE_DIR/trace)")
     ap.add_argument("--check", action="store_true", help="check the config, list the settings and exit")
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    ap.add_argument("--releases", default=str(data_home / "r80" / "releases"),
+                    help="the HU's release folders (update.py; the target: /opt/r80/releases)")
+    ap.add_argument("--dev-keys", default=str(config_home / "r80" / "update-keys"),
+                    help="development keys (public *.pem), trusted only with --allow-dev-key or [update] allow_dev_key")
+    ap.add_argument("--allow-dev-key", action="store_true", help="trust the development keys (the bench)")
+    ap.add_argument("--restart-command", default="",
+                    help="restarts the HU (its unit) for RestartNow and a rollback; empty: at the next start only")
     a = ap.parse_args()
     try:
         cfg = load_config(a.config)
@@ -856,7 +1096,9 @@ def main():
             print(f"{n:16s} {s['type']:7s} {rng:45s} default {s['default']}")
         return
     dlt.app("SYS", "System service", "sysd")
-    run_service(cfg, Path(a.state), a.system, Path(a.log_dir).expanduser())
+    run_service(cfg, Path(a.state), a.system, Path(a.log_dir).expanduser(),
+                {"releases": Path(a.releases), "dev_keys": Path(a.dev_keys), "allow_dev_key": a.allow_dev_key,
+                 "restart_command": a.restart_command})
 
 
 if __name__ == "__main__":

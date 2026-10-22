@@ -494,6 +494,26 @@ QtObject {
         _demoExport = { state: "done", message: "8 log files, 15.8 MB in R80-logs/" + Qt.formatDateTime(now, "yyyy-MM-dd_HHmmss"), dir: "" };
     }
 
+    // ---- software updates (D12, hu-sysd's Update): {version, previous, pending, trial, state:
+    // idle | checking | unpacking | ready | failed, message, source, found, can_restart, can_rollback}
+    property var _demoUpdate: ({ version: "0.1.0", previous: "0.0.9", pending: "", trial: false, state: "idle",
+                                 message: "", source: "", found: "0.2.0", can_restart: false, can_rollback: true })
+    readonly property bool updateLive: settingsLive && System.softwareUpdate.state !== undefined
+    readonly property var softwareUpdate: updateLive ? System.softwareUpdate : demo ? _demoUpdate
+        : { version: "–", previous: "", pending: "", trial: false, state: "idle", message: "", source: "", found: "",
+            can_restart: false, can_rollback: false }
+    function installUpdate() {
+        if (updateLive) { System.installUpdate(); return }
+        if (demo) _demoUpdate = Object.assign({}, _demoUpdate, { pending: _demoUpdate.found, found: "", state: "ready",
+            source: "usb", can_restart: true, can_rollback: false, message: _demoUpdate.found + " starts with the next start of the HU" });
+    }
+    function restartNow() { if (updateLive) System.restartNow() }
+    function rollbackUpdate() {
+        if (updateLive) { System.rollbackUpdate(); return }
+        if (demo && _demoUpdate.can_rollback) _demoUpdate = Object.assign({}, _demoUpdate, { pending: _demoUpdate.previous,
+            state: "ready", source: "rollback", can_rollback: false, message: _demoUpdate.previous + " starts with the next start of the HU" });
+    }
+
     // ---- tone (D9): kept by hu-audiod; without it local values ------------------------------
     readonly property bool toneLive: Audio.available && Audio.tone.bass !== undefined
     property var _tone: ({ bass: 0, treble: 0, balance: 0, loudness: true })

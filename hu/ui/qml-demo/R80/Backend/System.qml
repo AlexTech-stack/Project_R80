@@ -12,10 +12,14 @@ QtObject {
     property var info: ({})
     property var log: ({})
     property var logExport: ({})
+    property var softwareUpdate: ({})
     signal changed()
     function set(name, value) {}
     function resetAll() {}
     function setLogLevel(app, level) {}
     function clearLog() {}
     function exportLog() {}
+    function installUpdate() {}
+    function restartNow() {}
+    function rollbackUpdate() {}
 }

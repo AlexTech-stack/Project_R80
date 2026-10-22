@@ -17,7 +17,14 @@ checked before anything is used. The check runs openssl, so no Python package is
     m = verify(path, keys)          # the manifest, or UpdateError (code: signature, format, ...)
     unpack(path, m, dest)           # the payload into dest (a new folder), every file checked
     newer("0.2.0", "0.1.0")         # True; 0.2.0-dev.3+abc < 0.2.0
-No D-Bus here, so tests can use it.
+
+The HU's releases live side by side in one folder (Releases): ROOT/<version>/ each, and the
+links ROOT/current (what starts), ROOT/previous (what ran before it) and ROOT/pending (installed,
+starts next time). An update never touches the running release. At every start the launcher
+asks `update.py select ROOT` which folder to start: a pending release becomes current and is on
+trial; a release on trial that started max_starts times without hu-sysd confirming it healthy
+is given up and the previous one starts again. ROOT/state.json keeps the trial and the
+versions that failed. No D-Bus here, so tests can use it.
 """
 from __future__ import annotations
 
@@ -27,6 +34,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
@@ -206,3 +214,184 @@ def unpack(path: Path, m: dict, dest: Path):
     except (tarfile.TarError, OSError, KeyError) as e:
         shutil.rmtree(tmp, ignore_errors=True)
         raise UpdateError("space" if isinstance(e, OSError) and e.errno == 28 else "io", f"unpacking failed: {e}") from None
+
+
+class Releases:
+    """The release folders under root (see the module's description)."""
+    LINKS = ("current", "previous", "pending")
+
+    def __init__(self, root: Path, max_starts: int = 2):
+        self.root = Path(root)
+        self.max_starts = max_starts
+
+    # ---- reading ----------------------------------------------------------------
+    def folder(self, link: str) -> Path | None:
+        p = self.root / link
+        if not p.is_symlink():
+            return None
+        target = p.resolve()
+        return target if target.is_dir() else None
+
+    def version(self, link: str) -> str:
+        f = self.folder(link)
+        if f is None:
+            return ""
+        try:
+            return (f / "VERSION").read_text().strip()
+        except OSError:
+            return f.name
+
+    def state(self) -> dict:
+        try:
+            st = json.loads((self.root / "state.json").read_text())
+            if isinstance(st, dict):
+                st.setdefault("failed", [])
+                return st
+        except (OSError, ValueError):
+            pass
+        return {"trial": None, "failed": []}
+
+    def on_trial(self) -> str:
+        t = self.state().get("trial")
+        return t.get("version", "") if isinstance(t, dict) else ""
+
+    # ---- writing ----------------------------------------------------------------
+    def _save(self, st: dict):
+        self.root.mkdir(parents=True, exist_ok=True)
+        tmp = self.root / "state.json.new"
+        tmp.write_text(json.dumps(st, indent=1))
+        tmp.replace(self.root / "state.json")
+
+    def _link(self, link: str, folder: Path | None):
+        p = self.root / link
+        if folder is None:
+            if p.is_symlink():
+                p.unlink()
+            return
+        tmp = self.root / f".{link}.new"
+        if tmp.is_symlink() or tmp.exists():
+            tmp.unlink()
+        tmp.symlink_to(folder.name)                       # relative: the root may move
+        tmp.replace(p)
+
+    def _prune(self):
+        """Folders no link points to: older releases and leftovers of a broken install."""
+        keep = {f for f in (self.folder(n) for n in self.LINKS) if f is not None}
+        for d in self.root.iterdir():
+            if d.is_dir() and not d.is_symlink() and d.resolve() not in keep:
+                shutil.rmtree(d, ignore_errors=True)
+
+    def install(self, path: Path, keys: list[Path], running: str, progress=lambda what: None) -> dict:
+        """Checks the update file and unpacks it as the pending release. running: the version
+        that runs now (a dev checkout: not a version, then any version is newer)."""
+        progress("checking")
+        m = verify(path, keys)
+        v = m["version"]
+        if not newer(v, running):
+            raise UpdateError("version", f"{v} is not newer than the running {running}")
+        try:
+            running_key = parse_version(running)
+        except UpdateError:
+            running_key = None                             # a dev checkout: no minimum applies
+        if running_key is not None and running_key < parse_version(m.get("min_version", "0.0.0")):
+            raise UpdateError("version", f"{v} needs at least {m['min_version']}, this HU runs {running}")
+        if v in self.state()["failed"]:
+            raise UpdateError("version", f"{v} did not start here before")
+        self.root.mkdir(parents=True, exist_ok=True)
+        if self.version("pending") == v:
+            return m                                       # already there, waiting for the next start
+        need = m["payload"]["size"] * 4
+        if shutil.disk_usage(self.root).free < need:
+            raise UpdateError("space", f"not enough space for {v} ({need // 1_000_000} MB needed)")
+        dest = self.root / v
+        if dest.exists() and dest.resolve() not in {self.folder("current"), self.folder("previous")}:
+            shutil.rmtree(dest)
+        if dest.exists():                                  # it is the current or the previous one
+            raise UpdateError("version", f"{v} is already here")
+        progress("unpacking")
+        unpack(path, m, dest)
+        self._link("pending", dest)
+        self._prune()
+        return m
+
+    def rollback(self) -> str:
+        """The previous release starts next time (the current one is kept as the previous)."""
+        prev = self.folder("previous")
+        if prev is None:
+            raise UpdateError("version", "there is no previous version")
+        self._link("pending", prev)
+        return self.version("pending")
+
+    def select(self, log=lambda msg: None) -> Path | None:
+        """At a start: the folder to start (None: no release, start the checkout)."""
+        if not self.root.is_dir():
+            return None
+        st = self.state()
+        pending = self.folder("pending")
+        if pending is not None:
+            cur = self.folder("current")
+            if cur is not None and cur != pending:
+                self._link("previous", cur)
+            self._link("current", pending)
+            self._link("pending", None)
+            st["trial"] = {"version": self.version("current"), "starts": 0}
+            log(f"release {st['trial']['version']} is now current (on trial)")
+        t = st.get("trial")
+        if isinstance(t, dict) and t.get("version") == self.version("current"):
+            t["starts"] = int(t.get("starts", 0)) + 1
+            if t["starts"] > self.max_starts:
+                st["failed"] = (st["failed"] + [t["version"]])[-10:]
+                st["trial"] = None
+                prev = self.folder("previous")
+                log(f"release {t['version']} started {self.max_starts} times without becoming healthy: "
+                    f"back to {self.version('previous') or 'the checkout'}")
+                self._link("current", prev)
+                self._link("previous", None)
+        self._save(st)
+        self._prune()
+        return self.folder("current")
+
+    def healthy(self, version: str) -> bool:
+        """hu-sysd: the release on trial runs well; it stays. True if it was on trial."""
+        st = self.state()
+        t = st.get("trial")
+        if isinstance(t, dict) and t.get("version") == version:
+            st["trial"] = None
+            self._save(st)
+            return True
+        return False
+
+    def give_up(self, version: str) -> str:
+        """hu-sysd: the release on trial did not become healthy: the previous one is current
+        again (from the next start). Returns that version ("" = the checkout)."""
+        st = self.state()
+        st["failed"] = (st["failed"] + [version])[-10:]
+        st["trial"] = None
+        self._link("current", self.folder("previous"))
+        self._link("previous", None)
+        self._save(st)
+        return self.version("current")
+
+
+def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="The HU's release folders (see update.py).")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sel = sub.add_parser("select", help="at a start: print the release folder to start (nothing: the checkout)")
+    sel.add_argument("root")
+    sel.add_argument("--max-starts", type=int, default=2)
+    a = ap.parse_args()
+    if a.cmd == "select":
+        def log(msg):
+            print(f"[update] {msg}", file=sys.stderr)
+        try:
+            f = Releases(Path(a.root), a.max_starts).select(log)
+        except OSError as e:                              # a broken releases folder must not stop the HU
+            log(f"cannot use the releases in {a.root}: {e}; starting the checkout")
+            f = None
+        if f is not None:
+            print(f)
+
+
+if __name__ == "__main__":
+    main()

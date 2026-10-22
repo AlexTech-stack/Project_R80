@@ -530,6 +530,7 @@ gdbus call --session -d de.r80.Phone -o /de/r80/Phone -m de.r80.Phone1.Answer
 | TC_HU_040 | car status to the phone (car_status): after the hello only to a phone that asks, the vehicle values, trip, warnings, accent; the final one when the ignition goes off; stale signals left out |
 | TC_HU_041 | the passenger's remote (companion media, media_cmd, browse): the state after the hello and on changes, commands reach mediad and audiod, browsing page by page, play from a list, setting phone_remote off: told and ignored |
 | TC_HU_042 | the system's own log in DLT (hu-syslogd, a stand-in journal): each source its context and level, other sources left out; addresses shortened, numbers masked, lines with names left out, quoted network names masked; 30 repeats written once plus a count; counted in Diagnostics; log level through sysd |
+| TC_HU_043 | software updates (D12, a test key of its own): a signed update file installed as the pending release, a foreign key and a changed payload refused, RestartNow / Rollback refused without a restart command / previous release; an update on a USB stick found and installed (older pending one cleaned up); the start: pending becomes current on trial, healthy it stays, never healthy it is given up after 2 starts and refused again |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).

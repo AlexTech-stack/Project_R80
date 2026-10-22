@@ -15,6 +15,7 @@
 #                 start | stop | restart        the HU (the desktop unit if installed, else the kiosk unit)
 #                 status | logs                 unit status, follow the service logs
 #                 update                        git pull, then restart the HU
+#                 run-from checkout|release     start this checkout, or an installed release (updates, D12)
 #                 run                           the kiosk in the foreground (one session bus)
 #                 measure [--restart]           start-up times and memory as a report (bench/pi/measure.py)
 #     on the PC:  rbs [panel|drive|stop]        the rest of the car for the Pi: buses, BoAt gateway, CAN tunnel
@@ -42,6 +43,9 @@ hu_ctl() {  # start|stop|restart|status [options]
   if [[ $scope == user ]]; then systemctl --user "$@" "$unit"; else sudo systemctl "$@" "$unit"; fi
 }
 
+RELEASES="${R80_RELEASES:-${XDG_DATA_HOME:-$HOME/.local/share}/r80/releases}"
+RUN_FROM_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/r80/run-from"
+
 bench() {
   local cmd="${1:-}"; shift || true
   case "$cmd" in
@@ -49,7 +53,16 @@ bench() {
     start|stop|restart) hu_ctl "$cmd" ;;
     status) hu_ctl status --no-pager || true; systemctl status r80-can --no-pager || true ;;
     logs) exec tail -n 20 -F /tmp/r80-*.log ;;
-    update) git -C "$REPO" pull --ff-only && hu_ctl restart ;;
+    update)
+      git -C "$REPO" pull --ff-only && hu_ctl restart
+      [[ "$(cat "$RUN_FROM_FILE" 2>/dev/null)" == checkout || ! -L "$RELEASES/current" ]] \
+        || echo "note: the HU starts the installed release $(readlink "$RELEASES/current"), not this checkout (./r80 bench run-from checkout)" ;;
+    run-from)
+      case "${1:-}" in
+        checkout|release) mkdir -p "$(dirname "$RUN_FROM_FILE")" && echo "$1" >"$RUN_FROM_FILE" && hu_ctl restart ;;
+        "") echo "starts: $(cat "$RUN_FROM_FILE" 2>/dev/null || echo release) (release if one is installed in $RELEASES)" ;;
+        *) echo "run-from checkout|release" >&2; exit 2 ;;
+      esac ;;
     run) exec dbus-run-session -- "$REPO/bench/pi/r80-kiosk.sh" ;;
     measure) exec "$PY" "$REPO/bench/pi/measure.py" "$@" ;;
     rbs)

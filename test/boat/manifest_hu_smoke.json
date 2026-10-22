@@ -46,6 +46,7 @@
     { "id": "TC_HU_039", "name": "Weather and altitude from the phone (companion link)", "file": "python3 tests/test_nav_weather.py", "timeout_s": 40 },
     { "id": "TC_HU_040", "name": "Car status to the phone, final at ignition off", "file": "python3 tests/test_car_status.py", "timeout_s": 60 },
     { "id": "TC_HU_041", "name": "The passenger's remote: media, volume, browsing over the companion link", "file": "python3 tests/test_remote.py", "timeout_s": 60 },
-    { "id": "TC_HU_042", "name": "The system's own log in DLT: sources, levels, cleaning, repeats", "file": "python3 tests/test_system_log.py", "timeout_s": 60 }
+    { "id": "TC_HU_042", "name": "The system's own log in DLT: sources, levels, cleaning, repeats", "file": "python3 tests/test_system_log.py", "timeout_s": 60 },
+    { "id": "TC_HU_043", "name": "Software updates: the update file, USB stick, the start with trial and rollback", "file": "python3 tests/test_update.py", "timeout_s": 120 }
   ]
 }

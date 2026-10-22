@@ -572,8 +572,10 @@ class System(QObject):
     """QML singleton mirroring hu-sysd (de.r80.System1, D12): the user's settings as a dict
     {name: value} (names as in hu/system.ini; sysd checks and saves every change), the
     display brightness sysd computes from them, day/night and the car's dimmer, the system
-    information, the DLT log's warnings and errors (log: connected, apps, entries) and the
-    log export onto a USB stick (logExport: state, message, dir)."""
+    information, the DLT log's warnings and errors (log: connected, apps, entries), the
+    log export onto a USB stick (logExport: state, message, dir) and software updates
+    (softwareUpdate: sysd's Update; installUpdate takes the one on a USB stick, restartNow,
+    rollbackUpdate)."""
     changed = Signal()
     availableChanged = Signal()
 
@@ -585,6 +587,7 @@ class System(QObject):
         self._info = {}
         self._log = {}
         self._export = {}
+        self._update = {}
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
         self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, SYS_PATH)
@@ -617,6 +620,8 @@ class System(QObject):
             self._log = _py(changed["Log"])
         if "Export" in changed:
             self._export = _py(changed["Export"])
+        if "Update" in changed:
+            self._update = _py(changed["Update"])
         if not self._available:
             self._available = True
             self.availableChanged.emit()
@@ -630,6 +635,7 @@ class System(QObject):
     info = Property("QVariantMap", lambda self: dict(self._info), notify=changed)
     log = Property("QVariantMap", lambda self: dict(self._log), notify=changed)
     logExport = Property("QVariantMap", lambda self: dict(self._export), notify=changed)
+    softwareUpdate = Property("QVariantMap", lambda self: dict(self._update), notify=changed)
 
     @Slot(str, "QVariant")
     def set(self, name, value):
@@ -657,6 +663,22 @@ class System(QObject):
     def clearLog(self):
         self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, "ClearLog", "", (),
                             lambda *_: None, lambda *_: None, timeout=1.0)
+
+    def _update_call(self, method):
+        self.bus.call_async(SYS_SERVICE, SYS_PATH, SYS_IFACE, method, "", (),
+                            lambda *_: None, lambda e: log.warning(f"{method} refused: {e.get_dbus_message()}"), timeout=2.0)
+
+    @Slot()
+    def installUpdate(self):
+        self._update_call("InstallFound")
+
+    @Slot()
+    def restartNow(self):
+        self._update_call("RestartNow")
+
+    @Slot()
+    def rollbackUpdate(self):
+        self._update_call("Rollback")
 
 
 PHONE_SERVICE, PHONE_PATH, PHONE_IFACE = "de.r80.Phone", "/de/r80/Phone", "de.r80.Phone1"

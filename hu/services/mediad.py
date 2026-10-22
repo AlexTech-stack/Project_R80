@@ -19,7 +19,9 @@ The phone's music starting while nothing else plays switches to Bluetooth.
                   QueueTitle (s), Queue (s: its browse path), UpNext (aa{sv}: the next
                   up to 5 tracks in play order), SourceTrackCount (i), Scanned (i),
                   Position (x, microseconds), Metadata (a{sv}),
-                  Shuffle (b), RepeatAll (b), CanGoNext (b), CanGoPrevious (b)
+                  Shuffle (b), RepeatAll (b), CanGoNext (b), CanGoPrevious (b),
+                  Mounts (aa{sv}: key, name, mount: the USB sticks mounted now; hu-sysd looks
+                  for updates on them)
       methods     Play(), Pause(), PlayPause(), Next(), Previous(),
                   SetTrack(i), Seek(x offset_us), SetPosition(x pos_us),
                   SetPlaying(b), SetShuffle(b), SetRepeatAll(b),
@@ -918,6 +920,8 @@ class Media(dbus.service.Object):
         self.set("Scanned", sum(1 for t in self.library if t["scanned"]))
         self.set("Shuffle", self.shuffle)
         self.set("RepeatAll", self.repeat_all)
+        self.set("Mounts", [{"key": s["key"], "name": n, "mount": str(s["dir"])} for n, s in self.sources.items()
+                            if s["key"] not in ("library", "bluetooth")])
         pos = self.opos if self.order is not None else self.index
         self.set("CanGoNext", bool(self.tracks) and (pos < len(self.tracks) - 1 or self.repeat_all))
         self.set("CanGoPrevious", bool(self.tracks) and (pos > 0 or self.repeat_all))
@@ -967,7 +971,7 @@ class Media(dbus.service.Object):
         v = self.props[name]
         if name in INT32_PROPS:
             return dbus.Int32(v)
-        if name == "UpNext":
+        if name in ("UpNext", "Mounts"):
             return dbus.Array([variant(x) for x in v], signature="a{sv}")
         if name == "Sources":
             return dbus.Array([dbus.String(x) for x in v], signature="s")

@@ -24,7 +24,8 @@ python3 "$R/hu/services/audiod.py" --state "$XDG_RUNTIME_DIR/r80-hu/audio-state.
 # shellcheck disable=SC2086  # WARN_ARGS is a list of flags
 python3 "$R/hu/services/warnd.py" ${WARN_ARGS:-} &
 python3 "$R/hu/services/tripd.py" --state "$XDG_RUNTIME_DIR/r80-hu/trip-state.json" &
-python3 "$R/hu/services/sysd.py" --state "$XDG_RUNTIME_DIR/r80-hu/settings.json" --log-dir /tmp/r80-dlt-state/trace &
+python3 "$R/hu/services/sysd.py" --state "$XDG_RUNTIME_DIR/r80-hu/settings.json" --log-dir /tmp/r80-dlt-state/trace \
+  --releases "$XDG_RUNTIME_DIR/r80-hu/releases" --dev-keys "$XDG_RUNTIME_DIR/r80-hu/update-keys" --allow-dev-key &
 python3 "$R/hu/services/navd.py" --socket "$XDG_RUNTIME_DIR/r80-hu/companion.sock" --bluetooth session &
 python3 "$R/hu/services/phoned.py" --telephony session --bluez none --obex session --state-dir "$XDG_RUNTIME_DIR/r80-hu/phone" --call-audio none &
 python3 "$R/hu/services/syslogd.py" --journal-file "$XDG_RUNTIME_DIR/r80-hu/journal.jsonl" --state /tmp/r80-syslog.cursor &
