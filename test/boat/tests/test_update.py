@@ -8,7 +8,7 @@ previous release are refused. A USB stick with R80-update/ (the udisks2 stand-in
 newer update (Update.found); InstallFound installs it, the older pending one is cleaned up.
 The start: update.py select makes the pending release current (on trial); healthy, it stays;
 one that never becomes healthy is given up after max_starts starts and the previous one runs
-again; it is then refused if offered again."""
+again (kept as the last failure for the page); it is then refused if offered again."""
 import io
 import os
 import shutil
@@ -162,7 +162,7 @@ check(rel.healthy("50.3.0") and rel.on_trial() == "", "healthy (sysd): it stays"
 rel.install(bundle("50.4.0", test_key), [KEYS / "tc-hu-043.pem"], "50.3.0")
 starts = [rel.select().name for _ in range(3)]
 check(starts == ["50.4.0", "50.4.0", "50.3.0"] and rel.version("current") == "50.3.0"
-      and "50.4.0" in rel.state()["failed"],
+      and "50.4.0" in rel.state()["failed"] and rel.last_failure() == {"version": "50.4.0", "back_to": "50.3.0"},
       f"never healthy: given up after 2 starts, 50.3.0 runs again ({starts})")
 (TMP / "again").mkdir()
 try:

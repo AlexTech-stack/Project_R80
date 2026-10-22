@@ -251,6 +251,11 @@ class Releases:
             pass
         return {"trial": None, "failed": []}
 
+    def last_failure(self) -> dict:
+        """The last release that was given up: {"version", "back_to"}, until the next install."""
+        f = self.state().get("last_failure")
+        return f if isinstance(f, dict) else {}
+
     def on_trial(self) -> str:
         t = self.state().get("trial")
         return t.get("version", "") if isinstance(t, dict) else ""
@@ -311,6 +316,9 @@ class Releases:
         progress("unpacking")
         unpack(path, m, dest)
         self._link("pending", dest)
+        st = self.state()
+        if st.pop("last_failure", None) is not None:      # a new update: the old failure is history
+            self._save(st)
         self._prune()
         return m
 
@@ -343,6 +351,7 @@ class Releases:
                 st["failed"] = (st["failed"] + [t["version"]])[-10:]
                 st["trial"] = None
                 prev = self.folder("previous")
+                st["last_failure"] = {"version": t["version"], "back_to": self.version("previous")}
                 log(f"release {t['version']} started {self.max_starts} times without becoming healthy: "
                     f"back to {self.version('previous') or 'the checkout'}")
                 self._link("current", prev)
@@ -367,6 +376,7 @@ class Releases:
         st = self.state()
         st["failed"] = (st["failed"] + [version])[-10:]
         st["trial"] = None
+        st["last_failure"] = {"version": version, "back_to": self.version("previous")}
         self._link("current", self.folder("previous"))
         self._link("previous", None)
         self._save(st)

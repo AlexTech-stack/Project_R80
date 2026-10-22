@@ -515,6 +515,10 @@ def run_service(cfg: dict, state_path: Path, system: bool, log_dir: Path, upd_op
             # ---- software updates (D12)
             self.releases = update.Releases(upd_opts["releases"], cfg["update"]["max_starts"])
             self.upd = {"state": "idle", "message": "", "source": "", "found": ""}
+            failure = self.releases.last_failure()
+            if failure:                                    # given up before this start: still say so
+                self.upd.update(state="failed", message=f"{failure.get('version')} did not start properly: "
+                                f"back to {failure.get('back_to') or 'the previous one'}")
             self.found_file = None                         # the newest update file on a stick
             self.mounts = []
             self.speed = None                              # km/h; None: not known
