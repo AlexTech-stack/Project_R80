@@ -84,6 +84,24 @@
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
+            android:text="@string/updates_title" android:textSize="18sp" android:tag="title" />
+        <Switch
+            android:id="@+id/updates"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/updates" />
+        <TextView
+            android:id="@+id/updates_info"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+        <Button
+            android:id="@+id/updates_check"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/updates_check" />
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
             android:text="@string/capture_title" android:textSize="18sp" android:tag="title" />
         <Switch
             android:id="@+id/capture"

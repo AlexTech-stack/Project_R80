@@ -21,6 +21,9 @@ object Protocol {
     const val MAX_TEXT = 200
     const val SERVICE_UUID = "b4184390-fb7f-44db-9eaa-6985447914af"
     const val MAX_DAYS = 7
+    /** Software updates of the HU (D12): bytes per update_chunk, chunks before an update_ack. */
+    const val MAX_CHUNK = 2048
+    const val UPDATE_WINDOW = 8
 
     val MANEUVERS = setOf("depart", "turn", "continue", "merge", "fork", "on_ramp", "off_ramp",
         "roundabout", "uturn", "arrive", "unknown")
@@ -91,6 +94,8 @@ object Protocol {
         data class Media(val media: MediaState) : HuMessage()
         data class Browsed(val result: BrowseResult) : HuMessage()
         data class Bye(val reason: String?) : HuMessage()
+        data class Update(val status: UpdateStatus) : HuMessage()
+        data class UpdateAck(val id: Int, val received: Long) : HuMessage()
         /** A type this version does not know: ignore it (forward compatibility). */
         data object Unknown : HuMessage()
     }
@@ -116,6 +121,15 @@ object Protocol {
             "car_status" -> carStatus(obj)?.let { HuMessage.Status(it) }
             "media" -> media(obj)?.let { HuMessage.Media(it) }
             "browse_result" -> browseResult(obj)?.let { HuMessage.Browsed(it) }
+            "update_status" -> {
+                val state = str(obj, "state")?.takeIf { it in UPDATE_STATES } ?: return null
+                HuMessage.Update(UpdateStatus(str(obj, "version") ?: return null, str(obj, "pending") ?: "", state,
+                    str(obj, "message") ?: "", num(obj, "id")?.toInt(), num(obj, "received")?.toLong()))
+            }
+            "update_ack" -> {
+                val id = num(obj, "id")?.toInt() ?: return null
+                HuMessage.UpdateAck(id, num(obj, "received")?.toLong() ?: return null)
+            }
             else -> HuMessage.Unknown
         }
     }
@@ -136,6 +150,20 @@ object Protocol {
     fun browse(id: Int, path: String, offset: Int = 0, count: Int = 20): String = line(mapOf(
         "type" to JsonPrimitive("browse"), "id" to JsonPrimitive(id), "path" to text(path),
         "offset" to JsonPrimitive(offset), "count" to JsonPrimitive(count.coerceIn(1, 20))))
+
+    val UPDATE_STATES = setOf("idle", "receiving", "checking", "unpacking", "ready", "failed", "refused")
+
+    fun updateOffer(id: Int, version: String, size: Long, sha256: String): String = line(mapOf(
+        "type" to JsonPrimitive("update_offer"), "id" to JsonPrimitive(id), "version" to text(version),
+        "size" to JsonPrimitive(size), "sha256" to JsonPrimitive(sha256)))
+
+    fun updateChunk(id: Int, offset: Long, data: ByteArray): String {
+        require(data.isNotEmpty() && data.size <= MAX_CHUNK) { "a chunk is 1 to $MAX_CHUNK bytes" }
+        return line(mapOf("type" to JsonPrimitive("update_chunk"), "id" to JsonPrimitive(id), "offset" to JsonPrimitive(offset),
+            "data" to JsonPrimitive(java.util.Base64.getEncoder().encodeToString(data))))
+    }
+
+    fun updateDone(id: Int): String = line(mapOf("type" to JsonPrimitive("update_done"), "id" to JsonPrimitive(id)))
 
     private fun str(obj: JsonObject?, k: String) = (obj?.get(k) as? JsonPrimitive)?.takeIf { it.isString }?.content?.take(MAX_TEXT)
     private fun num(obj: JsonObject?, k: String) = (obj?.get(k) as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull
@@ -281,3 +309,7 @@ data class Guidance(
         require(exit == null || exit in 1..99) { "exit $exit outside 1..99" }
     }
 }
+
+/** How the HU's software stands (update_status): what runs, what waits, how an update goes. */
+data class UpdateStatus(val version: String, val pending: String, val state: String, val message: String,
+                        val id: Int? = null, val received: Long? = null)

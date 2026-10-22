@@ -41,6 +41,16 @@ object AppState {
     /** Sends a remote command / browse request to the HU (dropped without a link). */
     fun send(line: String) { sender?.invoke(line) }
 
+    /** The HU's software and an update on its way (UpdateSender), for the screen. */
+    @Volatile var update: UpdateProgress = UpdateProgress()
+        private set
+    fun setUpdate(u: UpdateProgress) { if (u != update) { update = u; fire() } }
+    /** What the last look at the releases found; the way to look now (LinkService, while it runs). */
+    @Volatile var updateCheck: String = ""
+        private set
+    @Volatile var checkUpdates: ((Boolean) -> Unit)? = null
+    fun setUpdateCheck(s: String) { updateCheck = s; fire() }
+
     fun setWeather(w: Weather) { weather = w; fire() }
     /** CarStore changed (a car_status or the parking position). */
     fun carChanged() = fire()

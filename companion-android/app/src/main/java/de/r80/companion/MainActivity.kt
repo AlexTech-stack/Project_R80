@@ -138,6 +138,18 @@ class MainActivity : Activity() {
             if (AppState.link.state != Link.State.STOPPED) Toast.makeText(this, R.string.surroundings_restart, Toast.LENGTH_LONG).show()
             show()
         }
+        val updates = settingsPage.findViewById<Switch>(R.id.updates)
+        updates.isChecked = Settings.bringUpdates(this)
+        updates.setOnCheckedChangeListener { _, on ->
+            Settings.setBringUpdates(this, on)
+            AppState.checkUpdates?.invoke(false)       // on: look (if due) and offer; off: offer nothing
+            show()
+        }
+        settingsPage.findViewById<Button>(R.id.updates_check).setOnClickListener {
+            val check = AppState.checkUpdates
+            if (check != null) check(true)
+            else Thread({ AppState.setUpdateCheck(Releases.check(applicationContext, true)) }, "r80-releases").start()
+        }
         val capture = settingsPage.findViewById<Switch>(R.id.capture)
         capture.isChecked = Settings.capture(this)
         capture.setOnCheckedChangeListener { _, on -> Settings.setCapture(this, on); show() }
@@ -314,6 +326,24 @@ class MainActivity : Activity() {
         else -> getString(R.string.ago_days, s / 86400)
     }
 
+    /** The HU's software and an update on its way, for the Settings tab. */
+    private fun updateInfo(): String {
+        if (!Settings.bringUpdates(this)) return getString(R.string.updates_off)
+        val u = AppState.update
+        val lines = mutableListOf<String>()
+        lines += if (u.huVersion.isEmpty()) getString(R.string.updates_hu_unknown) else getString(R.string.updates_hu, u.huVersion)
+        if (u.huPending.isNotEmpty()) lines += getString(R.string.updates_waiting, u.huPending)
+        lines += if (u.offering.isEmpty()) getString(R.string.updates_none_here) else getString(R.string.updates_here, u.offering)
+        if (u.state == "receiving" && u.size > 0)
+            lines += getString(R.string.updates_sending, u.offering, (u.sent * 100 / u.size).toInt())
+        else if (u.state.isNotEmpty() && u.state != "idle")
+            lines += u.state + (if (u.message.isNotEmpty()) ": ${u.message}" else "")
+        val checked = AppState.updateCheck.ifEmpty { Settings.updateResult(this) }
+        if (checked.isNotEmpty()) lines += checked
+        lines += getString(R.string.updates_about)
+        return lines.joinToString("\n")
+    }
+
     private fun show() {
         CarStore.get(this)?.status?.accent?.let { Hu.setAccent(it) }     // the HU's accent, once it told
         frame()
@@ -348,6 +378,7 @@ class MainActivity : Activity() {
             append("\n\n").append(AppState.lastRaw)
         }
         captureInfo.text = getString(R.string.capture_info, Capture.count(this))
+        settingsPage.findViewById<TextView>(R.id.updates_info).text = updateInfo()
         val w = AppState.weather
         val p = AppState.position
         settingsPage.findViewById<TextView>(R.id.surroundings_info).text = getString(R.string.surroundings_info, when {

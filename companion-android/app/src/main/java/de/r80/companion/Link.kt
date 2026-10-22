@@ -48,6 +48,8 @@ class Link(
     /** The remote: what plays (media) and browse pages, on the link's thread. */
     private val onMedia: (MediaState) -> Unit = {},
     private val onBrowsed: (BrowseResult) -> Unit = {},
+    /** Brings HU software updates (caps update); null: never offers one. */
+    private val updates: UpdateSender? = null,
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     enum class State { STOPPED, CONNECTING, CONNECTED, WAITING }
@@ -160,6 +162,7 @@ class Link(
             val heartbeatMs = ((hello.heartbeatS ?: 2.0) * 1000).toLong()
             outbox.clear()
             wants = hello.caps.toSet()
+            updates?.reset()
             send(Protocol.guidance(current))
             weatherLine?.takeIf { "weather" in wants }?.let { send(it) }
             positionLine?.takeIf { "position" in wants }?.let { send(it) }
@@ -167,7 +170,8 @@ class Link(
             onStatus(Status(State.CONNECTED, t.description))
             while (running) {
                 val msg = try {
-                    outbox.poll(heartbeatMs / 4, TimeUnit.MILLISECONDS)
+                    // while an update goes out, the acks decide the pace: look again soon
+                    outbox.poll(if (updates?.busy == true) 2 else heartbeatMs / 4, TimeUnit.MILLISECONDS)
                 } catch (_: InterruptedException) {
                     null    // stop(): the loop ends and says bye
                 }
@@ -184,9 +188,12 @@ class Link(
                         is Protocol.HuMessage.Status -> onCarStatus(m.status)
                         is Protocol.HuMessage.Media -> onMedia(m.media)
                         is Protocol.HuMessage.Browsed -> onBrowsed(m.result)
+                        is Protocol.HuMessage.Update -> if ("update" in wants) updates?.onStatus(m.status)?.forEach { send(it) }
+                        is Protocol.HuMessage.UpdateAck -> updates?.onAck(m.id, m.received)
                         else -> {}
                     }
                 }
+                if ("update" in wants) updates?.pump()?.forEach { send(it); lastTx = clock() }
                 if (clock() - lastRx.get() > 3 * heartbeatMs) throw IllegalStateException("HU silent")
             }
             send(Protocol.bye("user"))
@@ -198,7 +205,7 @@ class Link(
 
     companion object {
         /** What this app can send. */
-        val CAPS = listOf("guidance", "weather", "position", "car_status", "remote")
+        val CAPS = listOf("guidance", "weather", "position", "car_status", "remote", "update")
     }
 }
 
