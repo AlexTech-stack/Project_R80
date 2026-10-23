@@ -104,26 +104,31 @@ spoken by Piper (synthetic voice, 16 kHz); a real mic test waits for a USB mic.
 
 Vosk is CPU-bound on the Pi 3 (no swapping), not usable here. Moonshine tiny is the best.
 
-### Text to speech (Piper 1.8)
+### Text to speech (Piper voices)
 
-| Voice | Load | Real time factor | Memory |
-|---|---|---|---|
-| en_US lessac low (16 kHz) | 19 s | 0.75 – 1.0 | 180 MB |
-| en_US lessac medium (22 kHz) | 19 s | 1.0 – 1.05 | 190 MB |
+| Voice (runtime) | Load | Real time factor | Memory | Voice licence |
+|---|---|---|---|---|
+| en_US lessac low (piper-tts 1.8) | 19 s | 0.75 – 1.0 | 180 MB | Blizzard 2013 research licence: not usable |
+| en_US lessac medium (piper-tts 1.8) | 19 s | 1.0 – 1.05 | 190 MB | same |
+| en_US ljspeech medium (sherpa-onnx 2.0) | 15 s | 1.25 (slower than real time) | 215 MB | public domain |
+| en_US kathleen low (sherpa-onnx 2.0) | 11 s | 0.9 – 0.95 | 165 MB | CC0 |
 
-Piper gives a whole sentence at once: a 4-value tyre pressure answer as one sentence comes
-after 6.3 s. Spoken phrase by phrase (split at commas), the first sound comes after about 1.5 s.
+`piper-tts` is GPL-3.0 and so is espeak-ng, which every Piper voice needs to turn text into
+phonemes. sherpa-onnx (Apache-2.0) plays the same voices, and takes the phonemes from Debian's
+`espeak-ng` run as a program of its own (0.05 s per phrase), so no GPL code is inside the HU's
+services. Spoken phrase by phrase (split at commas), the first sound comes after about 0.9 s.
 
 ### Both in one process (as `assistd` would hold them)
 
-Loaded once at start: 31 s, 400 MB RSS (345 MB of it anonymous). With the HU running, 223 MB
-of 905 MB stay available (346 MB in swap). The models do not load fast enough to load them
-at the button press.
+Moonshine tiny and kathleen low in sherpa-onnx, loaded once at start: 25 s, 245 MB RSS
+(220 MB of it anonymous). With the HU running, 329 MB of 905 MB stay available. The models do
+not load fast enough to load them at the button press. On disk: 200 MB of models, 250 MB of
+Python packages (sherpa-onnx, onnxruntime, numpy).
 
 ### What it means
 
-- Speech recognition on the HU works with Moonshine tiny: about 1 s after the driver stops
-  talking. The LLM copes with small errors ("How was my tire pressure?").
-- On a 1 GB Pi 3 the memory is tight: the assistant takes about as much as the whole HU.
-  It runs on the bench, but the target board should have 2 GB, or text to speech moves to
-  espeak-ng (a few MB, instant, robotic voice).
+- Speech on the HU works: Moonshine tiny recognises about 1 s after the driver stops talking,
+  kathleen low starts the answer about 0.9 s later. The LLM copes with small recognition errors
+  ("How was my tire pressure?").
+- The Pi 3 manages it, just: the voice is barely faster than real time, and the assistant takes
+  about as much memory as the HU itself. A Pi 4 class board would have room to spare.
