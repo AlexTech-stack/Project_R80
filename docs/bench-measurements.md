@@ -88,3 +88,42 @@ together 30 % of one core (vehicled 12 %, MCU emulator 8 %, UI 7 %); without CAN
   A small C++ launcher would start Qt faster and save memory, but the backends
   (`hu/ui/backend.py`, dbus-python) would have to be rewritten in C++ (QtDBus): worth it
   only once the board is chosen.
+
+## 2026-10-23: speech on the HU (voice assistant, step 0)
+
+Raspberry Pi 3 Model B (1 GB), the HU with its UI running. Test speech: five car questions
+spoken by Piper (synthetic voice, 16 kHz); a real mic test waits for a USB mic.
+
+### Speech to text
+
+| Engine (model) | Time after the end of speech | Real time factor | Memory | Recognised right |
+|---|---|---|---|---|
+| Vosk 0.3.45 (small-en-us 0.15) | 0.2 – 0.5 s, but behind: 4 – 6 s for 2 s speech | 3× slower than real time | 180 MB | 2 of 5 |
+| sherpa-onnx 2.0 streaming Zipformer 20M int8 | 0.15 – 0.3 s | 0.5 | 120 MB | 1 of 5 (drops the first words) |
+| sherpa-onnx 2.0 Moonshine tiny int8, 2 threads | 0.55 – 1.1 s | – (after the end) | 215 MB | 3 of 5, the other two close ("How was my tire pressure?") |
+
+Vosk is CPU-bound on the Pi 3 (no swapping), not usable here. Moonshine tiny is the best.
+
+### Text to speech (Piper 1.8)
+
+| Voice | Load | Real time factor | Memory |
+|---|---|---|---|
+| en_US lessac low (16 kHz) | 19 s | 0.75 – 1.0 | 180 MB |
+| en_US lessac medium (22 kHz) | 19 s | 1.0 – 1.05 | 190 MB |
+
+Piper gives a whole sentence at once: a 4-value tyre pressure answer as one sentence comes
+after 6.3 s. Spoken phrase by phrase (split at commas), the first sound comes after about 1.5 s.
+
+### Both in one process (as `assistd` would hold them)
+
+Loaded once at start: 31 s, 400 MB RSS (345 MB of it anonymous). With the HU running, 223 MB
+of 905 MB stay available (346 MB in swap). The models do not load fast enough to load them
+at the button press.
+
+### What it means
+
+- Speech recognition on the HU works with Moonshine tiny: about 1 s after the driver stops
+  talking. The LLM copes with small errors ("How was my tire pressure?").
+- On a 1 GB Pi 3 the memory is tight: the assistant takes about as much as the whole HU.
+  It runs on the bench, but the target board should have 2 GB, or text to speech moves to
+  espeak-ng (a few MB, instant, robotic voice).
