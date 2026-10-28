@@ -517,6 +517,11 @@ class StateRecorder:
             time.sleep(self.step)
 
     def stop(self):
+        """After the session ended: once audiod's Voice is back to idle (a D-Bus round trip later)."""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 3.0 and not (self.states[-1:] == ["idle"] and self.voice[-1:] == ["idle"]):
+            time.sleep(self.step)
+        time.sleep(self.step * 3)
         self.running = False
         self.t.join()
         return self.states, self.voice

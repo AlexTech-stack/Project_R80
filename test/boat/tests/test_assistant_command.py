@@ -32,7 +32,8 @@ with Restbus(address=ADDRESS) as rb:      # the HU on (while it is off assistd d
     states, voice = rec.stop()
     check(ok, f"it ends by itself after the answer ({dt:.1f} s)")
     want = ["greeting", "listening", "thinking", "speaking", "idle"]
-    check([s for s in states if s in want] == want and states[0] in ("idle", "greeting"),
+    seen = states[1:] if states[:1] == ["idle"] else states        # idle before the button
+    check([s for s in seen if s in want] == want,
           f"states in order: {states}")
     check(p["Heard"] == question, f"it heard what was said: {p['Heard']!r}")
     check(p["Answer"] == f"You said: {question}", f"the echo backend answered: {p['Answer']!r}")

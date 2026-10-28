@@ -60,10 +60,13 @@ with Restbus(address=ADDRESS) as rb:      # the HU on (while it is off assistd d
     ok, _, _ = wait_audio(lambda p: p["Voice"] == "idle", timeout=2.0)
     check(ok, "audiod: the assistant no longer ducks (the call rules take over)")
     a.SetCallState("idle")
+    wait_audio(lambda p: p["CallState"] == "idle", timeout=2.0)
+    time.sleep(0.3)                          # assistd hears of it from audiod's PropertiesChanged
 
     # ---- VOICE during a conversation stops it -------------------------------------------------------------------
     assistant().Conversation()
     ok, _, _ = wait_assistant(lambda p: p["State"] == "listening", timeout=3.0)
+    check(ok, "after the call a conversation starts again")
     mcu({"cmd": "button", "name": "VOICE"})
     ok, p, dt = wait_assistant(lambda p: p["Mode"] == "idle", timeout=1.5)
     check(ok, f"the button VOICE stops a conversation ({dt:.2f} s)")
