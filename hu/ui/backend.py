@@ -805,3 +805,83 @@ class Phone(QObject):
     @Slot(str, bool)
     def setFavourite(self, contact_id, on):
         self._send("SetFavourite", "sb", (str(contact_id), bool(on)))
+
+
+AST_SERVICE, AST_PATH, AST_IFACE = "de.r80.Assistant", "/de/r80/Assistant", "de.r80.Assistant1"
+
+
+class Assistant(QObject):
+    """QML singleton mirroring hu-assistd (de.r80.Assistant1): ready (the speech engines are
+    loaded), enabled (the setting), mode (idle | command | conversation), state (idle | greeting |
+    listening | thinking | speaking), heard (what the driver said last), answer, turns, notice (why
+    the last start was refused or the session stopped), engines, timing; command / conversation /
+    stop go to assistd (the buttons VOICE and TALK reach it directly)."""
+    changed = Signal()
+    availableChanged = Signal()
+
+    KEYS = {"Available": "ready", "Enabled": "enabled", "Mode": "mode", "State": "state", "Heard": "heard",
+            "Answer": "answer", "Turns": "turns", "Notice": "notice", "Engines": "engines", "Timing": "timing"}
+
+    def __init__(self, system_bus=False, parent=None):
+        super().__init__(parent)
+        self._available = False
+        self._v = {"ready": False, "enabled": True, "mode": "idle", "state": "idle", "heard": "", "answer": "",
+                   "turns": 0, "notice": "", "engines": {}, "timing": {}}
+        DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus() if system_bus else dbus.SessionBus()
+        self.bus.add_signal_receiver(self._on_props, "PropertiesChanged", PROPS, None, AST_PATH)
+        self._poll = QTimer(self, interval=3000, timeout=self.refresh)
+        self._poll.start()
+        QTimer.singleShot(0, self.refresh)
+
+    def refresh(self):
+        self.bus.call_async(AST_SERVICE, AST_PATH, PROPS, "GetAll", "s", (AST_IFACE,),
+                            self._apply, self._on_gone, timeout=1.0)
+
+    def _on_gone(self, _err):
+        if self._available:
+            self._available = False
+            self._v.update(mode="idle", state="idle")
+            self.availableChanged.emit()
+            self.changed.emit()
+
+    def _on_props(self, iface, changed, _invalidated):
+        if iface == AST_IFACE:
+            self._apply(changed)
+
+    def _apply(self, changed: dict):
+        for k, v in changed.items():
+            if str(k) in self.KEYS:
+                self._v[self.KEYS[str(k)]] = _py(v)
+        if not self._available:
+            self._available = True
+            self.availableChanged.emit()
+        self.changed.emit()
+
+    available = Property(bool, lambda self: self._available, notify=availableChanged)
+    ready = Property(bool, lambda self: self._v["ready"], notify=changed)
+    enabled = Property(bool, lambda self: self._v["enabled"], notify=changed)
+    mode = Property(str, lambda self: self._v["mode"], notify=changed)
+    state = Property(str, lambda self: self._v["state"], notify=changed)
+    heard = Property(str, lambda self: self._v["heard"], notify=changed)
+    answer = Property(str, lambda self: self._v["answer"], notify=changed)
+    turns = Property(int, lambda self: self._v["turns"], notify=changed)
+    notice = Property(str, lambda self: self._v["notice"], notify=changed)
+    engines = Property("QVariantMap", lambda self: dict(self._v["engines"]), notify=changed)
+    timing = Property("QVariantMap", lambda self: dict(self._v["timing"]), notify=changed)
+
+    def _call(self, method):
+        self.bus.call_async(AST_SERVICE, AST_PATH, AST_IFACE, method, "", (),
+                            lambda *_: None, lambda e: log.warning(f"assistant {method}: {e}"), timeout=1.0)
+
+    @Slot()
+    def command(self):
+        self._call("Command")
+
+    @Slot()
+    def conversation(self):
+        self._call("Conversation")
+
+    @Slot()
+    def stop(self):
+        self._call("Stop")

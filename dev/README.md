@@ -424,6 +424,27 @@ python3 -c 'import sys; sys.path[:0]=["dev/phone_emu","hu/services"]; from phone
   p=Phone(); p.connect(caps=("update",)); print(p.send_update(sys.argv[1]))' /tmp/upd/r80-hu-*.r80u   # as the phone
 ```
 
+## Voice assistant (hu-assistd)
+
+`hu/services/assistd.py` (config `assistant.ini`) is the voice assistant: the button VOICE asks one
+thing (it greets, listens, answers, ends), the button TALK starts a conversation that goes on until
+TALK is pressed again. `hu/services/speech.py` is its speech. In the virtual mode it has no
+microphone and no real speech: it hears recordings put into `$XDG_RUNTIME_DIR/r80-hu/assistant-mic`
+(the oldest `*.wav` at each listen, 16-bit mono; its text in a `*.txt` of the same name, for the
+`transcript` recognizer), speaks with a `silent` voice into `fakesink`, and the `echo` backend repeats
+what it heard (until the companion app brings the LLM). Keys V and T in the UI, the buttons VOICE and
+TALK in the tester panel or `mcuctl.py button VOICE`.
+
+```bash
+d=$XDG_RUNTIME_DIR/r80-hu/assistant-mic
+cp some-16k-mono.wav $d/q1.wav && echo "How is my tire pressure?" > $d/q1.txt
+dev/mcu_emu/mcuctl.py button VOICE
+gdbus call --session -d de.r80.Assistant -o /de/r80/Assistant -m org.freedesktop.DBus.Properties.GetAll de.r80.Assistant1
+```
+
+With the speech installed on the PC (`bench/pi/install-speech.sh` works there too), real speech:
+`ASSIST_ARGS="--sink autoaudiosink" ./r80 virtual up` (the PC's microphone and speakers).
+
 ## Log and diagnostics (DLT, D14)
 
 `./r80 virtual up` starts the HU's DLT daemon (`hu/services/dlt-daemon.sh`) before the
@@ -548,6 +569,8 @@ gdbus call --session -d de.r80.Phone -o /de/r80/Phone -m de.r80.Phone1.Answer
 | TC_HU_042 | the system's own log in DLT (hu-syslogd, a stand-in journal): each source its context and level, other sources left out; addresses shortened, numbers masked, lines with names left out, quoted network names masked; 30 repeats written once plus a count; counted in Diagnostics; log level through sysd |
 | TC_HU_043 | software updates (D12, a test key of its own): a signed update file installed as the pending release, a foreign key and a changed payload refused, RestartNow / Rollback refused without a restart command / previous release; an update on a USB stick found and installed (older pending one cleaned up); the start: pending becomes current on trial, healthy it stays, never healthy it is given up after 2 starts and refused again |
 | TC_HU_044 | a software update from the phone (companion caps update, phone emulator's send_update): update_status after the hello (not without the cap), an offer that is not a version refused, a signed file sent in acknowledged pieces and installed by sysd (checking ... ready), an older one than the waiting one refused, a broken-off transfer resumed, wrong data (SHA-256) failed before sysd, a foreign key refused by sysd |
+| TC_HU_045 | the voice assistant's command mode (hu-assistd, recorded speech, echo backend): the button VOICE starts it; greeting, listening, thinking, speaking, idle in order; heard and answered; audiod's Voice (music down while it listens and speaks, back up after); timing published; pressed again it stops at once; nothing said: it says so after no_speech_s and ends; switched off (setting assistant) or during a call: not started, Notice says why |
+| TC_HU_046 | the voice assistant's conversation mode: the button TALK starts it; turn after turn, also after a pause; TALK again: it says "Okay" and ends; a call stops it at once; VOICE stops a conversation |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).

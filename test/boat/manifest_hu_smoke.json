@@ -48,6 +48,8 @@
     { "id": "TC_HU_041", "name": "The passenger's remote: media, volume, browsing over the companion link", "file": "python3 tests/test_remote.py", "timeout_s": 60 },
     { "id": "TC_HU_042", "name": "The system's own log in DLT: sources, levels, cleaning, repeats", "file": "python3 tests/test_system_log.py", "timeout_s": 60 },
     { "id": "TC_HU_043", "name": "Software updates: the update file, USB stick, the start with trial and rollback", "file": "python3 tests/test_update.py", "timeout_s": 120 },
-    { "id": "TC_HU_044", "name": "A software update from the phone over the companion link", "file": "python3 tests/test_update_phone.py", "timeout_s": 180 }
+    { "id": "TC_HU_044", "name": "A software update from the phone over the companion link", "file": "python3 tests/test_update_phone.py", "timeout_s": 180 },
+    { "id": "TC_HU_045", "name": "Voice assistant, command mode: button, listen, answer, end; nothing said; stop; refused", "file": "python3 tests/test_assistant_command.py", "timeout_s": 90 },
+    { "id": "TC_HU_046", "name": "Voice assistant, conversation mode: turns until TALK again; a call stops it", "file": "python3 tests/test_assistant_conversation.py", "timeout_s": 90 }
   ]
 }

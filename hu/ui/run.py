@@ -64,7 +64,7 @@ Rectangle {
 SHOTS = ["home", "navigation", "nav_stale", "nav_nophone", "nav_reroute", "nav_signpost", "nav_arrive", "media",
          "media_browse", "media_album", "radio", "phone", "phone_contact", "vehicle", "cluster", "clock", "settings", "call",
          "volume", "audio", "phone_settings", "system", "diagnostics", "trip", "warning", "warnings",
-         "software_update"]
+         "software_update", "assistant", "assistant_settings"]
 
 
 def register_backends(system_bus: bool):
@@ -77,7 +77,7 @@ def register_backends(system_bus: bool):
     log_qt_messages(dlt.context("QML", "Qt and QML messages"))
     import backend
     objs = {}
-    for name in ("Vehicle", "Media", "Audio", "Warnings", "Trip", "Nav", "System", "Phone"):
+    for name in ("Vehicle", "Media", "Audio", "Warnings", "Trip", "Nav", "System", "Phone", "Assistant"):
         cls = getattr(backend, name)
         objs[name] = cls(system_bus=system_bus)
         qmlRegisterSingletonInstance(cls, "R80.Backend", 1, 0, name, objs[name])
@@ -195,14 +195,14 @@ def run_screenshots(app, win, out: Path):
         elif name == "system":
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")
-            QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 5))
+            QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 6))
         elif name == "diagnostics":
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")
 
             def diagnostics():
                 screen = win.findChild(QObject, "settingsScreen")
-                screen.setProperty("cat", 7)
+                screen.setProperty("cat", 8)
                 screen.setProperty("inPanel", True)
                 screen.setProperty("item", 2)               # the media service, its level switch
             QTimer.singleShot(300, diagnostics)
@@ -233,7 +233,14 @@ def run_screenshots(app, win, out: Path):
         elif name == "software_update":
             win.setProperty("demoWarnings", False)
             win.setProperty("current", "settings")
-            QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 6))
+            QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 7))
+        elif name == "assistant":
+            win.setProperty("current", "home")
+            win.setProperty("demoAssistant", True)
+        elif name == "assistant_settings":
+            win.setProperty("demoAssistant", False)
+            win.setProperty("current", "settings")
+            QTimer.singleShot(300, lambda: win.findChild(QObject, "settingsScreen").setProperty("cat", 4))
         elif name == "audio":
             win.setProperty("demoVolume", False)
             win.setProperty("current", "settings")

@@ -4,7 +4,7 @@ import R80.Backend 1.0
 
 // Everything the screens show, in one place. Each value comes from its service through
 // the R80.Backend singletons (hu/ui/backend.py: Vehicle, Media, Audio, Warnings, Trip,
-// Nav, System, Phone) when that service runs. Demo mode (hu/ui/run.py --demo, screenshots,
+// Nav, System, Phone, Assistant) when that service runs. Demo mode (hu/ui/run.py --demo, screenshots,
 // Qt Design Studio) loads stand-ins for the backends (hu/ui/qml-demo) that report nothing
 // connected, and the UI runs on the demo data below. In the live UI a service that is not
 // there (yet) shows nothing: numbers are NaN (the screens show "–", Fmt.num), texts and
@@ -42,6 +42,7 @@ QtObject {
         if (v.phone !== undefined) phoneVolume = v.phone
         if (v.radio !== undefined) radioVolume = v.radio
         if (v.chime !== undefined) chimeVolume = v.chime
+        if (v.voice !== undefined) voiceVolume = v.voice
         _audioSync = false
     }
     function _push(f) { if (audioLive && !_audioSync) f() }
@@ -52,6 +53,7 @@ QtObject {
     onPhoneVolumeChanged: _push(() => Audio.setVolume("phone", phoneVolume))
     onRadioVolumeChanged: _push(() => Audio.setVolume("radio", radioVolume))
     onChimeVolumeChanged: _push(() => Audio.setVolume("chime", chimeVolume))
+    onVoiceVolumeChanged: _push(() => Audio.setVolume("voice", voiceVolume))
     // The simulated call tells audiod about calls (D9: media pauses and radio is silent
     // from ringing on); real calls hu-phoned reports to audiod itself.
     // with hu-phoned running, phoned tells audiod about real calls itself
@@ -134,6 +136,7 @@ QtObject {
     property int phoneVolume: 30
     property int radioVolume: 30
     property int chimeVolume: 30
+    property int voiceVolume: 30             // the voice assistant (hu-assistd)
     function toggleMute() { muted = !muted }
 
     // ---- warnings (hu-warnd, D10) ------------------------------------------
@@ -421,7 +424,7 @@ QtObject {
     // ---- settings (D12): live from hu-sysd; without it local values as in the mockup -----
     readonly property bool settingsLive: System.available && System.settings.accent !== undefined
     property var _local: ({ accent: "signal_red", brightness: 0.9, night_dimming: true, clock_24h: true, units: "metric",
-                            phone_remote: true })
+                            phone_remote: true, assistant: true })
     function _setting(name) { return settingsLive && System.settings[name] !== undefined ? System.settings[name] : _local[name] }
     readonly property string accent: _setting("accent")
     readonly property real brightness: _setting("brightness")
@@ -622,6 +625,56 @@ QtObject {
         ? Nav.weather.days.slice(0, 4).map(d => ({ day: _weekday(d.date), icon: weatherIcon(d.code),
                                                   hi: Math.round(d.max_c), lo: Math.round(d.min_c) }))
         : demo ? _demoForecast : []
+
+    // ---- voice assistant (hu-assistd) -----------------------------------------------
+    // The buttons VOICE and TALK reach assistd directly; the UI shows what it does and can start
+    // it too (keys V and T). Without assistd: in demo mode a scripted session, live nothing.
+    readonly property bool assistantLive: Assistant.available
+    readonly property bool assistantReady: assistantLive ? Assistant.ready : demo
+    readonly property bool assistantEnabled: _setting("assistant")
+    readonly property string assistantMode: assistantLive ? Assistant.mode : _demoAssist.mode
+    readonly property string assistantState: assistantLive ? Assistant.state : _demoAssist.state
+    readonly property string assistantHeard: assistantLive ? Assistant.heard : _demoAssist.heard
+    readonly property string assistantAnswer: assistantLive ? Assistant.answer : _demoAssist.answer
+    readonly property string assistantNotice: assistantLive ? Assistant.notice : ""
+    readonly property var assistantEngines: assistantLive ? Assistant.engines
+        : demo ? { recognizer: "moonshine", voice: "piper", llm: "echo", microphone: "autoaudiosrc" } : ({})
+    readonly property var assistantTiming: assistantLive ? Assistant.timing
+        : demo ? { speech_s: 1.6, recognise_s: 0.62, think_s: 1.8, first_sound_s: 0.9 } : ({})
+    function assistantCommand() { if (assistantLive) Assistant.command(); else if (demo) _demoAssistStart("command") }
+    function assistantConversation() { if (assistantLive) Assistant.conversation(); else if (demo) _demoAssistStart("conversation") }
+    function assistantStop() { if (assistantLive) Assistant.stop(); else _demoAssistEnd() }
+
+    property var _demoAssist: ({ mode: "idle", state: "idle", heard: "", answer: "" })
+    readonly property var _demoTalk: [
+        ["How is my tire pressure?", "Front left 2.3 bar, front right 2.3 bar, rear left 2.2 bar, rear right 2.2 bar. All fine."],
+        ["And how far can I drive?", "About " + Math.round(fuelLevel * 760) + " kilometres with the fuel you have."]
+    ]
+    property int _demoTurn: 0
+    function _demoAssistSet(o) { _demoAssist = Object.assign({}, _demoAssist, o) }
+    function _demoAssistStart(mode) {
+        if (_demoAssist.mode !== "idle") { _demoAssistEnd(); return }
+        _demoTurn = 0
+        _demoAssist = { mode: mode, state: "greeting", heard: "", answer: "" }
+        _demoAssistTimer.interval = 900; _demoAssistTimer.restart()
+    }
+    function _demoAssistEnd() { _demoAssistTimer.stop(); _demoAssist = { mode: "idle", state: "idle", heard: "", answer: "" } }
+    // run.py --screenshots: a command answered, frozen
+    function showAssistantDemo() {
+        _demoAssistTimer.stop()
+        _demoAssist = { mode: "command", state: "speaking", heard: _demoTalk[0][0], answer: _demoTalk[0][1] }
+    }
+    property Timer _demoAssistTimer: Timer {
+        onTriggered: {
+            const a = sim._demoAssist, t = sim._demoTalk[sim._demoTurn % sim._demoTalk.length]
+            if (a.state === "greeting") { sim._demoAssistSet({ state: "listening" }); interval = 2200 }
+            else if (a.state === "listening") { sim._demoAssistSet({ state: "thinking", heard: t[0], answer: "" }); interval = 1400 }
+            else if (a.state === "thinking") { sim._demoAssistSet({ state: "speaking", answer: t[1] }); interval = 4500 }
+            else if (a.mode === "conversation") { sim._demoTurn += 1; sim._demoAssistSet({ state: "listening" }); interval = 2200 }
+            else { sim._demoAssistEnd(); return }
+            start()
+        }
+    }
 
     // ---- ticking -------------------------------------------------------------
     property Timer secondTimer: Timer {

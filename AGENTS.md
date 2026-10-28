@@ -75,6 +75,8 @@ hu/                               the headunit software (target software: runs u
     diagnostics.py                Settings -> Diagnostics: warnings and errors per service (sysd)
     update.py                     software updates (D12): versions, the update file and its check (signature, hashes)
     syslogd.py, syslog.ini        the system's own log (journal: kernel, BlueZ, PipeWire, ...) into DLT, cleaned
+    assistd.py, assistant.ini     the voice assistant: buttons VOICE (one command) and TALK (a conversation), D-Bus de.r80.Assistant
+    speech.py                     its speech on the HU: speech to text, text to speech (sherpa-onnx), end of speech
   update-keys/release.pem         the public release key the HU trusts for updates (private part: CI secret R80_UPDATE_KEY)
   ui/                             Qt 6 / QML UI, launched with PySide6
     run.py                        the launcher: live (D-Bus backends), --demo, --screenshots
@@ -107,7 +109,8 @@ dev/                              PC stand-ins for the virtual mode (PC only)
 test/boat/                        BoAt restbus node, tester panel and the BoAt tests (PC only; list in dev/README.md)
 bench/pi/                         Raspberry Pi bench: kiosk script, systemd units, CAN tunnel, PC helpers,
                                   PipeWire / WirePlumber settings, the built-in Bluetooth's SCO routing,
-                                  measure.py (start-up time and memory, ./r80 bench measure)
+                                  measure.py (start-up time and memory, ./r80 bench measure),
+                                  install-speech.sh (the voice assistant's speech, ./r80 bench speech)
 hardware/                         hardware designs later; CERN-OHL-P-2.0
 ```
 
@@ -285,6 +288,10 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
   not trusted). An update never changes the running release: it starts with the next start, and
   a release that is not healthy goes back to the previous one. Keep the update file format in
   `update.py`, `ci/make_bundle.py` and the app (`Releases.kt`, `UpdateSender.kt`) in step.
+- Voice assistant (hu-assistd): speech is heard and spoken on the HU (`hu/services/speech.py`,
+  sherpa-onnx). espeak-ng and the `piper-tts` package are GPL-3.0: espeak-ng only runs as a program
+  of its own, never imported into a service. Voices and models need an open licence (the Piper
+  "lessac" voices do not have one). What the driver says and the answers never go into the log.
 - The architecture decisions D1 to D14 are in `docs/architecture/HU_architecture_v0.3.md`.
   Do not contradict them. If a change needs a different decision, ask Alex first.
 

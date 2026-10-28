@@ -463,6 +463,23 @@ ci/make_bundle.py --public-key | ssh <pi> 'mkdir -p ~/.config/r80/update-keys; c
 Releases (a tag `v<major>.<minor>.<patch>` on `master`) are signed with the release key in CI;
 every HU trusts those (`hu/update-keys/release.pem`).
 
+### Voice assistant
+
+hu-assistd hears and speaks on the HU itself (Moonshine tiny and a Piper voice through
+sherpa-onnx; `docs/bench-measurements.md`). Install the speech once (sherpa-onnx in the venv,
+Debian's espeak-ng, about 200 MB of models in `~/.local/share/r80/speech`), then restart:
+
+```bash
+./r80 bench speech
+./r80 bench restart
+```
+
+Loading takes about 25 s after the HU starts (Settings → Voice assistant shows the status). The
+bench has no microphone yet: until a USB microphone is there, give it recorded speech
+(16-bit mono WAVs, the oldest one is heard at each listen) through `R80_ASSIST_ARGS="--mic-files
+<dir>"` in the unit's environment. Buttons: VOICE (one question) and TALK (a conversation) in
+the tester panel; keys V and T on a keyboard.
+
 ## 11. eglfs kiosk (with a monitor)
 
 Only with a monitor on the Pi: eglfs takes the display from the desktop, so VNC

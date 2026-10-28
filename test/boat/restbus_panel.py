@@ -231,7 +231,7 @@ class Panel(QMainWindow):
         r += 1
         g.addWidget(QLabel("Keys"), r, 0, 1, 3)
         r += 1
-        keys = ["HOME", "BACK", "NAV", "MEDIA", "RADIO", "PHONE", "CAR", "SETUP", "MUTE", "VOL_DOWN", "VOL_UP"]
+        keys = ["HOME", "BACK", "NAV", "MEDIA", "RADIO", "PHONE", "CAR", "SETUP", "MUTE", "VOL_DOWN", "VOL_UP", "VOICE", "TALK"]
         for i, k in enumerate(keys):
             btn(k.replace("_", " ").title(), {"cmd": "button", "name": k}, r + i // 3, i % 3)
         r += (len(keys) + 2) // 3

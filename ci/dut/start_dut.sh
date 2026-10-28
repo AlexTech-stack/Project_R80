@@ -30,6 +30,8 @@ python3 "$R/hu/services/navd.py" --socket "$XDG_RUNTIME_DIR/r80-hu/companion.soc
   --update-dir "$XDG_RUNTIME_DIR/r80-hu/update-incoming" &
 python3 "$R/hu/services/phoned.py" --telephony session --bluez none --obex session --state-dir "$XDG_RUNTIME_DIR/r80-hu/phone" --call-audio none &
 python3 "$R/hu/services/syslogd.py" --journal-file "$XDG_RUNTIME_DIR/r80-hu/journal.jsonl" --state /tmp/r80-syslog.cursor &
+python3 "$R/hu/services/assistd.py" --recognizer transcript --voice silent --sink fakesink \
+  --mic-files "$XDG_RUNTIME_DIR/r80-hu/assistant-mic" &
 wait -n   # either one ending ends the DUT
 echo "DUT: a process exited"
 exit 1

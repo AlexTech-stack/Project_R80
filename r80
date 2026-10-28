@@ -18,6 +18,7 @@
 #                 run-from checkout|release     start this checkout, or an installed release (updates, D12)
 #                 run                           the kiosk in the foreground (one session bus)
 #                 measure [--restart]           start-up times and memory as a report (bench/pi/measure.py)
+#                 speech                        the voice assistant's speech: sherpa-onnx, espeak-ng, the models (bench/pi/install-speech.sh)
 #     on the PC:  rbs [panel|drive|stop]        the rest of the car for the Pi: buses, BoAt gateway, CAN tunnel
 #                                               (PI_IP) and the restbus, with the tester panel (default) or
 #                                               the drive cycle; no HU on the PC (the Pi is the HU); the panel's
@@ -65,6 +66,7 @@ bench() {
       esac ;;
     run) exec dbus-run-session -- "$REPO/bench/pi/r80-kiosk.sh" ;;
     measure) exec "$PY" "$REPO/bench/pi/measure.py" "$@" ;;
+    speech) exec "$REPO/bench/pi/install-speech.sh" "$@" ;;
     rbs)
       local how="${1:-panel}"
       case "$how" in

@@ -7,3 +7,4 @@ singleton Trip 1.0 Trip.qml
 singleton Nav 1.0 Nav.qml
 singleton System 1.0 System.qml
 singleton Phone 1.0 Phone.qml
+singleton Assistant 1.0 Assistant.qml

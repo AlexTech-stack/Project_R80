@@ -47,7 +47,8 @@ POWER_NAMES = {POWER_OFF: "off", POWER_STANDBY: "standby", POWER_ACC: "acc",
 # INPUT events. KNOB_TURN/KNOB_TILT carry a signed step, BUTTON carries a button id.
 KNOB_TURN, KNOB_PUSH, KNOB_TILT, BUTTON = 1, 2, 3, 4
 BUTTONS = {1: "HOME", 2: "BACK", 3: "NAV", 4: "MEDIA", 5: "RADIO", 6: "PHONE",
-           7: "CAR", 8: "SETUP", 9: "VOL_UP", 10: "VOL_DOWN", 11: "MUTE"}
+           7: "CAR", 8: "SETUP", 9: "VOL_UP", 10: "VOL_DOWN", 11: "MUTE",
+           12: "VOICE", 13: "TALK"}          # the voice assistant: one command / a conversation
 BUTTON_IDS = {v: k for k, v in BUTTONS.items()}
 
 CAN_EFF_FLAG = 0x80000000

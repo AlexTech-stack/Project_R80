@@ -14,6 +14,7 @@ Item {
         { label: "Display",      icon: Icons.display },
         { label: "Audio",        icon: Icons.speaker },
         { label: "Phone",        icon: Icons.phone },
+        { label: "Voice assistant", icon: Icons.mic },
         { label: "Connectivity", icon: Icons.wifi },
         { label: "System",       icon: Icons.chip },
         { label: "Software update", icon: Icons.update },
@@ -24,7 +25,7 @@ Item {
     property bool wifi: false
 
     readonly property var logApps: Sim.systemLog.apps || []
-    readonly property var itemCounts: [2, 3, 9, 4, 2, 1, 3, logApps.length + 2]
+    readonly property var itemCounts: [2, 3, 9, 4, 2, 2, 1, 3, logApps.length + 2]
     onCatChanged: item = 0
 
     function knob(d) {
@@ -37,7 +38,7 @@ Item {
         adjust(d);
     }
     function press() { if (!inPanel) inPanel = true; else adjust(1) }
-    function adjustable() { return (cat === 1 && item < 2) || cat === 2 || (cat === 7 && item < logApps.length) }
+    function adjustable() { return (cat === 1 && item < 2) || cat === 2 || (cat === 4 && item === 1) || (cat === 8 && item < logApps.length) }
     function adjust(d) {
         if (cat === 0) {
             if (item === 0) Sim.setSetting("clock_24h", !Sim.clock24h);
@@ -63,12 +64,15 @@ Item {
             else if (item === 2) Sim.phoneDeleteCopy();
             else Sim.setSetting("phone_remote", !Sim.phoneRemote);
         } else if (cat === 4) {
+            if (item === 0) Sim.setSetting("assistant", !Sim.assistantEnabled);
+            else Sim.voiceVolume = Math.min(Sim.volumeMax, Math.max(0, Sim.voiceVolume + d));
+        } else if (cat === 5) {
             if (item === 0) bt = !bt; else wifi = !wifi;
-        } else if (cat === 6) {
+        } else if (cat === 7) {
             if (item === 0) Sim.installUpdate();
             else if (item === 1) Sim.restartNow();
             else Sim.rollbackUpdate();
-        } else if (cat === 7) {
+        } else if (cat === 8) {
             if (item < logApps.length) {
                 const a = logApps[item], n = Sim.logLevels.length;
                 Sim.setLogLevel(a.id, Sim.logLevels[(Sim.logLevels.indexOf(a.level) + d + n) % n]);
@@ -226,9 +230,46 @@ Item {
             }
         }
 
+        // Voice assistant (hu-assistd): on or off, its voice's volume, how it hears and answers
+        Column {
+            id: astPage
+            visible: root.cat === 4
+            spacing: 8
+            readonly property var e: Sim.assistantEngines
+            readonly property var t: Sim.assistantTiming
+            function sec(v) { return v === undefined ? "–" : v.toFixed(1) + " s" }
+            SettingRow { label: "Voice assistant"; idx: 0
+                Toggle { anchors.verticalCenter: parent.verticalCenter; checked: Sim.assistantEnabled
+                         onToggled: Sim.setSetting("assistant", !Sim.assistantEnabled) } }
+            SettingRow { label: "Voice volume  " + Sim.voiceVolume; idx: 1
+                LineSlider { anchors.verticalCenter: parent.verticalCenter; width: 360; from: 0; to: Sim.volumeMax
+                             value: Sim.voiceVolume; focused: root.inPanel && root.item === 1
+                             onMoved: (v) => Sim.voiceVolume = Math.round(v) } }
+            Item { width: 1; height: 14 }
+            Repeater {
+                model: [
+                    ["Status", !Sim.assistantLive && !Sim.demo ? "not running"
+                             : !Sim.assistantReady ? (Sim.assistantNotice || "loading the speech …")
+                             : !Sim.assistantEnabled ? "switched off" : "ready"],
+                    ["Hears with", astPage.e.recognizer ? astPage.e.recognizer + "  ·  " + astPage.e.microphone : "–"],
+                    ["Speaks with", astPage.e.voice || "–"],
+                    ["Answers from", astPage.e.llm === "echo" ? "echo (repeats what it heard, until the app brings the LLM)" : astPage.e.llm || "–"],
+                    ["Last answer", astPage.t.speech_s === undefined ? "–"
+                        : "you talked " + astPage.sec(astPage.t.speech_s) + "  ·  text after " + astPage.sec(astPage.t.recognise_s)
+                          + "  ·  answer after " + astPage.sec(astPage.t.think_s) + "  ·  voice after " + astPage.sec(astPage.t.first_sound_s)],
+                    ["Buttons", "VOICE: one question  ·  TALK: a conversation, until pressed again"]
+                ]
+                Row {
+                    x: 18; spacing: 14
+                    T { width: 200; text: modelData[0]; color: Theme.accentMid; font.pixelSize: Theme.fontSmall + 2 }
+                    T { width: 460; text: modelData[1]; font.pixelSize: Theme.fontSmall + 2; wrapMode: Text.WordWrap }
+                }
+            }
+        }
+
         // Connectivity
         Column {
-            visible: root.cat === 4
+            visible: root.cat === 5
             spacing: 8
             SettingRow { label: "Bluetooth"; idx: 0
                 Toggle { anchors.verticalCenter: parent.verticalCenter; checked: root.bt; onToggled: root.bt = !root.bt } }
@@ -249,7 +290,7 @@ Item {
         // System: what runs and how the computer is doing (hu-sysd's Info)
         Column {
             id: sysPage
-            visible: root.cat === 5
+            visible: root.cat === 6
             spacing: 10
             x: 18
             readonly property var i: Sim.systemInfo
@@ -311,7 +352,7 @@ Item {
         // running version stays until the next start
         Column {
             id: updPage
-            visible: root.cat === 6
+            visible: root.cat === 7
             spacing: 10
             x: 18
             readonly property var u: Sim.softwareUpdate
@@ -367,7 +408,7 @@ Item {
         // Diagnostics: warnings and errors of the DLT log (hu-sysd), the log level per service
         Column {
             id: diagPage
-            visible: root.cat === 7
+            visible: root.cat === 8
             spacing: 2
             readonly property var log: Sim.systemLog
             function count(n, what) { return n + " " + what + (n === 1 ? "" : "s") }

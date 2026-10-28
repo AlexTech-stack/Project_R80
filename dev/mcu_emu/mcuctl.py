@@ -5,7 +5,7 @@
     mcuctl.py knob 1          # one detent clockwise (-1 = counter-clockwise)
     mcuctl.py push            # press the knob
     mcuctl.py tilt -1         # push the knob sideways
-    mcuctl.py button HOME     # HOME BACK NAV MEDIA RADIO PHONE CAR SETUP VOL_UP VOL_DOWN MUTE
+    mcuctl.py button HOME     # HOME BACK NAV MEDIA RADIO PHONE CAR SETUP VOL_UP VOL_DOWN MUTE VOICE TALK
     mcuctl.py dim 30          # force display level 0..100, "auto" = follow LightState
 """
 from __future__ import annotations

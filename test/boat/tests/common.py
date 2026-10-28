@@ -427,3 +427,96 @@ def journal(message, priority=6, **fields):
     entry = {"MESSAGE": message, "PRIORITY": str(priority), **fields}
     with JOURNAL.open("a") as f:
         f.write(json.dumps(entry) + "\n")
+
+
+# ---- the voice assistant (hu-assistd with recorded speech, the transcript recognizer, a silent voice) ----
+AST_SERVICE, AST_PATH, AST_IFACE = "de.r80.Assistant", "/de/r80/Assistant", "de.r80.Assistant1"
+ASSIST_MIC = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "r80-hu" / "assistant-mic"
+
+
+def assistant():
+    """The de.r80.Assistant1 interface (Command, Conversation, Stop)."""
+    return dbus.Interface(dbus.SessionBus().get_object(AST_SERVICE, AST_PATH), AST_IFACE)
+
+
+def assistant_props() -> dict:
+    obj = dbus.SessionBus().get_object(AST_SERVICE, AST_PATH)
+    raw = obj.GetAll(AST_IFACE, dbus_interface="org.freedesktop.DBus.Properties")
+    return {str(k): _plain(v) for k, v in raw.items()}
+
+
+def wait_assistant(cond, timeout=5.0, step=0.05):
+    t0 = time.monotonic()
+    p = {}
+    while time.monotonic() - t0 < timeout:
+        p = assistant_props()
+        if cond(p):
+            return True, p, time.monotonic() - t0
+        time.sleep(step)
+    return False, p, time.monotonic() - t0
+
+
+def assistant_logic():
+    """assistd's own config, so tests never repeat its numbers."""
+    sys.path.insert(0, str(SERVICES))
+    import assistd
+    return assistd, assistd.load_config()
+
+
+def say_next(text: str, seconds: float = 1.5, name: str | None = None) -> Path:
+    """What the driver says at the assistant's next listen: a recording (a tone standing in for
+    speech) in its microphone folder, with its text for the transcript recognizer."""
+    import array
+    import math
+    import wave
+    ASSIST_MIC.mkdir(parents=True, exist_ok=True)
+    name = name or f"say-{time.monotonic_ns()}"
+    pcm = array.array("h", (int(8000 * math.sin(i / 4)) for i in range(int(seconds * 16000))))
+    tmp = ASSIST_MIC / f"{name}.tmp"
+    with wave.open(str(tmp), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(pcm.tobytes())
+    (ASSIST_MIC / f"{name}.txt").write_text(text + "\n")
+    wav = ASSIST_MIC / f"{name}.wav"
+    tmp.rename(wav)                          # whole, or not there at all
+    return wav
+
+
+def assistant_idle(timeout=10.0):
+    """No session running and nothing left in the microphone folder from an earlier test."""
+    for f in ASSIST_MIC.glob("*.wav"):
+        f.unlink()
+    a = assistant()
+    if assistant_props()["Mode"] != "idle":
+        a.Stop()
+    return wait_assistant(lambda p: p["Available"] and p["Mode"] == "idle", timeout=timeout)[0]
+
+
+class StateRecorder:
+    """Every State the assistant passes through, and audiod's Voice at the same time (polled)."""
+
+    def __init__(self, step=0.03):
+        self.states, self.voice = [], []
+        self.step = step
+        self.running = True
+        self.t = threading.Thread(target=self.run, daemon=True)
+        self.t.start()
+
+    def run(self):
+        while self.running:
+            try:
+                s, v = assistant_props()["State"], audio_props()["Voice"]
+            except dbus.DBusException:
+                s = v = None
+            if s and (not self.states or self.states[-1] != s):
+                self.states.append(s)
+            if v and (not self.voice or self.voice[-1] != v):
+                self.voice.append(v)
+            time.sleep(self.step)
+
+    def stop(self):
+        self.running = False
+        self.t.join()
+        return self.states, self.voice

@@ -5,7 +5,8 @@ import QtQuick.Window
 // Controls: mouse/touch, mouse wheel = MMI knob,
 // Up/Down = turn knob, Left/Right = push knob sideways, Enter = press,
 // Esc/Backspace = back to home, 1-8 = jump to screen, C = simulate incoming call,
-// W = simulate vehicle warnings, F11 = fullscreen.
+// W = simulate vehicle warnings, V = voice assistant (a command), T = a conversation with it,
+// F11 = fullscreen.
 Window {
     id: win
     width: Theme.screenWidth
@@ -36,6 +37,9 @@ Window {
     // run.py --screenshots: navigation state to show ("live", "stale", "idle", "nophone")
     property string demoNav: ""
     onDemoNavChanged: if (demoNav !== "") { Sim.navDemo = demoNav; Sim._navDriven = 1050 }
+    // run.py --screenshots: the voice assistant answering
+    property bool demoAssistant: false
+    onDemoAssistantChanged: if (demoAssistant) Sim.showAssistantDemo(); else Sim.assistantStop()
     property bool demoVolume: false
     onDemoVolumeChanged: if (demoVolume) { Sim.hangUp(); volumePopup.show() } else volumePopup.close()
 
@@ -80,12 +84,15 @@ Window {
             case Qt.Key_Return: case Qt.Key_Enter: case Qt.Key_Space: press(); break;
             case Qt.Key_Escape: case Qt.Key_Backspace: case Qt.Key_H:
                 if (Sim.callState === "incoming") Sim.hangUp();
+                else if (Sim.assistantState !== "idle") Sim.assistantStop();
                 else if (volumePopup.open) volumePopup.close();
                 else if (loader.item && loader.item.back && loader.item.back()) {}   // the screen went back itself
                 else win.go("home"); break;
             case Qt.Key_C: Sim.simulateIncomingCall(); break;
             case Qt.Key_W: Sim.simulateWarnings(); break;
             case Qt.Key_N: Sim.simulateNavState(); break;
+            case Qt.Key_V: Sim.assistantCommand(); break;
+            case Qt.Key_T: Sim.assistantConversation(); break;
             case Qt.Key_F11: win.visibility = win.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen; break;
             default:
                 if (e.key >= Qt.Key_1 && e.key <= Qt.Key_8) win.go(win.order[e.key - Qt.Key_1]);
@@ -136,6 +143,7 @@ Window {
         VolumePopup { id: volumePopup }
         WarningBanner { id: warningBanner }
 
+        AssistantOverlay { anchors.fill: parent }
         PhoneConsent { id: phoneConsent; anchors.fill: parent }
         CallOverlay { id: callOverlay; anchors.fill: parent }
 
