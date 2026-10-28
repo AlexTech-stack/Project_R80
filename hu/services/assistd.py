@@ -49,9 +49,13 @@ import dbus
 import dbus.service
 import gi
 from dbus.mainloop.glib import DBusGMainLoop
+from gi.repository import GLib
 
-gi.require_version("Gst", "1.0")
-from gi.repository import GLib, Gst  # noqa: E402
+try:                           # optional only for the tests, which read the config without GStreamer
+    gi.require_version("Gst", "1.0")
+    from gi.repository import Gst  # noqa: E402
+except (ImportError, ValueError):
+    Gst = None
 
 import dlt  # noqa: E402
 import speech  # noqa: E402
@@ -681,6 +685,8 @@ def main():
     if a.check:
         print(cfg)
         return
+    if Gst is None:
+        sys.exit("[assistd] GStreamer (gir1.2-gstreamer-1.0) is missing")
     dlt.app("AST", "Voice assistant", "assistd")
     Gst.init(None)
     DBusGMainLoop(set_as_default=True)

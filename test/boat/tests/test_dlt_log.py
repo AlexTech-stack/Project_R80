@@ -13,7 +13,7 @@ import dbus
 
 from common import DLT_PORT, DltStream, check, finish, phone, sys_props, system
 
-APPS = ["VEH", "MED", "AUD", "WRN", "TRP", "NAV", "SYS", "PHN", "OS"]
+APPS = ["VEH", "MED", "AUD", "WRN", "TRP", "NAV", "SYS", "PHN", "AST", "OS"]
 
 
 def error_of(fn, *args):
@@ -60,7 +60,7 @@ check({"USB", "BTPL", "SAVE"} <= set(info.get("MED", {}).get("contexts", {})),
 
 ok, v = wait_log(lambda v: v["connected"] and all(app_view(a).get("running") for a in APPS), timeout=6.0)
 check(ok, f"sysd reads the daemon: connected, every service running ({[(a['id'], a['running']) for a in v.get('apps', [])]})")
-check([a["id"] for a in v["apps"]][:10] == ["HMI", "VEH", "MED", "AUD", "WRN", "TRP", "NAV", "SYS", "PHN", "OS"],
+check([a["id"] for a in v["apps"]][:11] == ["HMI", "VEH", "MED", "AUD", "WRN", "TRP", "NAV", "SYS", "PHN", "AST", "OS"],
       "in the order of system.ini's [diagnostics] apps")
 
 # --- a warning: navd drops a bad line from the phone

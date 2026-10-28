@@ -132,3 +132,18 @@ Python packages (sherpa-onnx, onnxruntime, numpy).
   ("How was my tire pressure?").
 - The Pi 3 manages it, just: the voice is barely faster than real time, and the assistant takes
   about as much memory as the HU itself. A Pi 4 class board would have room to spare.
+
+### In the HU (hu-assistd, 2026-10-28)
+
+The whole command mode on the bench, with the HU and its UI running, recorded speech instead of a
+microphone, the echo backend instead of the LLM:
+
+| | Niced (10), first phrase long | Full priority, short first phrase |
+|---|---|---|
+| Recognised, after the end of speech | 1.9 s | 0.8 – 1.3 s |
+| The answer's first sound, after it is there | 3.0 s | 1.1 – 1.4 s |
+
+assistd: 290 MB RSS (the engines, GStreamer, D-Bus), its models loaded 30 – 40 s after it starts;
+with everything running 192 MB of 905 MB stay available (300 MB in swap): the 1 GB Pi 3 is full.
+At nice 10 next to the UI it hears twice as slowly, so the kiosk starts it at full priority, but
+15 s after the UI (loading takes the CPU for half a minute).
