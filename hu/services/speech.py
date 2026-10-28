@@ -103,11 +103,12 @@ class Endpointer:
 
 def phrases(text: str) -> list[str]:
     """The answer cut into phrases at punctuation, so the first can play while the next is made.
-    Pieces of one or two words join the next one (they sound choppy alone)."""
+    Pieces of one or two words join the next one (they sound choppy alone), except the first: a
+    short first phrase is made quickly, so the voice starts sooner."""
     parts = [p.strip() for p in re.split(r"(?<=[,.;:!?])\s+", text.strip()) if p.strip()]
     out = []
     for p in parts:
-        if out and len(out[-1].split()) <= 2:
+        if len(out) > 1 and len(out[-1].split()) <= 2:
             out[-1] = out[-1] + " " + p
         else:
             out.append(p)

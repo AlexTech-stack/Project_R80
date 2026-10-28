@@ -19,7 +19,7 @@ for m in "${MODELS[@]}"; do
   name="${m#*/}"
   if [[ -d "$DIR/$name" ]]; then echo "have $name"; continue; fi
   echo "fetching $name"
-  curl -fSL "$BASE/$m.tar.bz2" | tar xj -C "$DIR.part"
+  curl -fsSL "$BASE/$m.tar.bz2" | tar xj -C "$DIR.part"
   mv "$DIR.part/$name" "$DIR/$name"
 done
 rm -rf "$DIR.part"

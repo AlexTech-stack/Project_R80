@@ -55,9 +55,11 @@ DESKTOP_BUS="unix:path=/run/user/$(id -u)/bus"
 # system journal needs the user in the group adm (or systemd-journal)
 "${LOW[@]}" "$HU/hu/services/syslogd.py" >/tmp/r80-syslogd.log 2>&1 &
 # the voice assistant: speech on the HU (./r80 bench speech installs the models); R80_ASSIST_ARGS, e.g.
-# --mic-files DIR for recorded speech while the bench has no microphone
+# --mic-files DIR for recorded speech while the bench has no microphone. At full priority (niced, it
+# hears twice as slowly: docs/bench-measurements.md), but only after the UI is up (R80_ASSIST_DELAY s):
+# loading its models takes the CPU for half a minute.
 # shellcheck disable=SC2086  # R80_ASSIST_ARGS is a list of flags
-"${LOW[@]}" "$HU/hu/services/assistd.py" ${R80_ASSIST_ARGS:-} >/tmp/r80-assistd.log 2>&1 &
+(sleep "${R80_ASSIST_DELAY:-15}"; exec "$PY" "$HU/hu/services/assistd.py" ${R80_ASSIST_ARGS:-}) >/tmp/r80-assistd.log 2>&1 &
 
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-eglfs}"
 export QT_QPA_EGLFS_HIDECURSOR="${QT_QPA_EGLFS_HIDECURSOR:-1}"
