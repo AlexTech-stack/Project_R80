@@ -436,6 +436,33 @@ With the UB500 (2026-10-22): phone music over A2DP and the app link together for
 without a drop or a stall, no kernel or BlueZ errors (the built-in chip lost frames within
 minutes).
 
+### Software updates (D12)
+
+The HU software can run from installed releases instead of this checkout. An update file
+(`r80-hu-<version>.r80u`) comes from the phone (the app fetches the newest GitHub release and
+sends it over the link) or from `R80-update/` on a USB stick (Settings → Software update →
+Install). sysd checks it and installs it in `~/.local/share/r80/releases/<version>/`; it starts
+with the next start of the HU, or at once with "Restart now" while the car stands still (the
+desktop unit restarts itself). A new release has 60 s to become healthy (every service on the
+bus, the UI drawn), otherwise the HU goes back to the previous one by itself.
+
+```bash
+./r80 bench run-from release        # start the installed release (default when there is one)
+./r80 bench run-from checkout       # start this checkout again (development; ./r80 bench update)
+./r80 bundle                        # on the PC: an update file of the working tree, signed with your
+                                    # development key (~/.config/r80/dev-update-key.pem)
+```
+
+The bench also trusts development keys (`r80-kiosk.sh` passes `--allow-dev-key`): put their
+public part on the Pi once,
+
+```bash
+ci/make_bundle.py --public-key | ssh <pi> 'mkdir -p ~/.config/r80/update-keys; cat > ~/.config/r80/update-keys/dev-pc.pem'
+```
+
+Releases (a tag `v<major>.<minor>.<patch>` on `master`) are signed with the release key in CI;
+every HU trusts those (`hu/update-keys/release.pem`).
+
 ## 11. eglfs kiosk (with a monitor)
 
 Only with a monitor on the Pi: eglfs takes the display from the desktop, so VNC

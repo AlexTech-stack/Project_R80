@@ -59,6 +59,10 @@ class ProtocolTest {
             18 to Protocol.mediaCmd("seek", 90.5),
             19 to Protocol.mediaCmd("play_from", path = "albums/Kilometer%20Null", index = 2),
             20 to Protocol.browse(7, "albums"),
+            23 to Protocol.updateOffer(1, "0.2.0", 368640,
+                "5f0c6a1c3d2b4e8f9a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f"),
+            25 to Protocol.updateChunk(1, 0, "r80-hu update".toByteArray()),
+            27 to Protocol.updateDone(1),
         )
         for ((i, line) in ours) assertSameJson(examples[i], line)
     }
@@ -81,6 +85,12 @@ class ProtocolTest {
             BrowseResult.Entry("album", "albums/Kilometer%20Null", "Kilometer Null", "Neon Autobahn", -1),
             BrowseResult.Entry("album", "albums/V8%20Sessions", "V8 Sessions", "The Quattro Lines", -1)))), Protocol.parse(examples[21]))
         assertNull(Protocol.parse("""{"type":"media","status":"flying"}"""))
+        assertEquals(Protocol.HuMessage.Update(UpdateStatus("0.1.0", "", "idle", "")), Protocol.parse(examples[22]))
+        assertEquals(Protocol.HuMessage.Update(UpdateStatus("0.1.0", "", "receiving", "", 1, 0)), Protocol.parse(examples[24]))
+        assertEquals(Protocol.HuMessage.UpdateAck(1, 13), Protocol.parse(examples[26]))
+        assertEquals(Protocol.HuMessage.Update(UpdateStatus("0.1.0", "0.2.0", "ready", "0.2.0 starts with the next start of the HU")),
+            Protocol.parse(examples[28]))
+        assertNull(Protocol.parse("""{"type":"update_status","version":"0.1.0","state":"flying"}"""))
         assertEquals(Protocol.HuMessage.Unknown, Protocol.parse("""{"type":"lanes","lanes":[]}"""))
         assertNull(Protocol.parse("not json"))
         assertNull(Protocol.parse("""{"no":"type"}"""))

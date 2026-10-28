@@ -8,6 +8,8 @@ Description=R80 headunit on the desktop (Wayland, full screen)
 
 [Service]
 Environment=QT_QPA_PLATFORM=wayland R80_REPO=@REPO@
+# hu-sysd restarts the HU this way for an update ("Restart now") or a rollback
+Environment="R80_RESTART=systemctl --user restart --no-block r80-hu-desktop.service"
 ExecStart=/usr/bin/dbus-run-session -- @REPO@/bench/pi/r80-kiosk.sh
 Restart=on-failure
 RestartSec=3

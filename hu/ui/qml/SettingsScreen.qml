@@ -16,6 +16,7 @@ Item {
         { label: "Phone",        icon: Icons.phone },
         { label: "Connectivity", icon: Icons.wifi },
         { label: "System",       icon: Icons.chip },
+        { label: "Software update", icon: Icons.update },
         { label: "Diagnostics",  icon: Icons.wrench }
     ]
     // not wired yet: they get a service with the phone / connectivity work
@@ -23,7 +24,7 @@ Item {
     property bool wifi: false
 
     readonly property var logApps: Sim.systemLog.apps || []
-    readonly property var itemCounts: [2, 3, 9, 4, 2, 1, logApps.length + 2]
+    readonly property var itemCounts: [2, 3, 9, 4, 2, 1, 3, logApps.length + 2]
     onCatChanged: item = 0
 
     function knob(d) {
@@ -36,7 +37,7 @@ Item {
         adjust(d);
     }
     function press() { if (!inPanel) inPanel = true; else adjust(1) }
-    function adjustable() { return (cat === 1 && item < 2) || cat === 2 || (cat === 6 && item < logApps.length) }
+    function adjustable() { return (cat === 1 && item < 2) || cat === 2 || (cat === 7 && item < logApps.length) }
     function adjust(d) {
         if (cat === 0) {
             if (item === 0) Sim.setSetting("clock_24h", !Sim.clock24h);
@@ -64,6 +65,10 @@ Item {
         } else if (cat === 4) {
             if (item === 0) bt = !bt; else wifi = !wifi;
         } else if (cat === 6) {
+            if (item === 0) Sim.installUpdate();
+            else if (item === 1) Sim.restartNow();
+            else Sim.rollbackUpdate();
+        } else if (cat === 7) {
             if (item < logApps.length) {
                 const a = logApps[item], n = Sim.logLevels.length;
                 Sim.setLogLevel(a.id, Sim.logLevels[(Sim.logLevels.indexOf(a.level) + d + n) % n]);
@@ -302,10 +307,67 @@ Item {
                 LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.phone; label: "Ring"; iconSize: 22; onClicked: Sim.simulateIncomingCall() } }
         }
 
+        // Software update (D12, hu-sysd): from the phone (R80 Companion app) or a USB stick; the
+        // running version stays until the next start
+        Column {
+            id: updPage
+            visible: root.cat === 6
+            spacing: 10
+            x: 18
+            readonly property var u: Sim.softwareUpdate
+            readonly property bool busy: u.state === "checking" || u.state === "unpacking"
+            readonly property var cells: ["Installed", (u.version || "–") + (u.trial ? "  ·  on trial" : ""),
+                                          "Previous", u.previous || "–",
+                                          "Waiting", u.pending ? u.pending + "  ·  starts with the next start" : "–"]
+            Row {
+                spacing: 24
+                Logo { width: 150; height: 46; anchors.verticalCenter: parent.verticalCenter }
+                T { text: "R80 Headunit  ·  " + (updPage.u.version || "–"); anchors.verticalCenter: parent.verticalCenter }
+            }
+            Grid {
+                columns: 2
+                columnSpacing: 30
+                rowSpacing: 9
+                Repeater {
+                    model: updPage.cells
+                    T {
+                        text: modelData
+                        width: index % 2 === 0 ? 150 : 560
+                        color: index % 2 === 0 ? Theme.accentMid : Theme.accent
+                        font.pixelSize: Theme.fontSmall + 2
+                    }
+                }
+            }
+            T { width: 700; height: 26; font.pixelSize: Theme.fontSmall; elide: Text.ElideRight
+                color: updPage.u.state === "failed" ? Theme.accent : Theme.accentMid
+                text: updPage.u.state === "checking" ? "Checking the update …"
+                      : updPage.u.state === "unpacking" ? "Installing …"
+                      : updPage.u.state === "failed" ? "Not installed: " + updPage.u.message
+                      : updPage.u.message }
+            SettingRow { label: "From a USB stick"; idx: 0; x: -18
+                LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.usb; iconSize: 22
+                             enabled: !!updPage.u.found && !updPage.busy
+                             label: updPage.u.found ? "Install " + updPage.u.found : "No update found"
+                             onClicked: Sim.installUpdate() } }
+            SettingRow { label: "Start it now"; idx: 1; x: -18
+                LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.power; iconSize: 22
+                             enabled: updPage.u.can_restart
+                             label: updPage.u.pending && !updPage.u.can_restart ? "Only at a standstill" : "Restart now"
+                             onClicked: Sim.restartNow() } }
+            SettingRow { label: "Previous version"; idx: 2; x: -18
+                LineButton { anchors.verticalCenter: parent.verticalCenter; icon: Icons.back; iconSize: 22
+                             enabled: updPage.u.can_rollback
+                             label: updPage.u.previous ? "Back to " + updPage.u.previous : "None"
+                             onClicked: Sim.rollbackUpdate() } }
+            T { text: "Updates come from the R80 Companion app on the phone, or from R80-update/ on a USB stick. "
+                      + "Each one is checked before it is installed; the running version stays until the next start."
+                width: 700; wrapMode: Text.WordWrap; color: Theme.accentMid; font.pixelSize: Theme.fontSmall }
+        }
+
         // Diagnostics: warnings and errors of the DLT log (hu-sysd), the log level per service
         Column {
             id: diagPage
-            visible: root.cat === 6
+            visible: root.cat === 7
             spacing: 2
             readonly property var log: Sim.systemLog
             function count(n, what) { return n + " " + what + (n === 1 ? "" : "s") }

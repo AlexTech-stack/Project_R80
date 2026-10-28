@@ -25,6 +25,7 @@ class LinkService : Service() {
     private var surroundings: Surroundings? = null
     private var generation = 0                  // the current link's; a stopped one's callbacks are ignored
     private val onChange: () -> Unit = { link?.update(AppState.guidance) }
+    private val updates = UpdateSender { AppState.setUpdate(it) }   // the HU's software updates (D12)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -65,10 +66,12 @@ class LinkService : Service() {
                         park()
                         AppState.setMedia(null)          // the remote shows nothing it cannot control
                     }
+                    if (s.state == Link.State.CONNECTED && AppState.link.state != Link.State.CONNECTED) checkUpdates(false)
                     AppState.setLink(s)
                 },
                 onMedia = { AppState.setMedia(it) },
                 onBrowsed = { AppState.setBrowsed(it) },
+                updates = updates,
                 onCarStatus = { s ->
                     CarStore.saveStatus(this, s)
                     AppState.carChanged()
@@ -83,6 +86,8 @@ class LinkService : Service() {
             }
             AppState.listen(onChange)
             AppState.sender = { line -> link?.sendNow(line) }
+            AppState.checkUpdates = { force -> checkUpdates(force) }
+            updates.setFile(if (Settings.bringUpdates(this)) Releases.stored(this) else null)
             if (located) {
                 surroundings = Surroundings(this,
                     onWeather = { w -> link?.updateWeather(w); AppState.setWeather(w) },
@@ -91,6 +96,20 @@ class LinkService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    /** Asks the project's releases (if due, or now) on its own thread; a newer file goes to the HU
+     *  over the link when it is up. */
+    private fun checkUpdates(force: Boolean) {
+        val ctx = applicationContext
+        if (!Settings.bringUpdates(ctx)) {
+            updates.setFile(null)
+            return
+        }
+        Thread({
+            AppState.setUpdateCheck(Releases.check(ctx, force))
+            updates.setFile(Releases.stored(ctx))
+        }, "r80-releases").start()
     }
 
     /** Where the car is parked: the phone's position now (it is at the car), on its own thread. */
@@ -128,6 +147,7 @@ class LinkService : Service() {
 
     override fun onDestroy() {
         AppState.sender = null
+        AppState.checkUpdates = null
         AppState.setMedia(null)
         surroundings?.stop()
         surroundings = null

@@ -61,6 +61,17 @@
     <string name="link_status">Link: %1$s %2$s</string>
     <string name="guidance_title">Guidance sent</string>
     <string name="no_guidance">No navigation running in Google Maps.</string>
+    <string name="updates_title">Headunit software</string>
+    <string name="updates">Bring updates to the headunit</string>
+    <string name="updates_check">Check now</string>
+    <string name="updates_hu">Headunit: %1$s</string>
+    <string name="updates_hu_unknown">Headunit: not connected yet</string>
+    <string name="updates_waiting">%1$s waits for its next start</string>
+    <string name="updates_here">On this phone: %1$s</string>
+    <string name="updates_none_here">On this phone: none downloaded</string>
+    <string name="updates_sending">Sending %1$s: %2$d %%</string>
+    <string name="updates_off">Off: the app does not look for updates.</string>
+    <string name="updates_about">From the project\'s releases on GitHub, at most every 6 hours while connected. The headunit checks the signature and installs it with its next start.</string>
     <string name="surroundings_title">Weather and altitude</string>
     <string name="surroundings">Send the weather and the altitude to the headunit</string>
     <string name="surroundings_info">Weather from open-meteo.com for where the phone is (rounded to about 1 km); the headunit gets the weather and the altitude, never the position. %1$s</string>

@@ -408,6 +408,22 @@ python3 hu/services/sysd.py --check              # check system.ini and list the
 gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.Set accent "<'amber'>"
 ```
 
+## Software updates (D12)
+
+`hu/services/update.py` is the update file and the release folders, `ci/make_bundle.py`
+(`./r80 bundle`) makes an update file, hu-sysd installs one (`InstallFile`, a USB stick's
+`R80-update/`), hu-navd takes one from the phone (caps `update`). In the virtual mode sysd keeps
+its releases in `$XDG_RUNTIME_DIR/r80-hu/releases` and trusts the development keys in
+`$XDG_RUNTIME_DIR/r80-hu/update-keys` (the tests put their own there; TC_HU_043, TC_HU_044).
+
+```bash
+./r80 bundle --out /tmp/upd                                          # signed with your development key
+ci/make_bundle.py --public-key > $XDG_RUNTIME_DIR/r80-hu/update-keys/dev.pem    # trust it here
+gdbus call --session -d de.r80.System -o /de/r80/System -m de.r80.System1.InstallFile /tmp/upd/r80-hu-*.r80u file
+python3 -c 'import sys; sys.path[:0]=["dev/phone_emu","hu/services"]; from phone_emu import Phone; \
+  p=Phone(); p.connect(caps=("update",)); print(p.send_update(sys.argv[1]))' /tmp/upd/r80-hu-*.r80u   # as the phone
+```
+
 ## Log and diagnostics (DLT, D14)
 
 `./r80 virtual up` starts the HU's DLT daemon (`hu/services/dlt-daemon.sh`) before the
@@ -530,6 +546,8 @@ gdbus call --session -d de.r80.Phone -o /de/r80/Phone -m de.r80.Phone1.Answer
 | TC_HU_040 | car status to the phone (car_status): after the hello only to a phone that asks, the vehicle values, trip, warnings, accent; the final one when the ignition goes off; stale signals left out |
 | TC_HU_041 | the passenger's remote (companion media, media_cmd, browse): the state after the hello and on changes, commands reach mediad and audiod, browsing page by page, play from a list, setting phone_remote off: told and ignored |
 | TC_HU_042 | the system's own log in DLT (hu-syslogd, a stand-in journal): each source its context and level, other sources left out; addresses shortened, numbers masked, lines with names left out, quoted network names masked; 30 repeats written once plus a count; counted in Diagnostics; log level through sysd |
+| TC_HU_043 | software updates (D12, a test key of its own): a signed update file installed as the pending release, a foreign key and a changed payload refused, RestartNow / Rollback refused without a restart command / previous release; an update on a USB stick found and installed (older pending one cleaned up); the start: pending becomes current on trial, healthy it stays, never healthy it is given up after 2 starts and refused again |
+| TC_HU_044 | a software update from the phone (companion caps update, phone emulator's send_update): update_status after the hello (not without the cap), an offer that is not a version refused, a signed file sent in acknowledged pieces and installed by sysd (checking ... ready), an older one than the waiting one refused, a broken-off transfer resumed, wrong data (SHA-256) failed before sysd, a foreign key refused by sysd |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).

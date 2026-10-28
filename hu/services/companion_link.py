@@ -14,8 +14,11 @@ add both without breaking older peers. NaN and Infinity are not valid numbers.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import math
+import re
 
 PROTO_VERSION = 1
 SERVICE_UUID = "b4184390-fb7f-44db-9eaa-6985447914af"   # RFCOMM service record of the HU
@@ -35,7 +38,13 @@ MEDIA = "media"         # HU -> phone, what plays and the volume (the remote)
 MEDIA_CMD = "media_cmd"  # phone -> HU, a remote control command
 BROWSE = "browse"       # phone -> HU, a page of the media browse tree, please
 BROWSE_RESULT = "browse_result"  # HU -> phone, that page
-TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE, WEATHER, POSITION, CAR_STATUS, MEDIA, MEDIA_CMD, BROWSE, BROWSE_RESULT)
+UPDATE_STATUS = "update_status"  # HU -> phone, its software version and how an update goes (D12)
+UPDATE_OFFER = "update_offer"    # phone -> HU, an update file it can send
+UPDATE_CHUNK = "update_chunk"    # phone -> HU, a piece of it
+UPDATE_ACK = "update_ack"        # HU -> phone, how much it has
+UPDATE_DONE = "update_done"      # phone -> HU, all sent: check and install it
+TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE, WEATHER, POSITION, CAR_STATUS, MEDIA, MEDIA_CMD, BROWSE, BROWSE_RESULT,
+         UPDATE_STATUS, UPDATE_OFFER, UPDATE_CHUNK, UPDATE_ACK, UPDATE_DONE)
 MEDIA_CMDS = ("play", "pause", "next", "previous", "seek", "shuffle", "repeat", "mute", "volume", "source", "play_from")
 MAX_UP_NEXT = 5
 MAX_PAGE = 20
@@ -43,6 +52,11 @@ MAX_ENTRY_TEXT = 60     # browse titles and subtitles, so a page fits into a lin
 MAX_DAYS = 7
 MAX_WARNINGS = 10
 SEVERITIES = ("warning", "information", "notice")
+MAX_CHUNK = 2048        # bytes of an update file per update_chunk (base64: 2732 characters)
+MAX_UPDATE = 50_000_000  # bytes, the largest update file the HU takes
+UPDATE_WINDOW = 8       # update_chunks the phone may send before an update_ack
+UPDATE_STATES = ("idle", "receiving", "checking", "unpacking", "ready", "failed", "refused")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # guidance.maneuver
 MANEUVERS = ("depart", "turn", "continue", "merge", "fork", "on_ramp", "off_ramp",
@@ -122,6 +136,8 @@ def validate(msg) -> dict:
                 "count": _number(msg, "count", integer=True, lo=1, hi=MAX_PAGE) or MAX_PAGE}
     if t == BROWSE_RESULT:
         return _browse_result(msg)
+    if t in (UPDATE_STATUS, UPDATE_OFFER, UPDATE_CHUNK, UPDATE_ACK, UPDATE_DONE):
+        return _update(msg)
     if t == POSITION:
         when = _number(msg, "time", integer=True, lo=0, hi=2**40)
         if when is None:
@@ -293,6 +309,45 @@ def _browse_result(msg: dict) -> dict:
             "entries": out}
 
 
+def _update(msg: dict) -> dict:
+    t = msg["type"]
+    if t == UPDATE_STATUS:
+        state = msg.get("state")
+        if state not in UPDATE_STATES:
+            raise ProtocolError(f"update_status: state {state!r} is not one of {', '.join(UPDATE_STATES)}")
+        return {"type": t, "version": _text(msg, "version", required=True), "pending": _text(msg, "pending") or "",
+                "state": state, "message": _text(msg, "message") or "",
+                "id": _number(msg, "id", integer=True, hi=2**31), "received": _number(msg, "received", integer=True, hi=MAX_UPDATE)}
+    req = _number(msg, "id", integer=True, hi=2**31)
+    if req is None:
+        raise ProtocolError(f"{t}: 'id' is required")
+    if t == UPDATE_DONE:
+        return {"type": t, "id": req}
+    if t == UPDATE_ACK:
+        got = _number(msg, "received", integer=True, hi=MAX_UPDATE)
+        if got is None:
+            raise ProtocolError("update_ack: 'received' is required")
+        return {"type": t, "id": req, "received": got}
+    if t == UPDATE_OFFER:
+        size = _number(msg, "size", integer=True, lo=1, hi=MAX_UPDATE)
+        sha = msg.get("sha256")
+        if size is None or not isinstance(sha, str) or not SHA256_RE.match(sha):
+            raise ProtocolError("update_offer: needs 'size' (1..MAX_UPDATE) and 'sha256' (64 lower-case hex)")
+        return {"type": t, "id": req, "version": _text(msg, "version", required=True), "size": size, "sha256": sha}
+    # update_chunk: the data as bytes
+    offset = _number(msg, "offset", integer=True, hi=MAX_UPDATE)
+    raw = msg.get("data")
+    if offset is None or not isinstance(raw, str) or len(raw) > (MAX_CHUNK + 2) // 3 * 4:
+        raise ProtocolError(f"update_chunk: needs 'offset' and 'data' (base64, at most {MAX_CHUNK} bytes)")
+    try:
+        data = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
+        raise ProtocolError("update_chunk: 'data' is not base64") from None
+    if not data:
+        raise ProtocolError("update_chunk: 'data' is empty")
+    return {"type": t, "id": req, "offset": offset, "data": data}
+
+
 def _reject_constant(name):
     raise ValueError(f"{name} is not a valid number")
 
@@ -306,6 +361,8 @@ def encode(msg: dict) -> bytes:
         clean["trip"] = {k: v for k, v in clean["trip"].items() if v is not None}
     if clean["type"] == BROWSE_RESULT:
         clean["entries"] = [{k: v for k, v in e.items() if v is not None} for e in clean["entries"]]
+    if clean["type"] == UPDATE_CHUNK:
+        clean["data"] = base64.b64encode(clean["data"]).decode("ascii")
     line = json.dumps({k: v for k, v in clean.items() if v is not None},
                       ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode() + b"\n"
     if len(line) > MAX_LINE:
@@ -405,3 +462,25 @@ def car_status(time: int, final: bool = False, **values) -> dict:
 def position(time: int, alt_m: float | None = None, accuracy_m: float | None = None,
              heading_deg: float | None = None) -> dict:
     return {"type": POSITION, "time": time, "alt_m": alt_m, "accuracy_m": accuracy_m, "heading_deg": heading_deg}
+
+
+def update_status(version: str, state: str, pending: str = "", message: str = "", id: int | None = None,
+                  received: int | None = None) -> dict:
+    return {"type": UPDATE_STATUS, "version": version, "pending": pending, "state": state, "message": message,
+            "id": id, "received": received}
+
+
+def update_offer(id: int, version: str, size: int, sha256: str) -> dict:
+    return {"type": UPDATE_OFFER, "id": id, "version": version, "size": size, "sha256": sha256}
+
+
+def update_chunk(id: int, offset: int, data: bytes) -> dict:
+    return {"type": UPDATE_CHUNK, "id": id, "offset": offset, "data": base64.b64encode(data).decode("ascii")}
+
+
+def update_ack(id: int, received: int) -> dict:
+    return {"type": UPDATE_ACK, "id": id, "received": received}
+
+
+def update_done(id: int) -> dict:
+    return {"type": UPDATE_DONE, "id": id}

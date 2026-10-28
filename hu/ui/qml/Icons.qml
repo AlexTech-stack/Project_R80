@@ -98,6 +98,7 @@ QtObject {
     readonly property string power: "M12 3 V11 M7 5.8 A8 8 0 1 0 17 5.8"
     readonly property string warning: "M12 3.5 L21.5 20 H2.5 Z M12 9.5 V14.5 M12 16.8 V17.6"
     readonly property string info: circle(12, 12, 9) + "M12 10.5 V16.8 M12 7.2 V8"
+    readonly property string update: "M12 3.5 V14.5 M7.5 10 L12 14.5 L16.5 10 M4 15.5 V20 H20 V15.5"
     readonly property string usb: "M12 21 V3.5 M9.5 6 L12 3.5 L14.5 6 M12 16 L7 12.5 V9.5 M12 13.5 L17 10.5 V8 " + circle(12, 19.5, 1.5) + "M6 8 H8 V10 H6 Z" + circle(17, 7, 1)
     readonly property string list: "M8 6 H21 M8 12 H21 M8 18 H21 M3.5 6 H4.5 M3.5 12 H4.5 M3.5 18 H4.5"
     readonly property string folder: "M3 6.5 V19 H21 V8.5 H11.5 L9.5 6.5 Z"

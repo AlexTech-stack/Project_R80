@@ -9,6 +9,7 @@ Item {
     property bool round: false
     property real iconSize: 30
     signal clicked()
+    readonly property color fg: enabled ? Theme.accent : Theme.accentDim    // dimmed while not usable
     implicitWidth: round ? 72 : Math.max(72, content.implicitWidth + 40)
     implicitHeight: round ? 72 : 56
 
@@ -16,7 +17,7 @@ Item {
         anchors.fill: parent
         radius: root.round ? width / 2 : 3
         color: root.highlighted ? Theme.accent : (mouse.pressed ? Theme.accentFaint : "transparent")
-        border.color: Theme.accent
+        border.color: root.fg
         border.width: 2
     }
     Row {
@@ -28,13 +29,13 @@ Item {
             path: root.icon
             width: root.iconSize; height: root.iconSize
             stroke: 1.8
-            color: root.highlighted ? Theme.textOnAccent : Theme.accent
+            color: root.highlighted ? Theme.textOnAccent : root.fg
             anchors.verticalCenter: parent.verticalCenter
         }
         T {
             visible: root.label !== ""
             text: root.label
-            color: root.highlighted ? Theme.textOnAccent : Theme.accent
+            color: root.highlighted ? Theme.textOnAccent : root.fg
             anchors.verticalCenter: parent.verticalCenter
         }
     }

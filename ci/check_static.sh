@@ -51,6 +51,7 @@ step "py_compile"        py_compile_all
 step "repo rules"        "$PY" ci/check_rules.py
 step "DBC up to date"    dbc_up_to_date
 step "simulator log"     sim_log
+step "update file"       "$PY" ci/check_update.py
 if [[ -n "${SKIP_UI:-}" ]]; then echo "== UI screenshots: skipped (SKIP_UI)"; else
 step "UI screenshots"    screenshots
 step "app icons"         "$PY" companion-android/tools/make_icons.py --check

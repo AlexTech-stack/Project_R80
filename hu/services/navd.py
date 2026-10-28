@@ -30,6 +30,10 @@ from hu-vehicled, hu-tripd, hu-warnd and hu-sysd (the accent colour). car_status
 without D-Bus. To a phone with caps remote (a passenger's remote) navd sends what plays and the
 volume (media, from hu-mediad and hu-audiod, Remote), carries out its media_cmd (unless the
 setting phone_remote is off) and answers its browse requests from hu-mediad's browse tree.
+To a phone with caps update navd says which software runs and how an update goes
+(update_status, from hu-sysd's Update); the phone may offer a newer update file and send it
+in pieces (UpdateTransfer, --update-dir); hu-sysd checks and installs it (InstallFile). Nothing
+the phone sends is trusted: the signature check is sysd's. A transfer that broke off resumes.
 
 One phone at a time: a new connection replaces the old one (a phone that reconnects
 before the old link timed out). The timing is in nav.ini. Ways in, all the same protocol:
@@ -47,7 +51,10 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import hashlib
 import os
+import re
+import shutil
 import socket
 import sys
 import time
@@ -56,11 +63,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import companion_link as cl  # noqa: E402
 import dlt  # noqa: E402
+import update  # noqa: E402
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "nav.ini"
 SYSTEM_CONFIG = Path("/etc/r80/nav.ini")
 VERSION = "0.2"
-CAPS = ["weather", "position", "car_status", "remote"]   # navd's hello: what it wants (weather, position) and offers
+CAPS = ["weather", "position", "car_status", "remote", "update"]   # navd's hello: what it wants (weather, position) and offers
 MEDIA_EVERY_S = 0.5                       # the remote's media state at most this often
 VEHICLE = {"fuel_pct": "FuelLevel", "range_km": "Range", "odometer_km": "Odometer", "battery_v": "BatteryVoltage",
            "outside_c": "OutsideTemp", "service_km": "ServiceDistance", "service_days": "ServiceDays"}
@@ -199,6 +207,90 @@ def browse_result(req: dict, title: str, total: int, entries: list) -> dict:
             page = page[:-1]                    # too long for a line: one entry less, the phone pages on
 
 
+class TransferError(Exception):
+    pass
+
+
+class UpdateTransfer:
+    """An update file from the phone (caps update, docs/companion-protocol.md): its update_offer,
+    the update_chunks in order, update_done. It lands in `folder`; hu-sysd checks the signature
+    and installs it, so the size and the SHA-256 are all this checks. A transfer that broke off
+    resumes: the partial file is kept under its SHA-256 until another update is offered."""
+
+    def __init__(self, folder: Path):
+        self.folder = Path(folder)
+        self.offer: dict | None = None
+        self.received = 0
+
+    def part(self, sha: str) -> Path:
+        return self.folder / f"{sha}.part"
+
+    def start(self, offer: dict, running: str, pending: str, busy: bool) -> str:
+        """"" if taken (self.received: where the phone goes on), else why not."""
+        v = offer["version"]
+        if busy:
+            return "the HU is installing an update"
+        try:
+            update.parse_version(v)
+        except update.UpdateError:
+            return f"not a version: {v}"
+        if not update.newer(v, running):
+            return f"{v} is not newer than the running {running}"
+        if pending and not update.newer(v, pending):
+            return f"{pending} is already waiting for the next start"
+        self.folder.mkdir(parents=True, exist_ok=True)
+        for f in self.folder.iterdir():                  # one transfer at a time: older pieces go
+            if f.name != self.part(offer["sha256"]).name:
+                f.unlink()
+        if shutil.disk_usage(self.folder).free < offer["size"] * 5:
+            return "not enough space on the HU"
+        p = self.part(offer["sha256"])
+        have = p.stat().st_size if p.exists() else 0
+        if have > offer["size"]:
+            p.unlink()
+            have = 0
+        self.offer, self.received = offer, have
+        return ""
+
+    def chunk(self, msg: dict) -> int | None:
+        """Where the transfer is after this piece (None: not this transfer). A piece that is not
+        the next one is not written; the answer tells the phone where to go on."""
+        if not self.offer or msg["id"] != self.offer["id"]:
+            return None
+        if msg["offset"] != self.received:
+            return self.received
+        if self.received + len(msg["data"]) > self.offer["size"]:
+            raise TransferError("more data than offered")
+        with self.part(self.offer["sha256"]).open("ab") as f:
+            f.write(msg["data"])
+        self.received += len(msg["data"])
+        return self.received
+
+    def finish(self, msg: dict) -> Path:
+        """The complete file, ready for hu-sysd; TransferError if it is not what was offered."""
+        o = self.offer
+        if not o or msg["id"] != o["id"]:
+            raise TransferError("no such transfer")
+        if self.received != o["size"]:
+            raise TransferError(f"only {self.received} of {o['size']} bytes arrived")
+        p = self.part(o["sha256"])
+        h = hashlib.sha256()
+        with p.open("rb") as f:
+            for block in iter(lambda: f.read(1 << 16), b""):
+                h.update(block)
+        self.offer = None
+        if h.hexdigest() != o["sha256"]:
+            p.unlink()
+            raise TransferError("the file is not the one offered (SHA-256)")
+        done = self.folder / f"r80-hu-{re.sub(r'[^0-9A-Za-z.+-]', '_', o['version'])}{update.SUFFIX}"
+        p.replace(done)
+        return done
+
+    def stop(self):
+        """The link is gone: the pieces stay for a resume."""
+        self.offer = None
+
+
 class Link:
     """The phone session and the guidance it delivered. Feed it events with the monotonic
     time `now` (and the wall clock `wall` for the arrival time); it returns what to send.
@@ -270,7 +362,7 @@ class Link:
             self.weather = msg
         elif t == cl.POSITION:
             self.position = msg
-        elif t in (cl.MEDIA_CMD, cl.BROWSE):
+        elif t in (cl.MEDIA_CMD, cl.BROWSE, cl.UPDATE_OFFER, cl.UPDATE_CHUNK, cl.UPDATE_DONE):
             self.requests.append(msg)
         return []
 
@@ -326,7 +418,8 @@ class Link:
                 "remaining_s": num("remaining_s"), "arrival": self.arrival}
 
 
-def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None = None, bluez_bus: str | None = None):
+def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None = None, bluez_bus: str | None = None,
+                update_dir: Path | None = None):
     import dbus
     import dbus.service
     from dbus.mainloop.glib import DBusGMainLoop
@@ -383,13 +476,20 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             bus.add_signal_receiver(self.on_vehicle, "PropertiesChanged", PROPS, None, SOURCES["vehicle"][1])
             # the remote: what plays, the volume, whether the phone may control them
             self.remote = Remote()
+            self.transfer = UpdateTransfer(update_dir or sock_path.parent / "update-incoming")
+            self.sys_update: dict = {}                                # hu-sysd's Update
+            self.handed: Path | None = None                           # a received file sysd is checking
             self.media_due = None                                     # a pending (throttled) media message
             self.media_sent = 0.0
             for name, handler in (("media", self.on_media), ("audio", self.on_audio), ("system", self.on_system)):
                 svc, path, iface = SOURCES[name]
                 bus.add_signal_receiver(handler, "PropertiesChanged", PROPS, None, path)
-                bus.call_async(svc, path, PROPS, "GetAll", "s", (iface,), lambda p, h=handler, i=iface: h(i, p, []),
-                               lambda _e: None, timeout=2.0)
+
+                def appeared(owner, svc=svc, path=path, iface=iface, h=handler):
+                    if owner:                    # there now (also: started after navd): read all of it once
+                        bus.call_async(svc, path, PROPS, "GetAll", "s", (iface,), lambda p: h(iface, p, []),
+                                       lambda _e: None, timeout=2.0)
+                bus.watch_name_owner(svc, appeared)
             svc, path, iface = SOURCES["vehicle"]                    # the power state navd starts in
             bus.call_async(svc, path, PROPS, "Get", "ss", (iface, "Power"),
                            lambda p: setattr(self, "power", self.power or str(p)), lambda _e: None, timeout=2.0)
@@ -455,6 +555,7 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                 if not was and self.link.greeted:
                     self.send_status()               # how the car is, right after the hello
                     self.media_changed()             # and what plays, for the remote
+                    self.send_update_status()        # and which software runs
             for req in self.link.requests:
                 try:
                     self.carry_out(req)
@@ -497,6 +598,9 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                     pass
                 self.conn = None
             self.link.lost(time.monotonic())
+            if self.transfer.offer:
+                log.info(f"update transfer stopped at {self.transfer.received} bytes: the link is gone")
+            self.transfer.stop()
             self.status_sent = 0.0
             self.publish()
 
@@ -513,6 +617,12 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                 self.media_changed()
 
         def on_system(self, iface, changed, _inv):
+            if "Update" in changed:
+                self.sys_update = plain(changed["Update"])
+                if self.handed and self.sys_update.get("state") in ("ready", "failed"):
+                    self.handed.unlink(missing_ok=True)               # installed (or refused): not needed any more
+                    self.handed = None
+                self.send_update_status()
             settings = plain(changed.get("Settings", {}))
             if "phone_remote" in settings and self.remote.update(allowed=bool(settings["phone_remote"])):
                 log.info(f"the phone may {'' if self.remote.allowed else 'not '}control the HU")
@@ -532,8 +642,65 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                 self.send([self.remote.message()])
             return False
 
+        # ---- updates from the phone (caps update, D12) ---------------------------
+        def wants_update(self):
+            return self.conn is not None and self.link.greeted and "update" in self.link.caps
+
+        def send_update_status(self, state: str | None = None, message: str | None = None):
+            if not self.wants_update():
+                return
+            u = self.sys_update
+            t = self.transfer
+            st = state or ("receiving" if t.offer else u.get("state", "idle"))
+            self.send([cl.update_status(u.get("version", "unknown") or "unknown", st, pending=u.get("pending", ""),
+                                        message=u.get("message", "") if message is None else message,
+                                        id=t.offer["id"] if t.offer else None, received=t.received if t.offer else None)])
+
+        def on_update(self, req: dict):
+            t = self.transfer
+            if req["type"] == cl.UPDATE_OFFER:
+                if not self.sys_update:
+                    why = "the HU's system service is not there"
+                else:
+                    why = t.start(req, self.sys_update.get("version", ""), self.sys_update.get("pending", ""),
+                                  self.sys_update.get("state") in ("checking", "unpacking"))
+                if why:
+                    log.info(f"update {req['version']} from the phone not taken: {why}")
+                    self.send_update_status("refused", why)
+                    return
+                log.info(f"update {req['version']} from the phone: receiving {req['size']} bytes"
+                         + (f", going on at {t.received}" if t.received else ""))
+                self.send_update_status("receiving", "")
+            elif req["type"] == cl.UPDATE_CHUNK:
+                try:
+                    got = t.chunk(req)
+                except (TransferError, OSError) as e:
+                    log.warning(f"update transfer failed: {e}")
+                    t.stop()
+                    self.send_update_status("failed", str(e))
+                    return
+                if got is not None:
+                    self.send([cl.update_ack(req["id"], got)])
+            else:                                                     # update_done
+                try:
+                    path = t.finish(req)
+                except (TransferError, OSError) as e:
+                    log.warning(f"update from the phone not complete: {e}")
+                    self.send_update_status("failed", str(e))
+                    return
+                log.info(f"update file from the phone complete: {path.name}, for hu-sysd to check")
+                svc, spath, siface = SOURCES["system"]
+                # sysd answers once it started checking, before its result: from then on the file
+                # may go when sysd is done with it (ready / failed)
+                self.bus.call_async(svc, spath, siface, "InstallFile", "ss", (str(path), "phone"),
+                                    lambda *_: setattr(self, "handed", path),
+                                    lambda e: self.send_update_status("failed", e.get_dbus_message()), timeout=5.0)
+
         def carry_out(self, req: dict):
-            """A media_cmd or browse from the phone."""
+            """A media_cmd, browse or update message from the phone."""
+            if req["type"] in (cl.UPDATE_OFFER, cl.UPDATE_CHUNK, cl.UPDATE_DONE):
+                self.on_update(req)
+                return
             msvc, mpath, miface = SOURCES["media"]
             if req["type"] == cl.BROWSE:
                 def answer(title, total, entries):
@@ -717,13 +884,16 @@ def main():
                     help="accept the phone over Bluetooth: register with BlueZ on this bus (system = the real "
                          "Bluetooth stack, session = the tests' stand-in)")
     ap.add_argument("--system", action="store_true", help="use the system bus (target) instead of the session bus")
+    cache = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    ap.add_argument("--update-dir", default=str(cache / "r80" / "update-incoming"),
+                    help="where an update file from the phone is put together (hu-sysd then installs it)")
     a = ap.parse_args()
     dlt.app("NAV", "Navigation service", "navd")
     try:
         cfg = load_config(a.config)
     except ConfigError as e:
         sys.exit(f"[navd] bad config: {e}")
-    run_service(cfg, Path(a.socket), a.system, a.tcp, a.bluetooth)
+    run_service(cfg, Path(a.socket), a.system, a.tcp, a.bluetooth, Path(a.update_dir))
 
 
 if __name__ == "__main__":

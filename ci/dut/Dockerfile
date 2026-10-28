@@ -7,6 +7,6 @@ FROM debian:trixie
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-dbus python3-gi \
       gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-      dlt-daemon dlt-tools \
+      dlt-daemon dlt-tools openssl \
  && rm -rf /var/lib/apt/lists/*
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
