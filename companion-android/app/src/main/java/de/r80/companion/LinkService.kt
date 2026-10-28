@@ -72,6 +72,7 @@ class LinkService : Service() {
                 onMedia = { AppState.setMedia(it) },
                 onBrowsed = { AppState.setBrowsed(it) },
                 updates = updates,
+                assistant = AppAssistant(applicationContext),    // the HU's voice assistant asks the LLM through us
                 onCarStatus = { s ->
                     CarStore.saveStatus(this, s)
                     AppState.carChanged()
@@ -87,6 +88,7 @@ class LinkService : Service() {
             AppState.listen(onChange)
             AppState.sender = { line -> link?.sendNow(line) }
             AppState.checkUpdates = { force -> checkUpdates(force) }
+            AppState.assistantChanged = { link?.assistantChanged() }
             updates.setFile(if (Settings.bringUpdates(this)) Releases.stored(this) else null)
             if (located) {
                 surroundings = Surroundings(this,
@@ -148,6 +150,7 @@ class LinkService : Service() {
     override fun onDestroy() {
         AppState.sender = null
         AppState.checkUpdates = null
+        AppState.assistantChanged = null
         AppState.setMedia(null)
         surroundings?.stop()
         surroundings = null

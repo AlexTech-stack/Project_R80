@@ -36,6 +36,15 @@ object Settings {
     fun setUpdateChecked(ctx: Context, at: Long, result: String) =
         prefs(ctx).edit().putLong("update_checked", at).putString("update_result", result).apply()
 
+    /** The voice assistant: answer the HU's questions with the user's LLM (the key is in [Secret]). */
+    fun assistant(ctx: Context): Boolean = prefs(ctx).getBoolean("assistant", true)
+    fun setAssistant(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("assistant", v).apply()
+    /** The LLM: an OpenAI-compatible chat completions API and its model. */
+    fun llmUrl(ctx: Context): String = prefs(ctx).getString("llm_url", Llm.DEFAULT_URL)!!
+    fun llmModel(ctx: Context): String = prefs(ctx).getString("llm_model", Llm.DEFAULT_MODEL)!!
+    fun setLlm(ctx: Context, url: String, model: String) = prefs(ctx).edit()
+        .putString("llm_url", url.trim().ifEmpty { Llm.DEFAULT_URL }).putString("llm_model", model.trim().ifEmpty { Llm.DEFAULT_MODEL }).apply()
+
     fun capture(ctx: Context): Boolean = prefs(ctx).getBoolean("capture", false)
     fun setCapture(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("capture", v).apply()
 

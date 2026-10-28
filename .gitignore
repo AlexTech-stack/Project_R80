@@ -37,3 +37,6 @@ CMakeLists.txt.user*
 
 # BoAt runtime databases (wherever the gateway / boat CLI ran)
 boat_*.db*
+
+# LLM API Key
+LLM_API_Key.txt

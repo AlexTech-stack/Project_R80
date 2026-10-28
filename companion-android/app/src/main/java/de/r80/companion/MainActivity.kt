@@ -150,6 +150,39 @@ class MainActivity : Activity() {
             if (check != null) check(true)
             else Thread({ AppState.setUpdateCheck(Releases.check(applicationContext, true)) }, "r80-releases").start()
         }
+        val assistant = settingsPage.findViewById<Switch>(R.id.assistant)
+        assistant.isChecked = Settings.assistant(this)
+        assistant.setOnCheckedChangeListener { _, on ->
+            Settings.setAssistant(this, on)
+            AppState.assistantChanged?.invoke()
+            show()
+        }
+        val llmKey = settingsPage.findViewById<EditText>(R.id.llm_key)
+        val llmModel = settingsPage.findViewById<EditText>(R.id.llm_model)
+        val llmUrl = settingsPage.findViewById<EditText>(R.id.llm_url)
+        llmModel.setText(Settings.llmModel(this))
+        llmUrl.setText(Settings.llmUrl(this))
+        settingsPage.findViewById<Button>(R.id.llm_save).setOnClickListener {
+            if (llmKey.text.isNotBlank()) Secret.save(this, llmKey.text.toString())   // empty: keep the stored one
+            llmKey.text.clear()
+            Settings.setLlm(this, llmUrl.text.toString(), llmModel.text.toString())
+            AppState.assistantChanged?.invoke()
+            Toast.makeText(this, R.string.llm_saved, Toast.LENGTH_SHORT).show()
+            show()
+        }
+        settingsPage.findViewById<Button>(R.id.llm_forget).setOnClickListener {
+            Secret.save(this, "")
+            AppState.assistantChanged?.invoke()
+            show()
+        }
+        settingsPage.findViewById<Button>(R.id.llm_test).setOnClickListener {
+            val ctx = applicationContext
+            Thread({
+                val t0 = System.nanoTime()
+                val r = Llm.ask(Settings.llmUrl(ctx), Secret.load(ctx), Settings.llmModel(ctx), Llm.testRequest())
+                AppState.setAssist(r, (System.nanoTime() - t0) / 1_000_000)
+            }, "r80-llm-test").start()
+        }
         val capture = settingsPage.findViewById<Switch>(R.id.capture)
         capture.isChecked = Settings.capture(this)
         capture.setOnCheckedChangeListener { _, on -> Settings.setCapture(this, on); show() }
@@ -379,6 +412,11 @@ class MainActivity : Activity() {
         }
         captureInfo.text = getString(R.string.capture_info, Capture.count(this))
         settingsPage.findViewById<TextView>(R.id.updates_info).text = updateInfo()
+        settingsPage.findViewById<TextView>(R.id.assistant_info).text = if (!Settings.assistant(this)) getString(R.string.assistant_off)
+            else getString(R.string.assistant_info,
+                getString(if (Secret.has(this)) R.string.assistant_key_stored else R.string.assistant_key_none),
+                Settings.llmModel(this), Llm.provider(Settings.llmUrl(this)),
+                AppState.assist.ifEmpty { getString(R.string.assistant_last_none) })
         val w = AppState.weather
         val p = AppState.position
         settingsPage.findViewById<TextView>(R.id.surroundings_info).text = getString(R.string.surroundings_info, when {

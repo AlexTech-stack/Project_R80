@@ -18,7 +18,7 @@ step; the Android app (`companion-android/`, later) implements the same rules.
 ## Framing
 
 - One JSON object per line, UTF-8, ending in `\n`. A `\r` before it is ignored.
-- A line is at most 4096 bytes. A longer line is dropped up to its `\n`.
+- A line is at most 65536 bytes (the voice assistant's conversations are the longest). A longer line is dropped up to its `\n`.
 - Every object has a `"type"` (string).
 - Numbers are plain JSON numbers. `NaN` and `Infinity` are not valid. `true`/`false` are not numbers.
 - Strings longer than 200 characters are cut by the receiver.
@@ -48,7 +48,7 @@ step; the Android app (`companion-android/`, later) implements the same rules.
 | `app` | string | required | `r80-companion` or `r80-hu` |
 | `version` | string | required | software version of the sender |
 | `device` | string | optional | phone model, for logs |
-| `caps` | list of strings | optional | what the sender takes part in. The phone: `guidance`, `weather`, `position` (it sends them), `car_status` (it wants them), `remote` (it wants `media` and `browse_result`, sends `media_cmd` and `browse`), `update` (it may send software updates). The HU: `weather`, `position` (it wants them), `car_status` (it sends them), `remote` (the other side of it), `update` (it takes software updates and sends `update_status`). Each side sends an optional message type only to a peer that lists it |
+| `caps` | list of strings | optional | what the sender takes part in. The phone: `guidance`, `weather`, `position` (it sends them), `car_status` (it wants them), `remote` (it wants `media` and `browse_result`, sends `media_cmd` and `browse`), `update` (it may send software updates), `assistant` (it answers the voice assistant with an LLM). The HU: `weather`, `position` (it wants them), `car_status` (it sends them), `remote` (the other side of it), `update` (it takes software updates and sends `update_status`), `assistant` (it asks for the voice assistant). Each side sends an optional message type only to a peer that lists it |
 | `heartbeat_s` | number | HU only | heartbeat interval the phone has to keep |
 
 ### `heartbeat` (both directions)
@@ -213,6 +213,48 @@ before their ack; a piece that is not the next one is not taken (the ack says wh
 
 `update_done` (phone → HU): `id`. The HU checks size and SHA-256 and hands the file to
 hu-sysd; the phone hears `checking`, `unpacking`, then `ready` (with `pending`) or `failed`.
+
+### Voice assistant: `assist_status`, `assist_request`, `assist_reply`
+
+The HU hears and speaks itself (hu-assistd); the answers come from an LLM that the app asks over
+the internet with the user's own API key (any OpenAI-compatible chat completions API, DeepSeek by
+default). The key stays on the phone; the HU never has it. Between a phone and a HU that both list
+`assistant`:
+
+- **`assist_status`** (phone → HU), after the hello and whenever it changes: whether the app can
+  answer now.
+
+  | field | type | | meaning |
+  |---|---|---|---|
+  | `ready` | bool | required | an LLM and a key are set up and the user allows it |
+  | `provider`, `model` | string | optional | for the HU's screen (e.g. `deepseek`, `deepseek-flash`) |
+  | `reason` | string | optional | why not ready (e.g. `no API key in the app`) |
+
+- **`assist_request`** (HU → phone): the conversation so far; the app adds its model and sends it
+  to the LLM as it is.
+
+  | field | type | | meaning |
+  |---|---|---|---|
+  | `id` | integer | required | the answer carries it |
+  | `messages` | list of objects | required | 1 to 64 chat messages: `role` (`system`, `user`, `assistant`, `tool`), `content` (string or null, at most 16000 characters), an assistant's `tool_calls` (`id`, `type: "function"`, `function: {name, arguments}`) and `reasoning_content`, a tool message's `tool_call_id` |
+  | `tools` | list of objects | optional | at most 32 function definitions (`type: "function"`, `function: {name, description, parameters}`) |
+  | `max_tokens` | integer | optional | the longest answer (1 to 8192) |
+
+- **`assist_reply`** (phone → HU): the LLM's message for `id`, or why there is none. The HU waits
+  for it at most its own timeout (30 s) and drops a late one.
+
+  | field | type | | meaning |
+  |---|---|---|---|
+  | `id` | integer | required | of the request |
+  | `ok` | bool | required | an answer (`true`) or not |
+  | `message` | object | if ok | the LLM's message: `role: "assistant"`, `content`, `tool_calls`, `reasoning_content` as the API gave them |
+  | `finish` | string | optional | the API's `finish_reason` (`stop`, `tool_calls`, `length`) |
+  | `usage` | object | optional | tokens: `in`, `out` |
+  | `code` | string | if not ok | `no_key`, `bad_key` (refused), `no_credit`, `busy` (rate limit), `offline`, `timeout`, `server`, `other`; an unknown code counts as `other` |
+  | `error` | string | optional | a short text for the log and the screen |
+  | `ms` | number | optional | how long the LLM took |
+
+Neither side logs or keeps what is asked or answered.
 
 ### `bye` (both directions)
 

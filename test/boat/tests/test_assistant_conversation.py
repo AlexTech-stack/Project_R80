@@ -3,16 +3,21 @@
 greets, then listens and answers turn after turn, also after a pause with nothing said, until TALK is
 pressed again ("Okay", then idle). A call stops it at once and the music comes back. The button VOICE
 during a conversation stops it too. Recorded speech, the transcript recognizer, a silent voice and the
-echo backend stand in for the real speech and LLM."""
+phone emulator with an echoing LLM stand in for the real speech and LLM."""
 import time
 
-from common import (ADDRESS, Restbus, wait_for, StateRecorder, assistant, assistant_idle, assistant_logic, audio, check, finish, mcu, say_next,
-                    system, wait_assistant, wait_audio)
+from common import (ADDRESS, Restbus, StateRecorder, assistant, assistant_idle, assistant_logic, audio, check, finish,
+                    mcu, phone, say_next, system, wait_assistant, wait_audio, wait_for)
 
 with Restbus(address=ADDRESS) as rb:      # the HU on (while it is off assistd does not start)
     rb.set(IgnitionState="IgnitionOn")
     ok, _, _ = wait_for(lambda p: p["Power"] == "on", timeout=10.0)
     check(ok, "ignition on: the HU is on")
+    ph = phone()                             # the R80 Companion app, its LLM an echo (phone_emu)
+    ph.connect(caps=("guidance", "assistant"))
+    ph.serve_assistant()
+    ok, _, _ = wait_assistant(lambda p: "through the phone" in p["Engines"]["llm"], timeout=5.0)
+    check(ok, "the phone answers for the assistant")
     assistd, cfg = assistant_logic()
     check(assistant_idle(), "assistd is ready and idle")
     system().Set("assistant", True)
@@ -70,4 +75,5 @@ with Restbus(address=ADDRESS) as rb:      # the HU on (while it is off assistd d
     mcu({"cmd": "button", "name": "VOICE"})
     ok, p, dt = wait_assistant(lambda p: p["Mode"] == "idle", timeout=1.5)
     check(ok, f"the button VOICE stops a conversation ({dt:.2f} s)")
+    ph.close(bye=True)
 finish()

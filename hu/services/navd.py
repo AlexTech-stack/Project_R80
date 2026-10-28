@@ -21,6 +21,9 @@ runs the HU's side of that link and publishes what to show:
                                  today first). Kept after the link is gone; the UI decides when it is too old
                   Position (a{sv}): from the phone: valid (b), time (x), alt_m (d), accuracy_m (d),
                                  heading_deg (d) (-1 = not sent). The phone never sends coordinates
+                  Assistant (a{sv}): the phone answers for the voice assistant: connected (b: a phone with
+                                 caps assistant), ready (b), provider (s), model (s), reason (s: why not ready)
+      methods     Ask(s request) -> s reply: the voice assistant's question (hu-assistd), see below
     Changes go out as org.freedesktop.DBus.Properties.PropertiesChanged.
 
 To a phone that wants it (caps car_status) navd sends how the car is (car_status): after the
@@ -34,6 +37,11 @@ To a phone with caps update navd says which software runs and how an update goes
 (update_status, from hu-sysd's Update); the phone may offer a newer update file and send it
 in pieces (UpdateTransfer, --update-dir); hu-sysd checks and installs it (InstallFile). Nothing
 the phone sends is trusted: the signature check is sysd's. A transfer that broke off resumes.
+For the voice assistant (caps assistant) the phone asks the LLM with the user's own key: hu-assistd
+calls Ask with JSON {messages, tools, max_tokens}; navd sends it as assist_request and returns the
+phone's assist_reply as JSON ({ok, message, finish, usage, ms} or {ok: false, code, error}). No phone,
+no answer within [assistant] timeout_s or the link lost: {ok: false, code: no_phone | timeout}. What
+is asked and answered never goes into the log.
 
 One phone at a time: a new connection replaces the old one (a phone that reconnects
 before the old link timed out). The timing is in nav.ini. Ways in, all the same protocol:
@@ -52,6 +60,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -68,12 +77,13 @@ import update  # noqa: E402
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "nav.ini"
 SYSTEM_CONFIG = Path("/etc/r80/nav.ini")
 VERSION = "0.2"
-CAPS = ["weather", "position", "car_status", "remote", "update"]   # navd's hello: what it wants (weather, position) and offers
+CAPS = ["weather", "position", "car_status", "remote", "update", "assistant"]   # navd's hello: what it wants (weather, position) and offers
 MEDIA_EVERY_S = 0.5                       # the remote's media state at most this often
 VEHICLE = {"fuel_pct": "FuelLevel", "range_km": "Range", "odometer_km": "Odometer", "battery_v": "BatteryVoltage",
            "outside_c": "OutsideTemp", "service_km": "ServiceDistance", "service_days": "ServiceDays"}
 KEYS = {"link": {"heartbeat_s": (0.2, 60), "link_timeout_s": (0.5, 600), "hello_timeout_s": (0.5, 600)},
-        "guidance": {"keep_after_loss_s": (0, 3600)}, "car_status": {"interval_s": (5, 3600)}}
+        "guidance": {"keep_after_loss_s": (0, 3600)}, "car_status": {"interval_s": (5, 3600)},
+        "assistant": {"timeout_s": (2, 300)}}
 
 
 log = dlt.context("MAIN", "Navigation service")
@@ -306,6 +316,7 @@ class Link:
         self.guidance: dict | None = None
         self.weather: dict | None = None
         self.position: dict | None = None
+        self.assist: dict | None = None   # the phone's assist_status (whether it can answer)
         self.caps: set = set()            # what the phone said it takes part in (its hello)
         self.requests: list[dict] = []    # media_cmd and browse from the phone, for the service to carry out
         self.arrival = 0
@@ -319,6 +330,7 @@ class Link:
         self.connected, self.greeted, self.close = True, False, False
         self.caps = set()
         self.requests = []
+        self.assist = None
         self.device = self.app = ""
         self.connected_at = self.last_rx = self.last_tx = now
 
@@ -362,7 +374,9 @@ class Link:
             self.weather = msg
         elif t == cl.POSITION:
             self.position = msg
-        elif t in (cl.MEDIA_CMD, cl.BROWSE, cl.UPDATE_OFFER, cl.UPDATE_CHUNK, cl.UPDATE_DONE):
+        elif t == cl.ASSIST_STATUS:
+            self.assist = msg
+        elif t in (cl.MEDIA_CMD, cl.BROWSE, cl.UPDATE_OFFER, cl.UPDATE_CHUNK, cl.UPDATE_DONE, cl.ASSIST_REPLY):
             self.requests.append(msg)
         return []
 
@@ -386,6 +400,13 @@ class Link:
     def phone(self) -> dict:
         return {"connected": self.connected and self.greeted, "device": self.device, "app": self.app,
                 "bad_lines": self.bad_lines}
+
+    def assist_view(self) -> dict:
+        a = self.assist or {}
+        on = self.connected and self.greeted and "assistant" in self.caps
+        return {"connected": on, "ready": on and bool(a.get("ready")), "provider": a.get("provider", "") if on else "",
+                "model": a.get("model", "") if on else "",
+                "reason": (a.get("reason", "") if a else "the app said nothing yet") if on else "no phone with the app"}
 
     def weather_view(self) -> dict:
         w = self.weather
@@ -441,7 +462,8 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
 
     TYPES.update({"valid": dbus.Boolean, "time": dbus.Int64, "temp_c": dbus.Double, "code": dbus.Int32,
                   "alt_m": dbus.Double, "accuracy_m": dbus.Double, "heading_deg": dbus.Double, "date": dbus.String,
-                  "max_c": dbus.Double, "min_c": dbus.Double})
+                  "max_c": dbus.Double, "min_c": dbus.Double, "ready": dbus.Boolean, "provider": dbus.String,
+                  "model": dbus.String, "reason": dbus.String})
 
     def variant(d: dict):
         def one(k, v):
@@ -515,6 +537,8 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                 self.tcp = tcp
                 GLib.io_add_watch(tcp.fileno(), GLib.IO_IN, self.on_accept, tcp)
                 log.warning(f"phone link also on TCP port {tcp_port} (development only: no authentication)")
+            self.asks: dict[int, tuple] = {}      # assist_request id -> (reply callback, timeout source, sent at)
+            self.ask_id = 0
             GLib.timeout_add(200, self.on_tick)
 
         # ---- transport ------------------------------------------------------
@@ -601,6 +625,7 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             if self.transfer.offer:
                 log.info(f"update transfer stopped at {self.transfer.received} bytes: the link is gone")
             self.transfer.stop()
+            self.fail_asks("no_phone", "the phone went away")
             self.status_sent = 0.0
             self.publish()
 
@@ -696,8 +721,55 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
                                     lambda *_: setattr(self, "handed", path),
                                     lambda e: self.send_update_status("failed", e.get_dbus_message()), timeout=5.0)
 
+        # ---- the voice assistant's questions (caps assistant): the phone asks the LLM ----------
+        def ask_done(self, rid: int, reply: dict):
+            entry = self.asks.pop(rid, None)
+            if entry is None:
+                return                                # too late: it timed out, or the link went away
+            done, timer, t0 = entry
+            if timer:
+                GLib.source_remove(timer)
+            how = "answered" if reply.get("ok") else f"not answered ({reply.get('code')})"
+            log.info(f"assistant request {rid} {how} after {time.monotonic() - t0:.1f} s")
+            done(json.dumps({k: v for k, v in reply.items() if k not in ("type", "id")}))
+
+        def fail_asks(self, code: str, why: str):
+            for rid in list(self.asks):
+                self.ask_done(rid, {"ok": False, "code": code, "error": why})
+
+        @dbus.service.method(IFACE, in_signature="s", out_signature="s", async_callbacks=("done", "failed"))
+        def Ask(self, request, done, failed):
+            try:
+                req = json.loads(str(request))
+                if not isinstance(req, dict):
+                    raise ValueError("not a JSON object")
+                self.ask_id += 1
+                msg = cl.assist_request(self.ask_id, req.get("messages"), req.get("tools"), req.get("max_tokens"))
+                line = cl.encode(msg)
+            except (ValueError, cl.ProtocolError) as e:
+                failed(dbus.exceptions.DBusException(f"bad request: {e}", name="de.r80.Nav1.Error.BadRequest"))
+                return
+            rid = self.ask_id
+            if not self.link.assist_view()["connected"]:
+                done(json.dumps({"ok": False, "code": "no_phone", "error": "no phone with the R80 Companion app"}))
+                return
+            timer = GLib.timeout_add(int(cfg["timeout_s"] * 1000),
+                                     lambda: (self.ask_done(rid, {"ok": False, "code": "timeout",
+                                                                  "error": "no answer from the phone in time"}), False)[1])
+            self.asks[rid] = (done, timer, time.monotonic())
+            log.info(f"assistant request {rid}: {len(msg['messages'])} message(s), {len(line)} bytes, to the phone")
+            try:
+                self.conn.sendall(line)
+                self.link.sent(time.monotonic())
+            except OSError as e:
+                self.link.close, self.link.why = True, f"send failed: {e}"
+                self.ask_done(rid, {"ok": False, "code": "no_phone", "error": "the link to the phone failed"})
+
         def carry_out(self, req: dict):
-            """A media_cmd, browse or update message from the phone."""
+            """A media_cmd, browse, update or assist_reply message from the phone."""
+            if req["type"] == cl.ASSIST_REPLY:
+                self.ask_done(req["id"], req)
+                return
             if req["type"] in (cl.UPDATE_OFFER, cl.UPDATE_CHUNK, cl.UPDATE_DONE):
                 self.on_update(req)
                 return
@@ -788,7 +860,7 @@ def run_service(cfg: dict, sock_path: Path, system: bool, tcp_port: int | None =
             phone = self.link.phone()
             phone["via"] = self.conn_from if phone["connected"] else ""
             return {"Phone": phone, "Guidance": self.link.view(), "Weather": self.link.weather_view(),
-                    "Position": self.link.position_view()}
+                    "Position": self.link.position_view(), "Assistant": self.link.assist_view()}
 
         def publish(self):
             changed = {}

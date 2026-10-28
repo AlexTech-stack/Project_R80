@@ -431,8 +431,9 @@ thing (it greets, listens, answers, ends), the button TALK starts a conversation
 TALK is pressed again. `hu/services/speech.py` is its speech. In the virtual mode it has no
 microphone and no real speech: it hears recordings put into `$XDG_RUNTIME_DIR/r80-hu/assistant-mic`
 (the oldest `*.wav` at each listen, 16-bit mono; its text in a `*.txt` of the same name, for the
-`transcript` recognizer), speaks with a `silent` voice into `fakesink`, and the `echo` backend repeats
-what it heard (until the companion app brings the LLM). Keys V and T in the UI, the buttons VOICE and
+`transcript` recognizer), speaks with a `silent` voice into `fakesink`; its answers come from the phone (hu-navd, the companion
+link's caps `assistant`): the phone emulator's LLM repeats what it heard (`./r80 virtual phone`, or
+`Phone.serve_assistant()` in the tests). Keys V and T in the UI, the buttons VOICE and
 TALK in the tester panel or `mcuctl.py button VOICE`.
 
 ```bash
@@ -571,6 +572,7 @@ gdbus call --session -d de.r80.Phone -o /de/r80/Phone -m de.r80.Phone1.Answer
 | TC_HU_044 | a software update from the phone (companion caps update, phone emulator's send_update): update_status after the hello (not without the cap), an offer that is not a version refused, a signed file sent in acknowledged pieces and installed by sysd (checking ... ready), an older one than the waiting one refused, a broken-off transfer resumed, wrong data (SHA-256) failed before sysd, a foreign key refused by sysd |
 | TC_HU_045 | the voice assistant's command mode (hu-assistd, recorded speech, echo backend): the button VOICE starts it; greeting, listening, thinking, speaking, idle in order; heard and answered; audiod's Voice (music down while it listens and speaks, back up after); timing published; pressed again it stops at once; nothing said: it says so after no_speech_s and ends; switched off (setting assistant) or during a call: not started, Notice says why |
 | TC_HU_046 | the voice assistant's conversation mode: the button TALK starts it; turn after turn, also after a pause; TALK again: it says "Okay" and ends; a call stops it at once; VOICE stops a conversation |
+| TC_HU_047 | the voice assistant's answers through the phone (hu-navd's Ask, companion caps assistant, the phone emulator as the app's LLM): no phone, no key, offline, an unknown code: it says why; the instructions with the date, the question and max_tokens reach the phone; a conversation sends the earlier turns; markdown cleaned for the voice; the phone gone mid-question; no answer: navd's timeout; nothing said or answered in the DLT log |
 
 Each test starts its own `Restbus` from Python (`from restbus import Restbus`),
 so stop the drive-cycle node first (`./r80 virtual test` does that).

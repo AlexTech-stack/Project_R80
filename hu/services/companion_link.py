@@ -23,7 +23,7 @@ import re
 PROTO_VERSION = 1
 SERVICE_UUID = "b4184390-fb7f-44db-9eaa-6985447914af"   # RFCOMM service record of the HU
 RFCOMM_CHANNEL = 22      # fixed, so BlueZ puts it into the service record (phones look it up by UUID)
-MAX_LINE = 4096
+MAX_LINE = 65536         # a voice assistant's conversation (assist_request) is the longest line
 MAX_TEXT = 200          # longer strings are cut, not rejected
 
 # message types
@@ -43,8 +43,11 @@ UPDATE_OFFER = "update_offer"    # phone -> HU, an update file it can send
 UPDATE_CHUNK = "update_chunk"    # phone -> HU, a piece of it
 UPDATE_ACK = "update_ack"        # HU -> phone, how much it has
 UPDATE_DONE = "update_done"      # phone -> HU, all sent: check and install it
+ASSIST_STATUS = "assist_status"    # phone -> HU, whether it can answer for the voice assistant (an LLM, the user's key)
+ASSIST_REQUEST = "assist_request"  # HU -> phone, the conversation so far: ask the LLM
+ASSIST_REPLY = "assist_reply"      # phone -> HU, the LLM's message, or why there is none
 TYPES = (HELLO, HEARTBEAT, GUIDANCE, BYE, WEATHER, POSITION, CAR_STATUS, MEDIA, MEDIA_CMD, BROWSE, BROWSE_RESULT,
-         UPDATE_STATUS, UPDATE_OFFER, UPDATE_CHUNK, UPDATE_ACK, UPDATE_DONE)
+         UPDATE_STATUS, UPDATE_OFFER, UPDATE_CHUNK, UPDATE_ACK, UPDATE_DONE, ASSIST_STATUS, ASSIST_REQUEST, ASSIST_REPLY)
 MEDIA_CMDS = ("play", "pause", "next", "previous", "seek", "shuffle", "repeat", "mute", "volume", "source", "play_from")
 MAX_UP_NEXT = 5
 MAX_PAGE = 20
@@ -57,6 +60,12 @@ MAX_UPDATE = 50_000_000  # bytes, the largest update file the HU takes
 UPDATE_WINDOW = 8       # update_chunks the phone may send before an update_ack
 UPDATE_STATES = ("idle", "receiving", "checking", "unpacking", "ready", "failed", "refused")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+ROLES = ("system", "user", "assistant", "tool")   # the LLM's chat messages (OpenAI chat completions)
+MAX_MESSAGES = 64       # messages in one assist_request
+MAX_CONTENT = 16000     # characters of one message's content (longer is cut)
+MAX_TOOLS = 32          # tool definitions in one assist_request
+MAX_TOOL_CALLS = 16     # tool calls in one assistant message
+MAX_TOKENS = 8192
 
 # guidance.maneuver
 MANEUVERS = ("depart", "turn", "continue", "merge", "fork", "on_ramp", "off_ramp",
@@ -138,6 +147,8 @@ def validate(msg) -> dict:
         return _browse_result(msg)
     if t in (UPDATE_STATUS, UPDATE_OFFER, UPDATE_CHUNK, UPDATE_ACK, UPDATE_DONE):
         return _update(msg)
+    if t in (ASSIST_STATUS, ASSIST_REQUEST, ASSIST_REPLY):
+        return _assist(msg)
     if t == POSITION:
         when = _number(msg, "time", integer=True, lo=0, hi=2**40)
         if when is None:
@@ -348,6 +359,89 @@ def _update(msg: dict) -> dict:
     return {"type": t, "id": req, "offset": offset, "data": data}
 
 
+def _long_text(where: str, v, limit: int):
+    if v is None:
+        return None
+    if not isinstance(v, str):
+        raise ProtocolError(f"{where} must be a string")
+    return v[:limit]
+
+
+def _chat_message(t: str, m) -> dict:
+    """One chat message of the LLM: role, content, and for tools tool_calls / tool_call_id. The model's
+    reasoning (reasoning_content) goes back with it while tools are called within one answer."""
+    if not isinstance(m, dict) or m.get("role") not in ROLES:
+        raise ProtocolError(f"{t}: a message needs a role ({', '.join(ROLES)})")
+    out = {"role": m["role"], "content": _long_text(f"{t}: content", m.get("content"), MAX_CONTENT)}
+    calls = m.get("tool_calls")
+    if calls is not None:
+        if m["role"] != "assistant" or not isinstance(calls, list) or len(calls) > MAX_TOOL_CALLS:
+            raise ProtocolError(f"{t}: tool_calls: a list (at most {MAX_TOOL_CALLS}) in an assistant message")
+        out["tool_calls"] = []
+        for c in calls:
+            f = c.get("function") if isinstance(c, dict) else None
+            if not (isinstance(f, dict) and isinstance(c.get("id"), str) and isinstance(f.get("name"), str)
+                    and isinstance(f.get("arguments"), str)):
+                raise ProtocolError(f"{t}: a tool call needs id, function.name and function.arguments (strings)")
+            out["tool_calls"].append({"id": c["id"][:MAX_TEXT], "type": "function",
+                                      "function": {"name": f["name"][:MAX_TEXT], "arguments": f["arguments"][:MAX_CONTENT]}})
+    if m["role"] == "tool":
+        cid = m.get("tool_call_id")
+        if not isinstance(cid, str):
+            raise ProtocolError(f"{t}: a tool message needs tool_call_id")
+        out["tool_call_id"] = cid[:MAX_TEXT]
+    reasoning = _long_text(f"{t}: reasoning_content", m.get("reasoning_content"), 2 * MAX_CONTENT)
+    if reasoning is not None and m["role"] == "assistant":
+        out["reasoning_content"] = reasoning
+    return out
+
+
+def _assist(msg: dict) -> dict:
+    t = msg["type"]
+    if t == ASSIST_STATUS:
+        ready = msg.get("ready")
+        if not isinstance(ready, bool):
+            raise ProtocolError("assist_status: 'ready' must be true or false")
+        return {"type": t, "ready": ready, "provider": _text(msg, "provider") or "", "model": _text(msg, "model") or "",
+                "reason": _text(msg, "reason") or ""}
+    req = _number(msg, "id", integer=True, hi=2**31)
+    if req is None:
+        raise ProtocolError(f"{t}: 'id' is required")
+    if t == ASSIST_REQUEST:
+        messages = msg.get("messages")
+        if not isinstance(messages, list) or not 1 <= len(messages) <= MAX_MESSAGES:
+            raise ProtocolError(f"assist_request: 'messages' must be a list of 1..{MAX_MESSAGES}")
+        tools = msg.get("tools")
+        if tools is not None:
+            if not isinstance(tools, list) or len(tools) > MAX_TOOLS or not all(
+                    isinstance(x, dict) and x.get("type") == "function" and isinstance(x.get("function"), dict)
+                    and isinstance(x["function"].get("name"), str) for x in tools):
+                raise ProtocolError(f"assist_request: 'tools' must be at most {MAX_TOOLS} function definitions")
+        return {"type": t, "id": req, "messages": [_chat_message(t, m) for m in messages], "tools": tools,
+                "max_tokens": _number(msg, "max_tokens", integer=True, lo=1, hi=MAX_TOKENS)}
+    # assist_reply
+    ok = msg.get("ok")
+    if not isinstance(ok, bool):
+        raise ProtocolError("assist_reply: 'ok' must be true or false")
+    out = {"type": t, "id": req, "ok": ok, "ms": _number(msg, "ms", hi=600_000)}
+    if not ok:
+        out["code"] = _text(msg, "code", required=True)
+        out["error"] = _text(msg, "error") or ""
+        return out
+    m = _chat_message(t, msg.get("message"))
+    if m["role"] != "assistant":
+        raise ProtocolError("assist_reply: the message's role must be assistant")
+    out["message"] = m
+    out["finish"] = _text(msg, "finish") or ""
+    usage = msg.get("usage")
+    if usage is not None:
+        if not isinstance(usage, dict):
+            raise ProtocolError("assist_reply: 'usage' must be an object")
+        tu = {"type": t, **usage}
+        out["usage"] = {"in": _number(tu, "in", integer=True, hi=10**9), "out": _number(tu, "out", integer=True, hi=10**9)}
+    return out
+
+
 def _reject_constant(name):
     raise ValueError(f"{name} is not a valid number")
 
@@ -363,6 +457,8 @@ def encode(msg: dict) -> bytes:
         clean["entries"] = [{k: v for k, v in e.items() if v is not None} for e in clean["entries"]]
     if clean["type"] == UPDATE_CHUNK:
         clean["data"] = base64.b64encode(clean["data"]).decode("ascii")
+    if clean["type"] == ASSIST_REPLY and "usage" in clean:
+        clean["usage"] = {k: v for k, v in clean["usage"].items() if v is not None} or None
     line = json.dumps({k: v for k, v in clean.items() if v is not None},
                       ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode() + b"\n"
     if len(line) > MAX_LINE:
@@ -484,3 +580,21 @@ def update_ack(id: int, received: int) -> dict:
 
 def update_done(id: int) -> dict:
     return {"type": UPDATE_DONE, "id": id}
+
+
+def assist_status(ready: bool, provider: str = "", model: str = "", reason: str = "") -> dict:
+    return {"type": ASSIST_STATUS, "ready": ready, "provider": provider, "model": model, "reason": reason}
+
+
+def assist_request(id: int, messages: list, tools: list | None = None, max_tokens: int | None = None) -> dict:
+    return {"type": ASSIST_REQUEST, "id": id, "messages": messages, "tools": tools, "max_tokens": max_tokens}
+
+
+def assist_reply(id: int, message: dict, finish: str = "stop", usage_in: int | None = None, usage_out: int | None = None,
+                 ms: float | None = None) -> dict:
+    return {"type": ASSIST_REPLY, "id": id, "ok": True, "message": message, "finish": finish,
+            "usage": {"in": usage_in, "out": usage_out}, "ms": ms}
+
+
+def assist_error(id: int, code: str, error: str = "", ms: float | None = None) -> dict:
+    return {"type": ASSIST_REPLY, "id": id, "ok": False, "code": code, "error": error, "ms": ms}

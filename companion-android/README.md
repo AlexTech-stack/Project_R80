@@ -52,6 +52,13 @@ Android 14 or newer, Kotlin, no Google Play services, MIT like the rest of R80.
   newer one to the HU over the link in the background. The HU checks its signature itself and
   installs it with its next start; the app shows the HU's version, what waits and the progress.
   Settings → "Bring updates to the headunit" switches it off.
+- **Voice assistant (Settings):** the HU hears and speaks itself; its questions come over the
+  link, the app asks the LLM with your own API key and sends the answer back. Any
+  OpenAI-compatible chat completions API; DeepSeek (`https://api.deepseek.com`, model
+  `deepseek-flash`) by default. The key is kept only on the phone, encrypted with a key of the
+  Android Keystore; it goes nowhere but to that API. Everything asked goes to that provider;
+  the app keeps none of it. Settings → "Voice assistant": the key (Save, Remove key), the
+  model and address, "Test" (a one-word question), and how the last question went.
 - **The look:** black, line art in the HU's accent colour (the HU tells it), the HU's fonts
   (B612, OSP-DIN: taken from [`../hu/ui/fonts`](../hu/ui/fonts) as the app's assets, with
   their licence files) and the HU's icons (`res/drawable/hu_*.xml`, generated from
@@ -134,6 +141,7 @@ app/src/main/java/de/r80/companion/
   CarStore.kt             the last car_status and where the car was parked (on the phone)
   RemotePage.kt           the Remote tab
   Releases.kt, UpdateSender.kt, Versions.kt   the HU's software updates: releases, sending, version order
+  Llm.kt, Secret.kt       the voice assistant: the LLM (chat completions), the API key in the Android Keystore
   Hu.kt                   the HU's look: accent colours, fonts, icons, buttons, tabs, rows
   MainActivity.kt, Settings.kt, AppState.kt   screen (header, tabs Car | Remote | Settings), settings, shared state
 app/src/main/assets/maneuver_icons.json        known arrows (built from captures)

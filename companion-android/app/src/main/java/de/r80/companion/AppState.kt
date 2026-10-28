@@ -51,6 +51,18 @@ object AppState {
     @Volatile var checkUpdates: ((Boolean) -> Unit)? = null
     fun setUpdateCheck(s: String) { updateCheck = s; fire() }
 
+    /** The voice assistant: how the last question went (no content), and how to tell the HU a change. */
+    @Volatile var assist: String = ""
+        private set
+    @Volatile var assistantChanged: (() -> Unit)? = null
+    fun setAssist(r: Llm.Result, ms: Long) {
+        assist = when (r) {
+            is Llm.Result.Ok -> "answered in %.1f s (%s tokens in, %s out)".format(ms / 1000.0, r.tokensIn ?: "?", r.tokensOut ?: "?")
+            is Llm.Result.Err -> "no answer: ${r.code} (${r.error})"
+        }
+        fire()
+    }
+
     fun setWeather(w: Weather) { weather = w; fire() }
     /** CarStore changed (a car_status or the parking position). */
     fun carChanged() = fire()

@@ -102,6 +102,51 @@
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
+            android:text="@string/assistant_title" android:textSize="18sp" android:tag="title" />
+        <Switch
+            android:id="@+id/assistant"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/assistant" />
+        <TextView
+            android:id="@+id/assistant_info"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+        <EditText
+            android:id="@+id/llm_key"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="@string/llm_key_hint" android:inputType="textPassword" android:importantForAutofill="no" />
+        <EditText
+            android:id="@+id/llm_model"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="@string/llm_model_hint" android:inputType="text" android:importantForAutofill="no" />
+        <EditText
+            android:id="@+id/llm_url"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="@string/llm_url_hint" android:inputType="textUri" android:importantForAutofill="no" />
+        <LinearLayout
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <Button
+                android:id="@+id/llm_save"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/llm_save" />
+            <Button
+                android:id="@+id/llm_test"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/llm_test" />
+            <Button
+                android:id="@+id/llm_forget"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/llm_forget" />
+        </LinearLayout>
+        <TextView
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/assistant_about" />
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
             android:text="@string/capture_title" android:textSize="18sp" android:tag="title" />
         <Switch
             android:id="@+id/capture"

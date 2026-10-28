@@ -37,7 +37,9 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import json
 import os
+import re
 import queue
 import shutil
 import sys
@@ -69,6 +71,8 @@ SYSTEM = ("de.r80.System", "/de/r80/System", "de.r80.System1")
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "assistant.ini"
 SYSTEM_CONFIG = Path("/etc/r80/assistant.ini")
 SETTING = "assistant"
+NAV = ("de.r80.Nav", "/de/r80/Nav", "de.r80.Nav1")
+ERRORS = ("no_phone", "no_key", "bad_key", "no_credit", "offline", "timeout", "busy", "other")
 
 log = dlt.context("MAIN", "Voice assistant")
 log_speech = dlt.context("SPCH", "Speech engines")
@@ -86,7 +90,8 @@ def load_config(extra: str | None = None) -> dict:
     used = {"speech": {"recognizer", "voice", "model_dir", "recognizer_model", "voice_model", "threads", "mic"},
             "listen": {"speech_level_db", "end_silence_ms", "max_speech_s", "no_speech_s", "conversation_idle_s"},
             "talk": {"greeting", "not_heard", "conversation_end", "speed"},
-            "llm": {"backend", "think_s"}}
+            "llm": {"backend", "think_s", "max_tokens", "max_history_chars", "timeout_s", "system_prompt"},
+            "errors": set(ERRORS)}
     for section in cp.sections():
         if section not in used:
             raise ConfigError(f"unknown section [{section}]")
@@ -133,8 +138,13 @@ def load_config(extra: str | None = None) -> dict:
         "not_heard": get("talk", "not_heard"),
         "conversation_end": get("talk", "conversation_end"),
         "speed": num("talk", "speed", float, 0.5, 2.0),
-        "backend": choice("llm", "backend", ("echo",)),
+        "backend": choice("llm", "backend", ("phone", "echo")),
         "think_s": num("llm", "think_s", float, 0.0, 10.0),
+        "max_tokens": num("llm", "max_tokens", int, 50, 8192),
+        "max_history_chars": num("llm", "max_history_chars", int, 1000, 60000),
+        "timeout_s": num("llm", "timeout_s", float, 3.0, 300.0),
+        "system_prompt": " ".join(get("llm", "system_prompt").split()),
+        "errors": {k: get("errors", k) for k in ERRORS},
     }
 
 
@@ -327,16 +337,78 @@ class Player:
         self.pipe.set_state(Gst.State.NULL)
 
 
+def speakable(text: str, limit: int = 600) -> str:
+    """An LLM's answer as the voice should say it: no markdown marks, one line, not too long
+    (cut after the last whole sentence)."""
+    t = re.sub(r"[*_#`>|]+", "", text or "")
+    t = re.sub(r"^\s*[-•]\s+", "", t, flags=re.M)
+    t = " ".join(t.split())
+    if len(t) > limit:
+        cut = t[:limit]
+        end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+        t = cut[:end + 1] if end > 0 else cut
+    return t
+
+
+def conversation(cfg: dict, history: list, now: float | None = None) -> list:
+    """The messages for the LLM: the instructions with the date and time, then as many of the newest
+    turns as fit into max_history_chars (always the last question)."""
+    when = time.strftime("%A, %d %B %Y, %H:%M", time.localtime(now))
+    out, size = [], 0
+    for m in reversed(history):
+        size += len(m.get("content") or "")
+        if out and size > cfg["max_history_chars"]:
+            break
+        out.append(m)
+    out.reverse()
+    while out and out[0]["role"] != "user":                 # never start in the middle of a turn
+        out.pop(0)
+    return [{"role": "system", "content": f"{cfg['system_prompt']} Now it is {when}."}] + out
+
+
 class EchoBrain:
-    """Until the companion app brings the LLM: repeats what it heard."""
+    """No phone (development): repeats what it heard."""
     name = "echo"
 
-    def __init__(self, think_s: float):
-        self.think_s = think_s
+    def __init__(self, cfg: dict, bus):
+        self.think_s = cfg["think_s"]
 
     def ask(self, history: list, done):
         last = history[-1]["content"]
-        GLib.timeout_add(int(self.think_s * 1000), lambda: (done(f"You said: {last}"), False)[1])
+        GLib.timeout_add(int(self.think_s * 1000), lambda: (done(f"You said: {last}", ""), False)[1])
+
+
+class PhoneBrain:
+    """The LLM through the phone: hu-navd's Ask (the R80 Companion app asks it with the user's key).
+    done(answer, code): code "" for an answer, else why there is none (ERRORS)."""
+    name = "phone"
+
+    def __init__(self, cfg: dict, bus):
+        self.cfg, self.bus = cfg, bus
+
+    def ask(self, history: list, done):
+        req = {"messages": conversation(self.cfg, history), "max_tokens": self.cfg["max_tokens"]}
+
+        def reply(text):
+            try:
+                r = json.loads(str(text))
+            except ValueError:
+                r = {"ok": False, "code": "other"}
+            if not r.get("ok"):
+                code = r.get("code") if r.get("code") in ERRORS else "other"
+                log.warning(f"no answer: {r.get('code')}" + (f" ({r['error']})" if r.get("error") else ""))
+                return done("", code)
+            answer = speakable((r.get("message") or {}).get("content") or "")
+            u = r.get("usage") or {}
+            log.info(f"answer from the phone: {r.get('ms', 0) / 1000:.1f} s at the LLM, {u.get('in', '?')} tokens in, "
+                     f"{u.get('out', '?')} out, finish {r.get('finish') or '?'}")
+            done(answer, "" if answer else "other")
+
+        def failed(e):
+            log.warning(f"no answer: hu-navd: {e.get_dbus_name()}")
+            done("", "no_phone")
+        self.bus.call_async(NAV[0], NAV[1], NAV[2], "Ask", "s", (json.dumps(req),), reply, failed,
+                            timeout=self.cfg["timeout_s"])
 
 
 class Assistant(dbus.service.Object):
@@ -345,7 +417,7 @@ class Assistant(dbus.service.Object):
         self.bus, self.cfg, self.sink = bus, cfg, sink
         self.worker = Worker()
         self.mic = MicFiles(mic_files) if mic_files else Mic(cfg["mic"])
-        self.brain = EchoBrain(cfg["think_s"])
+        self.brain = (PhoneBrain if cfg["backend"] == "phone" else EchoBrain)(cfg, bus)
         self.rec = self.voice = self.player = None
         self.cache = {}                  # the fixed phrases, made once
         self.session = 0                 # a stale callback carries an older number
@@ -357,7 +429,8 @@ class Assistant(dbus.service.Object):
         self.t = {}
         self.props = {"Available": False, "Enabled": True, "Mode": "idle", "State": "idle", "Heard": "",
                       "Answer": "", "Turns": 0, "Sessions": 0, "Notice": "",
-                      "Engines": {"recognizer": cfg["recognizer"], "voice": cfg["voice"], "llm": self.brain.name,
+                      "Engines": {"recognizer": cfg["recognizer"], "voice": cfg["voice"],
+                                  "llm": "echo" if cfg["backend"] == "echo" else "the phone: not there",
                                   "microphone": "recorded speech" if mic_files else cfg["mic"]},
                       "Timing": {}}
         self.dirty = set()
@@ -396,13 +469,13 @@ class Assistant(dbus.service.Object):
 
     # ---- the other services ----------------------------------------------------------------
     def read_all(self):
-        for svc, path, iface in (VEHICLE, AUDIO, SYSTEM):
+        for svc, path, iface in (VEHICLE, AUDIO, SYSTEM, NAV):
             self.bus.call_async(svc, path, PROPS, "GetAll", "s", (iface,),
                                 lambda p, i=iface: self.on_props(i, p, [], None), lambda e: None, timeout=1.0)
         return False
 
     def on_owner(self, name, _old, new):
-        if new and name in (VEHICLE[0], AUDIO[0], SYSTEM[0]):
+        if new and name in (VEHICLE[0], AUDIO[0], SYSTEM[0], NAV[0]):
             self.read_all()
 
     def on_props(self, iface, changed, _inv, path=None):
@@ -420,6 +493,11 @@ class Assistant(dbus.service.Object):
                 self.gain = float(changed["Gains"]["voice"])
                 if self.player:
                     self.player.set_gain(self.gain)
+        elif iface == NAV[2] and "Assistant" in changed and self.cfg["backend"] == "phone":
+            a = changed["Assistant"]
+            llm = (f"{a['model']} ({a['provider']}) through the phone" if a.get("ready")
+                   else f"the phone: {a.get('reason') or 'not ready'}")
+            self.set("Engines", dict(self.props["Engines"], llm=str(llm)))
         elif iface == SYSTEM[2] and "Settings" in changed:
             on = bool(changed["Settings"].get(SETTING, True))
             self.set("Enabled", on)
@@ -535,7 +613,7 @@ class Assistant(dbus.service.Object):
                      f"{self.t['recognise_s']:.2f} s")
             self.history.append({"role": "user", "content": text})
             t1 = time.monotonic()
-            self.brain.ask(list(self.history), lambda answer: s == self.session and self.answer(answer, t1))
+            self.brain.ask(list(self.history), lambda answer, code: s == self.session and self.answer(answer, code, t1))
         self.worker.submit(lambda: self.rec.recognize(utt), done)
 
     def nothing(self):
@@ -547,11 +625,16 @@ class Assistant(dbus.service.Object):
         else:
             self.listen()
 
-    def answer(self, text, t1):
+    def answer(self, text, code, t1):
         self.t["think_s"] = time.monotonic() - t1
-        self.history.append({"role": "assistant", "content": text})
+        if code:                                   # no answer: say why; the question leaves the conversation
+            self.history.pop()
+            text = self.cfg["errors"][code]
+            self.set("Notice", code)
+        else:
+            self.history.append({"role": "assistant", "content": text})
+            self.set("Turns", self.props["Turns"] + 1)
         self.set("Answer", text)
-        self.set("Turns", self.props["Turns"] + 1)
         then = self.end if self.props["Mode"] == "command" else self.listen
         self.say(text, "speaking", then)
 

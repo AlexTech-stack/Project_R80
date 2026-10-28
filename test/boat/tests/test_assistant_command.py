@@ -4,16 +4,21 @@ listens while the driver talks, thinks, answers and ends by itself. Meanwhile au
 down (Voice: listen, speak) and back up. Nothing said: it says so and ends. Pressed again while it
 runs: it stops. Switched off (setting assistant) or during a call: it does not start and says why.
 Recorded speech (dev stand-in for the microphone), the transcript recognizer, a silent voice and the
-echo backend (until the companion app brings the LLM) stand in for the real speech and LLM."""
+phone emulator with an echoing LLM stand in for the real speech and LLM."""
 import time
 
-from common import (ADDRESS, Restbus, wait_for, ASSIST_MIC, StateRecorder, assistant, assistant_idle, assistant_logic, assistant_props, audio,
-                    check, finish, mcu, say_next, system, wait_assistant, wait_audio)
+from common import (ADDRESS, ASSIST_MIC, Restbus, StateRecorder, assistant, assistant_idle, assistant_logic, assistant_props,
+                    audio, check, finish, mcu, phone, say_next, system, wait_assistant, wait_audio, wait_for)
 
 with Restbus(address=ADDRESS) as rb:      # the HU on (while it is off assistd does not start)
     rb.set(IgnitionState="IgnitionOn")
     ok, _, _ = wait_for(lambda p: p["Power"] == "on", timeout=10.0)
     check(ok, "ignition on: the HU is on")
+    ph = phone()                             # the R80 Companion app, its LLM an echo (phone_emu)
+    ph.connect(caps=("guidance", "assistant"))
+    ph.serve_assistant()
+    ok, _, _ = wait_assistant(lambda p: "through the phone" in p["Engines"]["llm"], timeout=5.0)
+    check(ok, "the phone answers for the assistant")
     assistd, cfg = assistant_logic()
     check(assistant_idle(), "assistd is ready and idle")
     sysd = system()
@@ -36,13 +41,13 @@ with Restbus(address=ADDRESS) as rb:      # the HU on (while it is off assistd d
     check([s for s in seen if s in want] == want,
           f"states in order: {states}")
     check(p["Heard"] == question, f"it heard what was said: {p['Heard']!r}")
-    check(p["Answer"] == f"You said: {question}", f"the echo backend answered: {p['Answer']!r}")
+    check(p["Answer"] == f"You said: {question}", f"the phone's (echoing) LLM answered: {p['Answer']!r}")
     check(p["Turns"] == 1, f"one answer (Turns {p['Turns']})")
     check(not wav.exists() and (ASSIST_MIC / "heard" / wav.name).exists(), "the recording was heard once")
     check("listen" in voice and "speak" in voice and voice[-1] == "idle",
           f"audiod: music down while it listens and speaks, back up afterwards (Voice {voice})")
     t = p["Timing"]
-    check(abs(t.get("speech_s", 0) - 1.5) < 0.05 and "recognise_s" in t and t.get("think_s", 0) >= cfg["think_s"] * 0.9
+    check(abs(t.get("speech_s", 0) - 1.5) < 0.05 and "recognise_s" in t and t.get("think_s", 0) >= 0.2
           and "first_sound_s" in t, f"timing published: {t}")
 
     # ---- while it listens, audiod ducks media to listen_duck_level -------------------------------------
@@ -91,4 +96,5 @@ with Restbus(address=ADDRESS) as rb:      # the HU on (while it is off assistd d
     ok, p, _ = wait_assistant(lambda p: p["Notice"] == "a call", timeout=2.0)
     check(ok and p["Mode"] == "idle", f"during a call: not started (Notice {p['Notice']!r})")
     a.SetCallState("idle")
+    ph.close(bye=True)
 finish()

@@ -50,6 +50,8 @@ class Link(
     private val onBrowsed: (BrowseResult) -> Unit = {},
     /** Brings HU software updates (caps update); null: never offers one. */
     private val updates: UpdateSender? = null,
+    /** Answers the HU's voice assistant with an LLM (caps assistant); null: says it cannot. */
+    private val assistant: AssistantRelay? = null,
     private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     enum class State { STOPPED, CONNECTING, CONNECTED, WAITING }
@@ -97,6 +99,11 @@ class Link(
         if (line == weatherLine) return
         weatherLine = line
         if ("weather" in wants) outbox.put(line)
+    }
+
+    /** The voice assistant's settings changed: tell the HU whether we can answer now. */
+    fun assistantChanged() {
+        if ("assistant" in wants) assistant?.let { outbox.put(it.status()) }
     }
 
     /** The latest position (altitude); sent like the weather, if the HU wants it. */
@@ -166,6 +173,7 @@ class Link(
             send(Protocol.guidance(current))
             weatherLine?.takeIf { "weather" in wants }?.let { send(it) }
             positionLine?.takeIf { "position" in wants }?.let { send(it) }
+            if ("assistant" in wants) send(assistant?.status() ?: Protocol.assistStatus(false, "", "", "not in this app"))
             var lastTx = clock()
             onStatus(Status(State.CONNECTED, t.description))
             while (running) {
@@ -190,6 +198,8 @@ class Link(
                         is Protocol.HuMessage.Browsed -> onBrowsed(m.result)
                         is Protocol.HuMessage.Update -> if ("update" in wants) updates?.onStatus(m.status)?.forEach { send(it) }
                         is Protocol.HuMessage.UpdateAck -> updates?.onAck(m.id, m.received)
+                        is Protocol.HuMessage.AssistRequest -> assistant?.answer(m.id, m.request) { outbox.put(it) }
+                            ?: send(Protocol.assistError(m.id, "other", "not in this app"))
                         else -> {}
                     }
                 }
@@ -205,7 +215,7 @@ class Link(
 
     companion object {
         /** What this app can send. */
-        val CAPS = listOf("guidance", "weather", "position", "car_status", "remote", "update")
+        val CAPS = listOf("guidance", "weather", "position", "car_status", "remote", "update", "assistant")
     }
 }
 

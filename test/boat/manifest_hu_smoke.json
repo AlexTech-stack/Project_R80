@@ -50,6 +50,7 @@
     { "id": "TC_HU_043", "name": "Software updates: the update file, USB stick, the start with trial and rollback", "file": "python3 tests/test_update.py", "timeout_s": 120 },
     { "id": "TC_HU_044", "name": "A software update from the phone over the companion link", "file": "python3 tests/test_update_phone.py", "timeout_s": 180 },
     { "id": "TC_HU_045", "name": "Voice assistant, command mode: button, listen, answer, end; nothing said; stop; refused", "file": "python3 tests/test_assistant_command.py", "timeout_s": 90 },
-    { "id": "TC_HU_046", "name": "Voice assistant, conversation mode: turns until TALK again; a call stops it", "file": "python3 tests/test_assistant_conversation.py", "timeout_s": 90 }
+    { "id": "TC_HU_046", "name": "Voice assistant, conversation mode: turns until TALK again; a call stops it", "file": "python3 tests/test_assistant_conversation.py", "timeout_s": 90 },
+    { "id": "TC_HU_047", "name": "Voice assistant answers through the phone: request, conversation, errors, timeout, nothing said in the log", "file": "python3 tests/test_assistant_phone.py", "timeout_s": 150 }
   ]
 }

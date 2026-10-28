@@ -292,6 +292,8 @@ Gradle 9.8 and the Android SDK). There is no unit test suite for the Python side
   sherpa-onnx). espeak-ng and the `piper-tts` package are GPL-3.0: espeak-ng only runs as a program
   of its own, never imported into a service. Voices and models need an open licence (the Piper
   "lessac" voices do not have one). What the driver says and the answers never go into the log.
+  The LLM is asked by the R80 Companion app with the user's own API key (`Llm.kt`; the key only in
+  the Android Keystore, never on the HU, in the repo or in a log); hu-navd relays (caps `assistant`).
 - The architecture decisions D1 to D14 are in `docs/architecture/HU_architecture_v0.3.md`.
   Do not contradict them. If a change needs a different decision, ask Alex first.
 

@@ -638,7 +638,7 @@ QtObject {
     readonly property string assistantAnswer: assistantLive ? Assistant.answer : _demoAssist.answer
     readonly property string assistantNotice: assistantLive ? Assistant.notice : ""
     readonly property var assistantEngines: assistantLive ? Assistant.engines
-        : demo ? { recognizer: "moonshine", voice: "piper", llm: "echo", microphone: "autoaudiosrc" } : ({})
+        : demo ? { recognizer: "moonshine", voice: "piper", llm: "deepseek-flash (deepseek) through the phone", microphone: "autoaudiosrc" } : ({})
     readonly property var assistantTiming: assistantLive ? Assistant.timing
         : demo ? { speech_s: 1.6, recognise_s: 0.62, think_s: 1.8, first_sound_s: 0.9 } : ({})
     function assistantCommand() { if (assistantLive) Assistant.command(); else if (demo) _demoAssistStart("command") }

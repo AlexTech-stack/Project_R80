@@ -63,6 +63,13 @@ class ProtocolTest {
                 "5f0c6a1c3d2b4e8f9a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f"),
             25 to Protocol.updateChunk(1, 0, "r80-hu update".toByteArray()),
             27 to Protocol.updateDone(1),
+            29 to Protocol.assistStatus(true, "deepseek", "deepseek-flash", ""),
+            31 to Protocol.assistReply(3, Json.parseToJsonElement("""{"role":"assistant","content":"One hour and 15 minutes."}""") as JsonObject,
+                "stop", 70, 21, 1240),
+            32 to Protocol.assistReply(4, Json.parseToJsonElement("""{"role":"assistant","content":null,"tool_calls":[{"id":"call_0",
+                "type":"function","function":{"name":"vehicle","arguments":"{\"signals\":[\"TyrePressureFL\"]}"}}]}""") as JsonObject,
+                "tool_calls", 180, 40, 1010),
+            33 to Protocol.assistError(5, "no_key", "no API key in the app"),
         )
         for ((i, line) in ours) assertSameJson(examples[i], line)
     }
@@ -91,6 +98,11 @@ class ProtocolTest {
         assertEquals(Protocol.HuMessage.Update(UpdateStatus("0.1.0", "0.2.0", "ready", "0.2.0 starts with the next start of the HU")),
             Protocol.parse(examples[28]))
         assertNull(Protocol.parse("""{"type":"update_status","version":"0.1.0","state":"flying"}"""))
+        val ask = Protocol.parse(examples[30]) as Protocol.HuMessage.AssistRequest
+        assertEquals(3, ask.id)
+        assertEquals(2, (ask.request["messages"] as JsonArray).size)
+        assertNull(Protocol.parse("""{"type":"assist_request","id":1,"messages":[]}"""))
+        assertNull(Protocol.parse("""{"type":"assist_request","id":1,"messages":[{"role":"robot","content":"hi"}]}"""))
         assertEquals(Protocol.HuMessage.Unknown, Protocol.parse("""{"type":"lanes","lanes":[]}"""))
         assertNull(Protocol.parse("not json"))
         assertNull(Protocol.parse("""{"no":"type"}"""))

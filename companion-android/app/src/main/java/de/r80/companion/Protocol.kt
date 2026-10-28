@@ -17,7 +17,7 @@ import kotlinx.serialization.json.longOrNull
  */
 object Protocol {
     const val VERSION = 1
-    const val MAX_LINE = 4096
+    const val MAX_LINE = 65536          // a voice assistant's conversation (assist_request) is the longest
     const val MAX_TEXT = 200
     const val SERVICE_UUID = "b4184390-fb7f-44db-9eaa-6985447914af"
     const val MAX_DAYS = 7
@@ -96,6 +96,8 @@ object Protocol {
         data class Bye(val reason: String?) : HuMessage()
         data class Update(val status: UpdateStatus) : HuMessage()
         data class UpdateAck(val id: Int, val received: Long) : HuMessage()
+        /** The voice assistant's question (caps assistant): messages, tools, max_tokens as the HU sent them. */
+        data class AssistRequest(val id: Int, val request: JsonObject) : HuMessage()
         /** A type this version does not know: ignore it (forward compatibility). */
         data object Unknown : HuMessage()
     }
@@ -125,6 +127,12 @@ object Protocol {
                 val state = str(obj, "state")?.takeIf { it in UPDATE_STATES } ?: return null
                 HuMessage.Update(UpdateStatus(str(obj, "version") ?: return null, str(obj, "pending") ?: "", state,
                     str(obj, "message") ?: "", num(obj, "id")?.toInt(), num(obj, "received")?.toLong()))
+            }
+            "assist_request" -> {
+                val id = num(obj, "id")?.toInt() ?: return null
+                val messages = obj["messages"] as? JsonArray ?: return null
+                if (messages.isEmpty() || messages.any { (it as? JsonObject)?.let { m -> str(m, "role") in ROLES } != true }) return null
+                HuMessage.AssistRequest(id, obj)
             }
             "update_ack" -> {
                 val id = num(obj, "id")?.toInt() ?: return null
@@ -162,6 +170,38 @@ object Protocol {
         return line(mapOf("type" to JsonPrimitive("update_chunk"), "id" to JsonPrimitive(id), "offset" to JsonPrimitive(offset),
             "data" to JsonPrimitive(java.util.Base64.getEncoder().encodeToString(data))))
     }
+
+    /** The voice assistant (caps assistant): the roles of the LLM's chat messages. */
+    val ROLES = setOf("system", "user", "assistant", "tool")
+
+    /** Whether this phone can answer for the voice assistant (an LLM, the user's key), and why not. */
+    fun assistStatus(ready: Boolean, provider: String, model: String, reason: String): String = line(mapOf(
+        "type" to JsonPrimitive("assist_status"), "ready" to JsonPrimitive(ready), "provider" to text(provider),
+        "model" to text(model), "reason" to text(reason)))
+
+    /** The LLM's message (role assistant: content, tool_calls, reasoning_content) for request [id]. */
+    fun assistReply(id: Int, message: JsonObject, finish: String, usageIn: Int?, usageOut: Int?, ms: Long): String = line(buildMap {
+        put("type", JsonPrimitive("assist_reply"))
+        put("id", JsonPrimitive(id))
+        put("ok", JsonPrimitive(true))
+        put("message", message)
+        put("finish", text(finish))
+        put("usage", JsonObject(buildMap {
+            usageIn?.let { put("in", JsonPrimitive(it)) }
+            usageOut?.let { put("out", JsonPrimitive(it)) }
+        }))
+        put("ms", JsonPrimitive(ms))
+    })
+
+    /** No answer for request [id]: code no_key | bad_key | no_credit | busy | offline | timeout | server | other. */
+    fun assistError(id: Int, code: String, error: String, ms: Long? = null): String = line(buildMap {
+        put("type", JsonPrimitive("assist_reply"))
+        put("id", JsonPrimitive(id))
+        put("ok", JsonPrimitive(false))
+        put("code", text(code))
+        put("error", text(error))
+        ms?.let { put("ms", JsonPrimitive(it)) }
+    })
 
     fun updateDone(id: Int): String = line(mapOf("type" to JsonPrimitive("update_done"), "id" to JsonPrimitive(id)))
 

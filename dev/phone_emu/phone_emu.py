@@ -11,7 +11,8 @@ Connects to hu-navd's companion link socket and speaks the companion protocol
             (VehicleSpeed from hu-vehicled when it runs, else --speed-kmh), rounded the
             way navigation apps show it. At the destination it ends the guidance and
             starts over. Reconnects when navd restarts. Like the app, it also sends a demo
-            weather and the altitude when the HU asks for them (caps in its hello).
+            weather and the altitude when the HU asks for them (caps in its hello), and answers
+            the voice assistant's questions by repeating them (an emulated LLM).
 
     python3 phone_emu.py                         # demo route, until Ctrl+C
     python3 phone_emu.py --route my_route.json --speed-kmh 80
@@ -57,6 +58,8 @@ class Phone:
         self._last_tx = 0.0
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self.answer = None          # serve_assistant(): answers the HU's assist_request
+        self.asked: list[dict] = []  # the assist_requests it got
 
     def connect(self, hello: bool = True, proto: int = cl.PROTO_VERSION, timeout: float = 3.0,
                 sock: socket.socket | None = None, caps=("guidance",)) -> dict | None:
@@ -175,7 +178,38 @@ class Phone:
             if not data:
                 self.closed_by_hu.set()
                 return
-            self.received += self.decoder.feed(data)
+            msgs = self.decoder.feed(data)
+            self.received += msgs
+            for m in msgs:
+                if m["type"] == cl.ASSIST_REQUEST:
+                    self.asked.append(m)
+                    if self.answer:
+                        threading.Thread(target=self._answer, args=(m,), daemon=True).start()
+
+    def serve_assistant(self, answer=None, ready: bool = True, model: str = "emulated", reason: str = "",
+                        delay: float = 0.2):
+        """Answer for the voice assistant as the app does with an LLM (caps assistant): assist_status,
+        then an assist_reply to each assist_request. answer(messages) -> the reply's content (str),
+        a whole assist_reply / assist_error message (dict), or None (no reply at all: a timeout).
+        Default: "You said: <the driver's last words>". delay: the LLM's time to answer (s)."""
+        self.answer = answer or echo_answer
+        self.answer_delay = delay
+        self.send(cl.assist_status(ready, "emulator", model, reason))
+
+    def _answer(self, req: dict):
+        time.sleep(self.answer_delay)
+        t0 = time.monotonic()
+        a = self.answer(req["messages"])
+        if a is None:
+            return
+        if isinstance(a, str):
+            a = cl.assist_reply(req["id"], {"role": "assistant", "content": a}, "stop", 50, len(a) // 4,
+                                round((time.monotonic() - t0 + self.answer_delay) * 1000))
+        a["id"] = req["id"]
+        try:
+            self.send(a)
+        except OSError:
+            pass
 
     def _beater(self):
         while not self._stop.wait(0.1):
@@ -184,6 +218,12 @@ class Phone:
                     self.send(cl.heartbeat())
                 except OSError:
                     return
+
+
+def echo_answer(messages: list) -> str:
+    """The emulated LLM: repeats the driver's last words."""
+    last = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+    return f"You said: {last}"
 
 
 def demo_weather(now: float | None = None) -> dict:
@@ -263,10 +303,12 @@ def play(route: dict, path: str, fallback_kmh: float):
     while True:
         phone = Phone(path, device=route.get("device", "Emulated phone"))
         try:
-            hu = phone.connect(caps=("guidance", "weather", "position"))
+            hu = phone.connect(caps=("guidance", "weather", "position", "assistant"))
             if not hu:
                 raise OSError("no hello from the HU")
             wants = set(hu.get("caps") or [])
+            if "assistant" in wants:
+                phone.serve_assistant()                   # the voice assistant: the emulated LLM echoes
             if "weather" in wants:
                 phone.send(demo_weather())
             if "position" in wants:
